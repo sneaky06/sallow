@@ -73,6 +73,14 @@
   // ---- movement ----
   function playerSpeed(p) { return BASE_SPEED * (1 + p.stats.moveSpeed / 100) * game.speedMult(p) * ctl.tm; }
 
+  // The 2:1 iso projection makes equal world speeds look unequal on screen (screen-horizontal ≈ 2× screen-vertical).
+  // Scale the player's world step so on-screen speed is the same in every direction; world-axis moves (screen diagonals) are unchanged.
+  const ISO_REF = Math.hypot(G.C.TILE_W / 2, G.C.TILE_H / 2);
+  function screenSpeedScale(dx, dy) {
+    const d = Math.hypot(dx, dy) || 1, ux = dx / d, uy = dy / d;
+    return ISO_REF / (Math.hypot((ux - uy) * G.C.TILE_W / 2, (ux + uy) * G.C.TILE_H / 2) || ISO_REF);
+  }
+
   function planPath(p, tx, ty) {
     ctl.path = W.path(p.x, p.y, tx, ty);
     ctl.pi = ctl.path && ctl.path.length > 1 && Math.hypot(ctl.path[0].x - p.x, ctl.path[0].y - p.y) < 0.75 ? 1 : 0;
@@ -92,7 +100,7 @@
     }
     const dx = gx - p.x, dy = gy - p.y, d = Math.hypot(dx, dy);
     if (d < 0.01) return true;
-    const step = Math.min(d, playerSpeed(p) * dt);
+    const step = Math.min(d, playerSpeed(p) * screenSpeedScale(dx, dy) * dt);
     p.facing = Math.atan2(dy, dx);
     const ok = W.move(p, dx / d * step, dy / d * step);
     setAnim(p, 'walk');
@@ -630,7 +638,7 @@
     if (stick) {                                   // joystick overrides tap-to-move and any walk-to intent
       ctl.intent = null; ctl.path = null;
       if (ctl.lock <= 0) {
-        const k = playerSpeed(p) * dt * Math.min(1, mag) / mag;
+        const k = playerSpeed(p) * screenSpeedScale(mv.x, mv.y) * dt * Math.min(1, mag) / mag;
         W.move(p, mv.x * k, mv.y * k);
         p.facing = Math.atan2(mv.y, mv.x);
         setAnim(p, 'walk');
