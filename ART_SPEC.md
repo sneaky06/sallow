@@ -145,6 +145,84 @@ Draw the weapon into the sprite. If a sheet is listed, the game uses it exactly 
 | `boss_inferno.png` | Azgalor — towering horned demon wreathed in fire |
 | `boss_abyss.png` | Xal'thuun — mass of tendrils and eyes |
 
+## 2b. Gear worn by the player — `assets/gear/<family>_<slot>.png`
+
+Files: `assets/gear/<family>_<slot>.png` (slot = weapon, offhand, helm, chest, gloves, boots; family = the
+item's `look.family`, e.g. `gear/rusted_mail_chest.png`). Listed in `assets/assets.js` like every other file.
+- They are worn by a **base body**: `assets/sprites/<classId>_base.png` (e.g. `warrior_base.png`), or one shared
+  `assets/sprites/player_base.png`. The base is a normal character sheet (640 × 80, same grid, anchor x 20 / y 34, same 16
+  columns and 2 rows as section 2) drawn in plain underclothes, **no weapon, no armour**. Draw every class base on the same
+  body template (same height, same poses frame by frame) so one overlay fits every class.
+- **Overlay sheet: 640 × 80 px**, exactly the base sheet's grid: 16 columns × 2 rows of 40 × 40 cells, feet anchor
+  x 20 / y 34, row 0 front-right, row 1 back-right, columns as in section 2 (idle 0–1, walk 2–5, attack 6–8, cast 9–11,
+  hit 12, die 13–15). Draw only the piece itself, on transparent pixels, sitting exactly where it covers the base body in
+  that frame. Include the piece's own 1 px dark outline. No ground shadow.
+- **Draw order** (the game composes it): front-facing rows: base → boots → chest → gloves → helm → offhand → weapon.
+  Back-facing rows: offhand → weapon → base → boots → chest → gloves → helm (held items go behind the body when you see
+  the back). So a weapon overlay only needs the weapon and the hand gripping it; a helm only the helm.
+- Empty frames reuse that sheet's frame 0 of the same row; an empty back row reuses the front row (same as characters).
+- Without a base sheet, overlays are not used: the procedural figure shows procedural gear, and a hand-drawn full class
+  sheet (`sprites/<classId>.png`) is shown as drawn with no gear. Slots whose family has no overlay show nothing on a
+  hand-drawn base, so draw a family's pieces together.
+- Big bodies (80 px cells) are not supported for the player.
+
+The list of look families (and what each should look like) is in `docs/handover/items-team-handover.md`.
+
+
+### Look families to draw
+
+Each family is one outfit: draw its helm, chest, gloves and boots together; weapon and off-hand families are their own lines. Band is how deep it starts dropping (0 early, 1 mid, 2 deep; -1 = only on a specific unique or set).
+
+| File prefix | Kind | Band | Name | Look |
+|---|---|---|---|---|
+| `rusted_mail` | heavy | 0 | Rusted Mail | Pitted ring-mail with rust blooming at every joint; a dented kettle helm. |
+| `gravewarden` | heavy | 0 | Gravewarden | Tarnished bronze scales gone green, a crypt-guard tabard, a grilled visor. |
+| `tallow_iron` | heavy | 0 | Tallow-Iron | Emberfall militia plate, wax-stained from the candle vigils; a stub of candle on the helm. |
+| `ash_plate` | heavy | 1 | Ash Plate | Soot-black plate with ember-orange seams that glow faintly when struck. |
+| `bellfounder` | heavy | 1 | Bellfounder's | Thick cast bronze ridged like a church bell; the helm is a bell with a slit. |
+| `chainpriest` | heavy | 1 | Chainpriest | Iron plates hung on chains over red penitent cloth; padlocks for buckles. |
+| `pallbearer` | heavy | 2 | Pallbearer | Bleached white enamel over black iron, coffin-nail rivets, a mourning veil under the helm. |
+| `cinder_king` | heavy | 2 | Cinderking | Charred plate split by molten-gold seams; a crown of cooling slag. |
+| `abyss_carapace` | heavy | 2 | Abyss Carapace | Overlapping chitin plates with a violet oil-sheen; a mandibled helm. |
+| `grave_wrap` | light | 0 | Grave Wraps | Burial linen bound tight with leather thongs, mud to the knee. |
+| `ratcatcher` | light | 0 | Ratcatcher | Patched leathers, a belt of tails, a wide-brimmed hood. |
+| `mosshide` | light | 0 | Mosshide | Damp hide grown over with cave moss; it smells of wet stone. |
+| `hollowmoth` | light | 1 | Hollowmoth | Dust-grey leathers with a moth-wing capelet that sheds powder when you run. |
+| `cinderfox` | light | 1 | Cinderfox | Rust-red fox fur over scorched leather; a fox-mask hood. |
+| `nightjar` | light | 1 | Nightjar | Midnight-blue leather fletched with dark feathers; silent at the seams. |
+| `sallowskin` | light | 2 | Sallowskin | Pale yellowed hide from something that lived without sun. It is still slightly warm. |
+| `wyrmscale` | light | 2 | Wyrmscale | Oily green-black scales stitched with sinew; a frilled hood. |
+| `veilrunner` | light | 2 | Veilrunner | Grey gauze over fitted leather, half-transparent at the edges, like smoke. |
+| `candlewick` | cloth | 0 | Candlewick | Wax-white vestments, soot at the hem, wick-cord at the cuffs. |
+| `penitent` | cloth | 0 | Penitent | Hessian sackcloth, knotted rope belt, a hood pulled low. |
+| `ossuary` | cloth | 0 | Ossuary Linen | Grey linen strung with knucklebone beads; a skull-cap under the cowl. |
+| `ashen_choir` | cloth | 1 | Ashen Choir | Ash-grey choir robes with blood-red stoles and a high collar. |
+| `starless` | cloth | 1 | Starless Silk | Deep navy silk embroidered with silver constellations that do not exist. |
+| `rookmask` | cloth | 1 | Rookmask | Black waxed cloth, a beaked plague cowl, brass spectacles. |
+| `pale_court` | cloth | 2 | Pale Court | Ivory court robes trimmed in gold, a tall collar, a face-veil of pearls. |
+| `voidweave` | cloth | 2 | Voidweave | Black-violet cloth that seems to fold inward; pinpricks of light drift across it. |
+| `emberhymn` | cloth | 2 | Emberhymn | Crimson vestments stitched with gold flame-hymns; the hem smoulders. |
+| `pitted_iron` | weapon | 0 | Pitted Iron | Old iron with a pitted face and a leather-wrapped grip. |
+| `bonecarved` | weapon | 0 | Bonecarved | Grips, hafts and guards carved from yellowed bone. |
+| `hearthwood` | weapon | 0 | Hearthwood | Dark oak scorched by the hearth, banded with copper. |
+| `blackiron` | weapon | 1 | Blackiron | Blued black iron with bright-ground edges. |
+| `gravesilver` | weapon | 1 | Gravesilver | Tarnished silver etched with funeral prayers. |
+| `emberforged` | weapon | 1 | Emberforged | Quenched in the Emberfall forge; the fuller still glows. |
+| `pallid` | weapon | 2 | Pallid | Bleached to the colour of old teeth. It drinks the light around it. |
+| `abyssal` | weapon | 2 | Abyssal | Something grown, not forged: ridged, violet-black, faintly breathing. |
+| `starfallen` | weapon | 2 | Starfallen | Meteoric metal, cold to the touch, flecked with light. |
+| `juggernaut` | unique | -1 | Juggernaut | A walking wall: slab plate, a furnace-grille visor. |
+| `shadowstep` | unique | -1 | Shadowstep | Leather that blurs at the edges like a shadow cast twice. |
+| `pale_king` | unique | -1 | Pale King | Grave-clothes of a twice-buried king, frost-white and violet. |
+| `archmagi` | unique | -1 | Archmagi | A tall gold crown-cowl with seven blue stones, one cracked. |
+| `lich_emperor` | unique | -1 | Lich Emperor | A bone crown fused to a hood; red light where eyes should be. |
+| `cinderlord` | unique | -1 | Cinderlord | A mantle of living embers over a charred robe. |
+| `rimewalkers` | unique | -1 | Rimewalkers | Boots rimed in frost that never melts; ice crystals trail behind. |
+| `ironbound` | set | -1 | Ironbound | Riveted iron bands over grey steel, green oath-ribbons. |
+| `nightstalker` | set | -1 | Nightstalker | Dark violet leathers, a hunting mask, green glass eyes. |
+| `cinderweave` | set | -1 | Cinderweave | Orange-red robes woven with cinder thread. |
+| `gravecaller` | set | -1 | Gravecaller | Moss-green shroud, a skull-cap, grave-dirt to the elbow. |
+
 ## 3. Props — `assets/props/<type>.png`
 
 - **Cell size: 48 × 64 px.** The centre of the floor tile the prop stands on is at **x = 24, y = 56**; the tile's diamond spans x = 8…39, y = 48…63. A prop may overhang its tile upward and sideways.
