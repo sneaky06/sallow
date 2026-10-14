@@ -614,3 +614,27 @@ confirm showing count and gold; a lock toggle in the tooltip and a small lock ma
   collapsed bridge…) give floors landmarks.
 - **Engine:** render `map.variant` (palette shift, light colour/radius, fog density, ambient particles, sound bed). Keep it cheap.
 - **UI:** show the floor name on arrival and under the depth label.
+
+---
+
+# Revision 6 — queued (approved by the lead dev, 2026-10-14; not yet assigned)
+
+## R6.1 "Go deeper?" prompt
+Once Pallor is unlocked, taking the stairs down asks "Go deeper?" and shows the current Pallor tier, what the next tier adds
+(from `G.game.getPallor()` plus a new `G.game.previewPallor(nextValue)`), and the reward boost. Two big buttons: Descend /
+Stay. A "don't ask again this run" tick. Game owns the data, UI owns the prompt.
+
+## R6.2 Your Echo — fighting yourself
+- When a corpse is abandoned (any death while `state.flags.corpse` exists, see R2.4), it is not simply lost: next time the
+  player enters that depth, the corpse rises as **the Echo** — a hostile copy of the player at the moment of death: same class,
+  sprite and visible gear (ghostly tint), stats scaled from the player's (life about 2.5×, damage about 0.8×), name
+  "Echo of <name>".
+- **It fights like the player.** The game keeps a rolling tally of how the player actually spends combat time
+  (`player.style = { [skillId|'attack'|'dash'|'potion']: uses }`, decayed over time so it tracks the current build). The Echo picks
+  its actions with the same proportions: if the player opens with Leap and spams Whirlwind 60% of the time, so does the Echo. It
+  uses the player's skill ranks and synergies, dashes if the player dashes, and drinks a limited number of potions at the
+  player's usual threshold.
+- Killing it returns the abandoned gold and backpack items (the corpse contents), plus a guaranteed rare-or-better drop. Dying to
+  it does not create a new Echo on top (one Echo at a time). Boss-floor/lockdown deaths still create no corpse and no Echo.
+- Engine: ghostly rendering of the player sheet + gear (desaturated, slight transparency, trailing after-images). UI: boss-style
+  bar "Echo of <name>" and a banner on first sight.
