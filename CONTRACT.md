@@ -638,3 +638,34 @@ Stay. A "don't ask again this run" tick. Game owns the data, UI owns the prompt.
   it does not create a new Echo on top (one Echo at a time). Boss-floor/lockdown deaths still create no corpse and no Echo.
 - Engine: ghostly rendering of the player sheet + gear (desaturated, slight transparency, trailing after-images). UI: boss-style
   bar "Echo of <name>" and a banner on first sight.
+
+## R6.3 Every class dashes; movement feels faster
+- Raise base movement speed (the lead dev finds every class sluggish) — try about +20% and tune by feel; keep monster
+  speeds in proportion so the game doesn't get easier.
+- Every class gets the class action (`getClassAction`, `input:classaction`): a dash with brief invulnerability. Squishier
+  classes get more: Ranger and Sorcerer 2 charges, Necromancer 2, Warrior 1 charge but a shoulder-charge that knocks back.
+  Each class gets dash-augmenting skills/passives in its trees (e.g. Sorcerer: Blink Dash leaves a frost trail; Ranger: dash
+  reloads a free Multishot; Necromancer: dash swaps places with a minion; Warrior: dash ends in a ground slam). Make the dash
+  button show charges. Auto-build should take one dash augment per class.
+
+## R6.4 Graphics and sound overhaul — toward Diablo II, away from 8-bit
+Direction from the lead dev: less 8-bit, more nostalgic Diablo II — higher resolution, painterly shading, 8 facing directions,
+heavier atmosphere. The lead dev will draw the art (on iPad) and source/produce sound.
+- **Engine** designs and builds the new pipeline: roughly double internal resolution, 64×32 floor tiles, larger character cells
+  (proposal: 96×96, human ~60 px tall), 8 directions (5 drawn + 3 mirrored), D2-style smooth coloured lighting with soft
+  shadows, and an audio-file loader (`assets/sound/*.mp3`) that overrides the synthesized sounds the same way PNGs override
+  procedural art. Procedural art stays as the fallback, scaled to the new resolution. Keep 60 fps on old phones.
+- **Engine also generates the complete art and sound list from the code** (every sprite key, monster, NPC, class, gear
+  family × slot, prop, tile × theme × variant, icon, projectile, effect, portrait, UI element and every sound name), with
+  file name, size, frame layout and a one-line description, written to `ART_LIST.md` / `SOUND_LIST.md` and kept in sync by a
+  harness page so nothing is ever missing. ART_SPEC.md is rewritten for the new format.
+- Item and equipment names will be renamed later by the lead dev to fit the story; keep names in data tables, never in logic.
+
+## R6.5 Campaign: the corrupted rift
+The town's heat source is a deep rift (today "the well") that used to warm Emberfall and has turned corrupt. The deeper you go,
+the more corrupted everything is. The campaign is about cleansing the rift, delving deeper and deeper to uproot the source,
+ending in a final boss at its core.
+- **Every team: build on this and pitch how it changes your area** — story beats and the core's nature (UI/meta), how
+  corruption shows in layouts, tiles, light and sound as depth increases (world + engine), corrupted monster variants,
+  mid-bosses and the final boss fight (combat), corrupted/cleansed items and how cleansing could be a loot mechanic (loot).
+  How Pallor ties in (is Pallor the rift's corruption seeping into you?). Pitch first in the report; build what is cheap.
