@@ -1,1 +1,1 @@
-G.manifest.ui = ['style.js', 'core.js', 'meta.js', 'quests.js', 'story.js', 'hud.js', 'title.js', 'inventory.js', 'skills.js', 'npc.js', 'menus.js', 'pwa.js'];
+G.manifest.ui = ['style.js', 'core.js', 'meta.js', 'quests.js', 'story.js', 'hud.js', 'hudedit.js', 'title.js', 'inventory.js', 'skills.js', 'npc.js', 'menus.js', 'pile.js', 'pwa.js'];

@@ -20,6 +20,7 @@
 
   game.heal = function (ent, amount, show) {
     if (!ent || ent.dead || !(amount > 0)) return 0;
+    if (ent.type === 'player' && ent.effects.length && game.getEffect(ent, 'bleach')) amount *= 0.5;      // Pallid hits halve healing
     const before = ent.hp;
     ent.hp = Math.min(ent.stats.hpMax, ent.hp + amount);
     const got = ent.hp - before;
@@ -59,6 +60,7 @@
     for (let i = 0; i < fx.length; i++) if (fx[i].taken) total *= Math.max(0.1, 1 + fx[i].taken / 100);
     if (isPlayer && t.bonus && t.bonus.dr) total *= 1 - t.bonus.dr / 100;
     if (t.rarity === 'boss' && src && src.summon) total *= 0.5;          // minions alone cannot carry a boss fight (R4.3)
+    else if (t.summon && src && src.rarity === 'boss') total *= 2.5;     // ...nor wall one off: bosses tear through summons
     let blocked = false;
     if (o.canBlock && st.block > 0 && U.chance(st.block)) { blocked = true; total *= 0.3; }
     if (isPlayer) {
@@ -68,11 +70,17 @@
         t.mp -= use; total -= use;
       }
     }
+    let absorbed = false;
     for (let i = 0; i < fx.length; i++) {
       if (fx[i].absorb > 0 && total > 0) {
         const use = Math.min(fx[i].absorb, total);
-        fx[i].absorb -= use; total -= use;
+        fx[i].absorb -= use; total -= use; absorbed = true;
       }
+    }
+    if (absorbed && total < 0.5) {          // fully soaked by a ward / bone armour: no minimum-damage chip
+      if (!o.dot) U.text(t.x, t.y - 0.7 - (t.radius || 0.3), 'Absorbed', '#d8f4ff');
+      if (!isPlayer && game.onMonsterHurt) game.onMonsterHurt(t, src);
+      return 0;
     }
     if (o.dot) {
       const whole = Math.floor(total);
@@ -115,6 +123,10 @@
         for (let i = 0; i < foes.length; i++) if (!foes[i].dead && Math.hypot(foes[i].x - t.x, foes[i].y - t.y) < 5) game.applyStatus(foes[i], 'stun', 2.5);
         U.fx('nova', t.x, t.y, { radius: 5, color: '#ffffff' }); U.fx('heal', t.x, t.y, {}); U.sfx('shrine'); U.shake(5, 0.3);
         U.text(t.x, t.y - 1.2, 'SECOND WIND', '#ffffff', true);
+        return total;
+      }
+      if (!isPlayer && t.faction === 'enemy' && game.pactHolds && game.pactHolds(t)) {      // deep modifier Undying Pact
+        t.hp = 1;
         return total;
       }
       t.hp = 0;
@@ -208,7 +220,7 @@
       game.kill(t, p);
     }
     if (myth.chain_spark && !spec.noProc && U.chance(25)) chainSpark(p, t, dealt);
-    let heal = dealt * (st.lifeSteal / 100) + (spec.heal ? dealt * spec.heal * (t.rarity === 'boss' ? 0.4 : 1) : 0);      // drain skills are weaker on bosses
+    let heal = dealt * (st.lifeSteal / 100) + (spec.heal ? dealt * spec.heal * (t.rarity === 'boss' ? 0.2 : 1) : 0);      // drain skills are much weaker on bosses
     if (heal > 0) game.heal(p, Math.min(heal, st.hpMax * 0.15), !!spec.heal);
     if (st.manaSteal > 0) p.mp = Math.min(st.mpMax, p.mp + dealt * st.manaSteal / 100);
     return dealt;
@@ -283,6 +295,8 @@
             if (t.type === 'player' && game.onPlayerMoved) game.onPlayerMoved(true);
           }
           break;
+        default:
+          if (game.DEEP_ONHIT && game.DEEP_ONHIT[af[i]]) game.DEEP_ONHIT[af[i]](e, t, dealt);
       }
     }
   };
@@ -336,6 +350,7 @@
       }
       U.text(t.x, t.y - 1.2, 'SPLITS!', '#ffb347', true);
     }
+    if (game.onDeepKill) game.onDeepKill(t);          // Gravewalker / Restless Dead leave a wisp that rises again
     if (!p) return;
     const fr = game.floorReward();
     if (game.fxOf(p).corpse_blast) {          // mythic: the dead detonate (and can chain)
@@ -352,7 +367,7 @@
     if (!t.noLoot && G.items && G.items.dropLoot) {
       try {
         G.items.dropLoot(t.x, t.y, { source: t.rarity === 'normal' ? 'monster' : t.rarity, level: t.level,
-          magicFind: (p.stats.magicFind || 0) + fr.magicFind, goldFind: (p.stats.goldFind || 0) + fr.goldFind });
+          magicFind: (p.stats.magicFind || 0) + fr.magicFind, goldFind: (p.stats.goldFind || 0) + fr.goldFind, pallor: game.pallorValue ? game.pallorValue() : 0 });
       } catch (err) { console.error('[game] dropLoot failed', err); }
     }
     G.emit('monster:killed', { monster: t, x: t.x, y: t.y });
@@ -512,15 +527,24 @@
     }
   }
 
+  // Is the player standing in an enemy zone's blast radius (same test as zoneBlast)?
+  function playerIn(z) {
+    const p = G.state.player;
+    return !!p && !p.dead && Math.hypot(p.x - z.x, p.y - z.y) <= z.r + p.radius * 0.5;
+  }
+
   game.updateZones = function (dt) {
     const zs = game.zones;
     for (let i = zs.length - 1; i >= 0; i--) {
       const z = zs[i];
       if (z.delay > 0) {
         z.delay -= dt;
+        if (z.faction === 'enemy' && !z.every && z.delay < 0.6 && playerIn(z)) z.near = 1;      // was in the circle near the end
         if (z.delay > 0) continue;
         if (!z.every && !z.trap) {
+          const close = z.near && z.faction === 'enemy' && !playerIn(z);
           zoneBlast(z);
+          if (close && game.closeCall) game.closeCall(z);          // stepped out at the last moment
           if (z.linger) {          // leaves a damaging pool behind
             z.every = z.linger.every; z.t = z.linger.t; z.acc = 0; z.dmg = z.lingerDmg; z.fx = z.lingerFx || 'poison'; z.linger = null;
             U.fx('ring', z.x, z.y, { radius: z.r, color: z.color, duration: z.t });
@@ -532,11 +556,16 @@
       if (z.trap) {
         z.pulse -= dt;
         if (z.pulse <= 0) { z.pulse = 1; U.fx('ring', z.x, z.y, { radius: 0.5, color: z.color, duration: 0.9 }); }
-        const foes = game.live.foes;
+        const foes = targetsFor(z.faction);          // player traps catch monsters; enemy glyphs (deep floors) catch the player and minions
         let sprung = false;
         for (let k = 0; k < foes.length; k++) {
           const e = foes[k];
           if (!e.dead && Math.hypot(e.x - z.x, e.y - z.y) < 1.1 + e.radius) { sprung = true; break; }
+        }
+        if (sprung && z.glyph) {          // deep-floor glyph: flares, then bursts a moment later
+          z.trap = false; z.delay = 0.75; z.t = 0;
+          U.fx('ring', z.x, z.y, { radius: z.r, color: z.color, duration: 0.75 }); U.sfx('cast');
+          continue;
         }
         if (sprung) { U.sfx('hit'); zoneBlast(z); zs.splice(i, 1); continue; }
       } else if (z.every) {

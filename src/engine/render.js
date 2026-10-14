@@ -78,6 +78,7 @@
   E.update = function (dt) {
     if (!(dt > 0)) dt = 0;
     V.time += dt;
+    V.dt = dt;
     const S = G.state, map = S.map;
     if (map !== V.lastMap) { V.lastMap = map; V.snap = true; V.info = null; V.mapT = V.time; }
     if (glint.t > 0) glint.t -= dt;
@@ -86,6 +87,8 @@
     else { const k = 1 - Math.exp(-dt * 12); V.camX += (tgt.x - V.camX) * k; V.camY += (tgt.y - V.camY) * k; }
     computeOffsets();
     U.fx.update(dt);
+    U.audio.setBed(map && S.scene !== 'menu' ? U.variant.get(map).sound : 'none', pal.tier);
+    U.audio.tick();
     if (!map || S.scene === 'menu') return;
 
     // projectile trails
@@ -203,7 +206,7 @@
   const lights = [], bars = [], labels = [], beams = [], marks = [];
   let nLights = 0, nBars = 0, nLabels = 0, nBeams = 0, nMarks = 0;
   const seen = new Map();          // ground item id → time first drawn (drop hop)
-  const fr = { ox: 0, oy: 0, W: 0, H: 0, psx: 0, psy: 0, pd: 0, hasP: false, filter: 0 };
+  const fr = { torch: null, torchR: 1, flick: 1, ox: 0, oy: 0, W: 0, H: 0, psx: 0, psy: 0, pd: 0, hasP: false, filter: 0 };
 
   function pushItem(kind, ref, x, y, bias, lit) {
     const sx = (x - y) * HW - fr.ox, sy = (x + y) * HH - fr.oy;
@@ -238,7 +241,7 @@
 
   function drawEntity(ctx, it) {
     const e = it.ref, sx = it.sx, sy = it.sy;
-    const sh = (U.assets && U.assets.spriteFor(e)) || U.sprites.get(e.sprite);
+    const sh = (e === G.state.player && U.gear.sheetFor(e)) || (U.assets && U.assets.spriteFor(e)) || U.sprites.get(e.sprite);
     const dead = !!e.dead || e.anim === 'die';
     const t = typeof e.animT === 'number' && isFinite(e.animT) ? e.animT : V.time;
     const col = dead ? (e.anim === 'die' ? U.sprites.column('die', t) : 15) : U.sprites.column(e.anim, t + (e.anim === 'idle' || !e.anim ? (e.id || 0) * 0.37 : 0));
@@ -275,45 +278,83 @@
     }
   }
 
+  // ---- loot piles (R5.6): ground items sharing a pileId are drawn as one heap
+  const pileMap = new Map(), pilePool = [];
+  let nPiles = 0;
+  function lootRank(g) {
+    const item = g && g.item;
+    if (!item) return -10;
+    if (item.type === 'gold') return -5;
+    const r = C.RARITY[item.rarity];
+    return (r ? r.order * 4 : 0) + (item.type === 'consumable' || item.type === 'material' ? 0 : 1);
+  }
+  function iconOf(item, rar, gold) {
+    return E.getIcon(item.icon || { shape: gold ? 'gold' : 'fallback', color: gold ? '#ffd94a' : rar.color }, 16);
+  }
+  const badges = [], reicons = [];
+  let nBadges = 0, nReicons = 0;
+
   function drawGroundItem(ctx, it) {
-    const g = it.ref, item = g.item || {}, sx = it.sx, sy = it.sy;
+    const pile = it.kind === 4 ? it.ref : null;
+    const g = pile ? pile.a : it.ref, item = g.item || {}, sx = it.sx, sy = it.sy;
     let born = seen.get(g.id);
     if (born === undefined) { if (seen.size > 500) seen.clear(); seen.set(g.id, (born = V.time)); }
-    const age = V.time - born, hop = age < 0.4 ? Math.round(Math.sin(age / 0.4 * Math.PI) * 9) : 0;
+    const age = V.time - born, hop = age >= 0 && age < 0.4 ? Math.round(Math.sin(age / 0.4 * Math.PI) * 9) : 0;
     const rar = C.RARITY[item.rarity] || C.RARITY.common, gold = item.type === 'gold';
-    const idesc = item.icon || { shape: gold ? 'gold' : 'fallback', color: gold ? '#ffd94a' : rar.color };
-    const isz = 16, icon = E.getIcon(idesc, isz);
-    const s = U.shadow(12);
-    ctx.drawImage(s, sx - 6, sy - 3);
-    ctx.drawImage(icon, sx - (isz >> 1), sy - isz + 3 - hop);
+    const isz = 16, icon = iconOf(item, rar, gold);
+    let lift = 0;
+    if (pile) {                                           // the heap: two lesser items peeking out under the best one
+      lift = 3;
+      const s = U.shadow(22);
+      ctx.drawImage(s, sx - 11, sy - 5);
+      if (pile.c) { const ci = pile.c.item || {}; ctx.drawImage(iconOf(ci, C.RARITY[ci.rarity] || C.RARITY.common, ci.type === 'gold'), sx - 1, sy - 13); }
+      if (pile.b) { const bi = pile.b.item || {}; ctx.drawImage(iconOf(bi, C.RARITY[bi.rarity] || C.RARITY.common, bi.type === 'gold'), sx - 14, sy - 12); }
+      if (nBadges < 24) {
+        let bd = badges[nBadges];
+        if (!bd) bd = badges[nBadges] = { x: 0, y: 0, img: null };
+        nBadges++;
+        bd.img = U.text(String(Math.min(99, pile.n)), '#ffffff'); bd.x = sx + 5; bd.y = sy - 19 - hop;
+      }
+    } else {
+      const s = U.shadow(12);
+      ctx.drawImage(s, sx - 6, sy - 3);
+    }
+    ctx.drawImage(icon, sx - (isz >> 1), sy - isz + 3 - hop - lift);
     const glow = rar.order >= 2 ? (rar.tier === 'legendary' ? (item.rarity === 'mythic' ? 3 : 2) : 1) : 0;
     if (glow === 0 && gold) {                      // gold glints
       const ph = (V.time * 1.1 + (g.id || 0) * 0.37) % 1;
       if (ph < 0.16) { const gx = sx - 3 + ((g.id || 0) % 5), gy = sy - 9 - hop; ctx.fillStyle = '#ffffff'; ctx.fillRect(gx - (ph < 0.08 ? 2 : 1), gy, ph < 0.08 ? 5 : 3, 1); ctx.fillRect(gx, gy - (ph < 0.08 ? 2 : 1), 1, ph < 0.08 ? 5 : 3); }
     }
-    if (glow && age === 0 && glow >= 2 && V.time - V.mapT > 1) { glint.t = 0.7; glint.c = rar.color; }
+    if (!glow && nReicons < 48) {              // under Pallor the plain loot icons are redrawn in colour
+      let ri = reicons[nReicons];
+      if (!ri) ri = reicons[nReicons] = { x: 0, y: 0, img: null };
+      nReicons++;
+      ri.img = icon; ri.x = sx - (isz >> 1); ri.y = sy - isz + 3 - hop - lift;
+    }
     if (glow && nBeams < 60) {
       let b = beams[nBeams];
       if (!b) b = beams[nBeams] = { x: 0, y: 0, c: '', o: 0 };
       nBeams++;
-      b.x = sx; b.y = sy; b.c = rar.color; b.o = glow; b.icon = icon; b.hop = hop; b.id = g.id || 0;
+      b.x = sx; b.y = sy; b.c = rar.color; b.o = glow; b.icon = icon; b.hop = hop + lift; b.id = g.id || 0;
     }
     if ((gold || rar.order >= fr.filter) && nLabels < 32) {
       let name = gold ? ((item.qty | 0) + ' GOLD') : String(item.name || '?');
-      if (name.length > 24) name = name.slice(0, 23) + '.';
+      const max = pile ? 20 : 24;
+      if (name.length > max) name = name.slice(0, max - 1) + '.';
       if (!gold && item.qty > 1) name += ' X' + item.qty;
+      if (pile) name += ' +' + (pile.n - 1);
       const img = U.text(name, gold ? '#ffd94a' : rar.color);
       let l = labels[nLabels];
       if (!l) l = labels[nLabels] = { x: 0, y: 0, w: 0, img: null };
       nLabels++;
-      l.img = img; l.w = img.width; l.x = sx - (img.width >> 1); l.y = sy - 27 - hop;
+      l.img = img; l.w = img.width; l.x = sx - (img.width >> 1); l.y = sy - 27 - hop - lift;
     }
   }
 
   function drawItem(ctx, it) {
     const sx = it.sx, sy = it.sy;
     if (it.kind === 2) { drawEntity(ctx, it); return; }
-    if (it.kind === 1) { drawGroundItem(ctx, it); return; }
+    if (it.kind === 1 || it.kind === 4) { drawGroundItem(ctx, it); return; }
     if (it.kind === 0) {
       const pr = it.ref;
       const P = U.props.get(pr.type === 'shrine' && pr.used ? 'shrine_used' : pr.type);
@@ -323,8 +364,9 @@
       if (it.lit && !pr.used) {
         const r = pr.light > 0 ? pr.light : (P.light ? P.light[0] : 0);
         if (r > 0) {
-          const key = P.light ? P.light[1] : 'warm';
-          addLight(sx, sy - 12, key === 'warm' ? r * (0.9 + 0.08 * Math.sin(V.time * 11 + pr.x * 5 + pr.y * 3) + 0.06 * Math.sin(V.time * 23.7 + pr.x)) : r, key);
+          const key = P.light ? P.light[1] : 'warm', warm = key === 'warm';
+          // torches follow the floor variant: colour, reach and how hard they flicker
+          addLight(sx, sy - 12, warm ? r * fr.torchR * (0.9 + fr.flick * (0.08 * Math.sin(V.time * 11 + pr.x * 5 + pr.y * 3) + 0.06 * Math.sin(V.time * 23.7 + pr.x))) : r, warm && fr.torch ? fr.torch : key);
         }
       }
       return;
@@ -340,26 +382,104 @@
     if (p.shape !== 'arrow') addLight(sx, sy - 12, 1.8, U.lightKeyFor(U.projectileColor(p.shape, p.color)));
   }
 
+  // Loot spill (engine pitch): a new drop bursts out of the pile point and gathers back into it, so every item of a
+  // kill gets its own beat on screen before it settles into the heap. Cosmetic only; a fixed pool, nothing allocated.
+  const SPN = 24, spills = [];
+  for (let i = 0; i < SPN; i++) spills.push({ on: false, x: 0, y: 0, t0: 0, dx: 0, dy: 0, h: 0, icon: null, c: null });
+  let spHead = 0, spFrame = -1, spK = 0;
+  function spill(g) {
+    if (V.time - V.mapT < 1) return V.time;                   // not for loot already lying there when a floor loads
+    const item = g.item || {}, rar = C.RARITY[item.rarity] || C.RARITY.common;
+    if (spFrame !== V.time) { spFrame = V.time; spK = 0; }
+    const s = spills[spHead]; spHead = (spHead + 1) % SPN;
+    const a = Math.random() * 6.283, d = 9 + Math.random() * 9;
+    s.on = true; s.x = g.x; s.y = g.y; s.t0 = V.time + spK++ * 0.05; s.dx = Math.cos(a) * d; s.dy = Math.sin(a) * d * 0.5;
+    if (rar.tier === 'legendary') { glint.t = 0.7; glint.c = rar.color; }  // brief screen-edge flash
+    s.h = 16 + Math.random() * 10; s.icon = iconOf(item, rar, item.type === 'gold'); s.c = rar.order >= 2 ? rar.color : null;
+    return s.t0 + 0.5;                                        // the heap hops when this one lands
+  }
+  function drawSpills(ctx, ox, oy) {
+    for (let i = 0; i < SPN; i++) {
+      const s = spills[i];
+      if (!s.on) continue;
+      const k = (V.time - s.t0) / 0.5;
+      if (k < 0) continue;
+      if (k >= 1) { s.on = false; if (s.c) U.fx.burst(s.x, s.y, SPILL_SPARK(s.c)); continue; }
+      const out = Math.sin(k * Math.PI), sx = (s.x - s.y) * HW - ox + s.dx * out, sy = (s.x + s.y) * HH - oy + s.dy * out - s.h * Math.sin(Math.min(1, k * 1.15) * Math.PI);
+      ctx.drawImage(s.icon, Math.round(sx) - 8, Math.round(sy) - 13);
+      if (s.c) { ctx.fillStyle = s.c; ctx.fillRect(Math.round(sx), Math.round(sy) - 4, 1, 1); }
+    }
+  }
+  const spark = { n: 5, sp: [0.4, 1.2], vz: [20, 45], life: [0.2, 0.4], size: 1, cols: ['#ffffff', '#ffffff'], grav: 160, z: 2 };
+  function SPILL_SPARK(c) { spark.cols[1] = c; return spark; }
+
   // Per-theme drifting motes (mist wisps, ash, embers, spores). Deterministic from time: no state, no allocation.
-  const MOTES = 30, moteSeed = new Float32Array(MOTES * 3);
+  // Variants add drip, snow, motes (glowing, blinking) and void (dark specks rising); density 0..2 scales the count.
+  const MOTES = 60, moteSeed = new Float32Array(MOTES * 3);
   for (let i = 0; i < MOTES * 3; i++) moteSeed[i] = U.hash(i, 9, 91);
-  function drawAtmosphere(ctx, mist, W, H, ox, oy) {
-    if (!mist) return;
-    const t = V.time, kind = mist[1];
-    ctx.fillStyle = mist[0];
-    for (let i = 0; i < MOTES; i++) {
+  function drawAtmosphere(ctx, VR, W, H, ox, oy) {
+    const kind = VR.kind;
+    if (!VR.mist || kind === 'none') return;
+    const t = V.time, n = Math.min(MOTES, Math.round(30 * VR.density));
+    ctx.fillStyle = VR.mist;
+    if (kind === 'motes') ctx.globalCompositeOperation = 'lighter';
+    for (let i = 0; i < n; i++) {
       const a = moteSeed[i * 3], b = moteSeed[i * 3 + 1], c = moteSeed[i * 3 + 2];
       // anchored to the world (parallax 1) so they don't slide with the camera; wrapped to the screen
       let x, y, w = 1, h = 1;
       if (kind === 'mist') { x = a * W + t * (3 + b * 5); y = b * H + Math.sin(t * 0.3 + i) * 6; w = 8 + ((c * 14) | 0); ctx.globalAlpha = 0.03 + c * 0.04; }
       else if (kind === 'ash') { x = a * W + Math.sin(t * 0.6 + i) * 8 + t * 2; y = b * H + t * (5 + c * 7); ctx.globalAlpha = 0.25 + c * 0.3; }
       else if (kind === 'ember') { x = a * W + Math.sin(t * 1.1 + i) * 6; y = b * H - t * (8 + c * 14); ctx.globalAlpha = 0.35 + 0.4 * Math.abs(Math.sin(t * 2 + i)); }
+      else if (kind === 'drip') { x = a * W; y = b * H * 3 + t * (70 + c * 50); h = 2; ctx.globalAlpha = 0.25 + c * 0.25; }
+      else if (kind === 'snow') { x = a * W + Math.sin(t * 0.7 + i) * 7 + t * 1.5; y = b * H + t * (6 + c * 6); ctx.globalAlpha = 0.3 + c * 0.35; }
+      else if (kind === 'motes') { x = a * W + Math.sin(t * 0.5 + i * 3) * 14; y = b * H + Math.cos(t * 0.4 + i) * 10; ctx.globalAlpha = Math.max(0, Math.sin(t * (0.8 + c) + i * 1.7)) * 0.8; }
+      else if (kind === 'void') { x = a * W + Math.sin(t * 0.3 + i) * 5; y = b * H - t * (3 + c * 4); w = h = c > 0.6 ? 2 : 1; ctx.globalAlpha = 0.55 + c * 0.35; }
       else { x = a * W + Math.sin(t * 0.4 + i * 2) * 10; y = b * H + Math.cos(t * 0.3 + i) * 8 - t * 1.5; ctx.globalAlpha = 0.15 + 0.3 * Math.abs(Math.sin(t * 0.8 + i)); }
       x = (((x - ox) % W) + W) % W; y = (((y - oy) % H) + H) % H;
       ctx.fillRect(x | 0, y | 0, w, h);
     }
     ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'source-over';
   }
+
+  // Pallor: tier 0..4 → how much colour is drained. Eased so a tier change washes in over ~2 s.
+  const PALLOR_SAT = [0, 0.3, 0.5, 0.68, 0.85];
+  const pal = { t: 0, cur: 0, tier: 0, mode: null };
+  function pallorTier() {
+    const S = G.state, f = S.flags || {};
+    try { const gp = G.game && G.game.getPallor && G.game.getPallor(); if (gp && typeof gp.tier === 'number') return Math.max(0, Math.min(4, gp.tier | 0)); }
+    catch (err) { /* fall through */ }
+    const v = +f.pallor;
+    return v > 0 ? Math.min(4, Math.floor(v / 20)) : 0;
+  }
+  function drawPallor(ctx, W, H) {
+    if (V.time - pal.t > 0.25 || V.time < pal.t) { pal.t = V.time; pal.tier = G.state.scene === 'town' ? 0 : pallorTier(); }
+    const target = PALLOR_SAT[pal.tier], dt = Math.min(0.1, V.dt || 0.016);
+    pal.cur += Math.max(-dt * 0.4, Math.min(dt * 0.4, target - pal.cur));
+    if (pal.cur < 0.01) return false;
+    if (pal.mode === null) {               // 'saturation' (or 'color' with grey) desaturates; plain grey wash as last resort
+      ctx.globalCompositeOperation = 'saturation';
+      pal.mode = ctx.globalCompositeOperation === 'saturation' ? 'saturation' : 'color';
+      ctx.globalCompositeOperation = pal.mode;
+      if (ctx.globalCompositeOperation !== pal.mode) pal.mode = 'source-over';
+      ctx.globalCompositeOperation = 'source-over';
+    }
+    ctx.globalCompositeOperation = pal.mode;
+    ctx.globalAlpha = pal.mode === 'source-over' ? pal.cur * 0.25 : pal.cur;
+    ctx.fillStyle = '#8a8a90';
+    ctx.fillRect(0, 0, W, H);
+    // a cold pale wash on top at the high tiers: the colour is gone and the air is wrong
+    if (pal.cur > 0.6) {
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.globalAlpha = (pal.cur - 0.6) * 0.18;
+      ctx.fillStyle = '#c8ccd8';
+      ctx.fillRect(0, 0, W, H);
+    }
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'source-over';
+    return true;
+  }
+  E.getPallorLevel = function () { return pal.cur; };
 
   // Blood-red vignette that pulses when the player is below 30% life.
   let dangerC = null;
@@ -412,11 +532,13 @@
     const S = G.state, map = S && S.map, W = V.W, H = V.H;
     if (!map || !map.tiles || S.scene === 'menu') { drawBackdrop(ctx, W, H); return; }
 
-    const set = U.tiles.get(map.theme || (map.kind === 'town' ? 'town' : 'crypt'));
+    const VR = U.variant.get(map), set = VR.set, bm = VR.blendMask, bs = VR.blendSet;
+    fr.torch = VR.torchKey; fr.torchR = VR.torchR; fr.flick = VR.flicker;
+    U.fogA = VR.fogA;
     const WH = U.tiles.WALL_HEIGHTS;
     if (!V.info || V.info.length !== map.tiles.length) V.info = buildInfo(map);
     const info = V.info;
-    ctx.fillStyle = set.def.bg;
+    ctx.fillStyle = VR.bg;
     ctx.fillRect(0, 0, W, H);
 
     const p = S.player, mw = map.w, mh = map.h, tiles = map.tiles;
@@ -428,7 +550,7 @@
     if (fr.hasP) { fr.psx = (p.x - p.y) * HW - ox; fr.psy = (p.x + p.y) * HH - oy; fr.pd = p.x + p.y; }
     const st = S.settings || {};
     fr.filter = (C.RARITY[st.lootFilter] || C.RARITY.common).order;
-    dn = nLights = nBars = nLabels = nBeams = nMarks = 0;
+    dn = nLights = nBars = nLabels = nBeams = nMarks = nBadges = nReicons = 0;
 
     const dMin = Math.floor(oy / HH) - 2, dMax = Math.ceil((oy + H) / HH) + 4;
     const eMin = Math.floor(ox / HW) - 2, eMax = Math.ceil((ox + W) / HW) + 2;
@@ -439,7 +561,7 @@
       for (let e = eMin + ((d + eMin) & 1); e <= eMax; e += 2) {
         const tx = (d + e) >> 1, ty = (d - e) >> 1;
         if (tx < 0 || ty < 0 || tx >= mw || ty >= mh) continue;
-        const i = ty * mw + tx, t = tiles[i];
+        const i = ty * mw + tx, t = tiles[i], ts = bm && bm[i] ? bs : set;
         if (t === T.VOID || t === T.WALL) continue;
         if (exp && !exp[i]) continue;
         const h = (Math.imul(tx, 73856093) ^ Math.imul(ty, 19349663)) >>> 7;
@@ -447,15 +569,15 @@
         switch (t) {
           case T.WATER: img = set.water[h & 1][wf & 3]; break;
           case T.LAVA: img = set.lava[h & 1][lf & 3]; break;
-          case T.GRASS: img = set.grass.length === 3 ? set.grass[(h & 15) < 7 ? 0 : (h & 15) < 13 ? 1 : 2] : set.grass[h % set.grass.length]; break;
-          case T.PATH: img = set.path[h % set.path.length]; break;
-          case T.BRIDGE: img = set.bridge[h % set.bridge.length]; break;
-          case T.RUBBLE: img = set.rubble[h % set.rubble.length]; break;
+          case T.GRASS: img = ts.grass.length === 3 ? ts.grass[(h & 15) < 7 ? 0 : (h & 15) < 13 ? 1 : 2] : ts.grass[h % ts.grass.length]; break;
+          case T.PATH: img = ts.path[h % ts.path.length]; break;
+          case T.BRIDGE: img = ts.bridge[h % ts.bridge.length]; break;
+          case T.RUBBLE: img = ts.rubble[h % ts.rubble.length]; break;
           case T.DEEP_WATER: img = set.deepWater[wf & 3]; break;
           case T.DEEP_LAVA: img = set.deepLava[lf & 3]; break;
-          case T.CHASM: img = set.chasm[h % set.chasm.length]; break;
+          case T.CHASM: img = ts.chasm[h % ts.chasm.length]; break;
           case T.STAIRS_DOWN: img = set.stairsDown; break;
-          default: img = set.floor[U.tiles.FLOOR_PICK[h & 31]];
+          default: img = ts.floor[U.tiles.FLOOR_PICK[h & 31]];
         }
         const lit = !vis || vis[i];
         const sx = e * HW - ox - 16, sy = d * HH - oy;
@@ -479,13 +601,35 @@
       pushItem(0, pr, (pr.x | 0) + 0.5, (pr.y | 0) + 0.5, 0, !vis || !!vis[idx]);
     }
     const gis = S.groundItems || [];
+    nPiles = 0;
     for (let i = 0; i < gis.length; i++) {
       const g = gis[i];
       if (!g || !isFinite(g.x) || !isFinite(g.y)) continue;
       const idx = Math.floor(g.y) * mw + Math.floor(g.x);
       if (exp && !exp[idx]) continue;
-      pushItem(1, g, g.x, g.y, -0.3, true);
+      if (seen.get(g.id) === undefined) { if (seen.size > 500) seen.clear(); seen.set(g.id, spill(g)); }
+      if (g.pileId == null) { pushItem(1, g, g.x, g.y, -0.3, true); continue; }
+      let pl = pileMap.get(g.pileId);
+      if (!pl) {
+        pl = pilePool[nPiles];
+        if (!pl) pl = pilePool[nPiles] = { a: null, b: null, c: null, n: 0, ra: 0, rb: 0, rc: 0, x: 0, y: 0 };
+        nPiles++;
+        pl.a = g; pl.b = pl.c = null; pl.n = 1; pl.ra = lootRank(g); pl.rb = pl.rc = -99; pl.x = g.x; pl.y = g.y;
+        pileMap.set(g.pileId, pl);
+        continue;
+      }
+      pl.n++;
+      const r = lootRank(g);                       // keep the three best: a on top, b and c peeking out
+      if (r > pl.ra) { pl.c = pl.b; pl.rc = pl.rb; pl.b = pl.a; pl.rb = pl.ra; pl.a = g; pl.ra = r; }
+      else if (r > pl.rb) { pl.c = pl.b; pl.rc = pl.rb; pl.b = g; pl.rb = r; }
+      else if (r > pl.rc) { pl.c = g; pl.rc = r; }
     }
+    for (let i = 0; i < nPiles; i++) {
+      const pl = pilePool[i];
+      if (pl.n === 1) pushItem(1, pl.a, pl.a.x, pl.a.y, -0.3, true);
+      else pushItem(4, pl, pl.x, pl.y, -0.3, true);
+    }
+    pileMap.clear();
     const ents = S.entities || [];
     for (let i = 0; i < ents.length; i++) {
       const en = ents[i];
@@ -514,16 +658,16 @@
       for (let e = eMin + ((d + eMin) & 1); e <= eMax; e += 2) {
         const tx = (d + e) >> 1, ty = (d - e) >> 1;
         if (tx < 0 || ty < 0 || tx >= mw || ty >= mh) continue;
-        const i = ty * mw + tx, t = tiles[i];
+        const i = ty * mw + tx, t = tiles[i], ts = bm && bm[i] ? bs : set;
         if (t !== T.WALL && t !== T.DOOR && t !== T.STAIRS_UP) continue;
         if (exp && !exp[i]) continue;
         const lit = !vis || vis[i];
         const sx = e * HW - ox - 16, sy = d * HH - oy;
         if (t === T.WALL) {
           const lvl = info[i], vr = ((Math.imul(tx, 73856093) ^ Math.imul(ty, 19349663)) >>> 9) & 3;
-          const img = set.wall[lvl][vr], hgt = WH[lvl];
+          const img = ts.wall[lvl][vr], hgt = WH[lvl];
           if (lvl < 2 && fr.hasP && d + 1 > fr.pd && sx + 16 > fr.psx - 34 && sx + 16 < fr.psx + 34 && sy - hgt < fr.psy + 2 && sy + 16 > fr.psy - 26) {
-            const low = set.wall[2][vr];
+            const low = ts.wall[2][vr];
             ctx.drawImage(lit ? low : U.dim(low), sx, sy - WH[2]);
             ctx.globalAlpha = 0.2;
             ctx.drawImage(img, sx, sy - hgt);
@@ -546,14 +690,13 @@
 
     // ---- lighting: additive light map multiplied over the scene
     if (lightX) {
-      const amb = set.def.amb;
       lightX.globalCompositeOperation = 'source-over';
-      lightX.fillStyle = set.def.ambCss || (set.def.ambCss = 'rgb(' + amb[0] + ',' + amb[1] + ',' + amb[2] + ')');
+      lightX.fillStyle = VR.ambCss;
       lightX.fillRect(0, 0, LW, LH);
       lightX.globalCompositeOperation = 'lighter';
       if (fr.hasP) {
-        const rx = 7 * 22 * (1 + 0.02 * Math.sin(V.time * 7.3)), ry = rx * 0.6;
-        lightX.drawImage(U.lightSprite('player'), (fr.psx - rx) / 2, (fr.psy - 10 - ry) / 2, rx, ry);
+        const rx = VR.lightR * 22 * (1 + 0.02 * Math.sin(V.time * 7.3)), ry = rx * 0.6;
+        lightX.drawImage(U.lightSprite(VR.lightKey), (fr.psx - rx) / 2, (fr.psy - 10 - ry) / 2, rx, ry);
       }
       for (let i = 0; i < nLights; i++) {
         const l = lights[i], rx = l.r * 22, ry = rx * 0.6;
@@ -563,6 +706,10 @@
       ctx.drawImage(lightC, 0, 0, LW * 2, LH * 2);
       ctx.globalCompositeOperation = 'source-over';
     }
+
+    // ---- Pallor (R5.2): the world drains of colour by tier. One composite fill over the lit world, before loot,
+    // spell fx, labels and bars are drawn, so those stay fully saturated. No per-pixel work in JS.
+    if (drawPallor(ctx, W, H)) for (let i = 0; i < nReicons; i++) { const ri = reicons[i]; ctx.drawImage(ri.img, ri.x, ri.y); }
 
     // ---- overlay: beams, fx, markers, labels, bars, text, joystick
     // rare+ loot: soft pulsing halo, beam, then the icon again on top so it stays bright after lighting.
@@ -593,7 +740,14 @@
         }
       }
     }
-    drawAtmosphere(ctx, set.def.mist, W, H, ox, oy);
+    drawSpills(ctx, ox, oy);
+    for (let i = 0; i < nBadges; i++) {           // pile count badges, after lighting so they stay readable
+      const bd = badges[i];
+      ctx.fillStyle = '#0b0910';
+      ctx.fillRect(bd.x - 1, bd.y, bd.img.width + 1, 9);
+      ctx.drawImage(bd.img, bd.x - 1, bd.y);
+    }
+    drawAtmosphere(ctx, VR, W, H, ox, oy);
     U.fx.draw(ctx, ox, oy, W, H);
 
     if (nMarks) {
@@ -671,16 +825,29 @@
       ctx.globalCompositeOperation = 'source-over';
     }
 
-    const joy = U.input.joy;
-    if (joy.active) {
-      const r = Math.max(8, Math.round(U.input.JOY_R / V.scale));
-      joySprites(r);
-      const bx = Math.round((joy.ox - V.left) / V.scale), by = Math.round((joy.oy - V.top) / V.scale);
-      const kx = Math.round((joy.ox + joy.mx - V.left) / V.scale), ky = Math.round((joy.oy + joy.my - V.top) / V.scale);
-      ctx.drawImage(joyBase, bx - (joyBase.width >> 1), by - (joyBase.height >> 1));
-      ctx.drawImage(joyKnob, kx - (joyKnob.width >> 1), ky - (joyKnob.height >> 1));
-    }
+    drawJoystick(ctx);
   };
+
+  // Floating stick: drawn while held. Fixed stick (R5.1): always drawn at its anchor (dimmer when idle).
+  const vrect = { left: 0, top: 0, width: 0, height: 0 };
+  function drawJoystick(ctx) {
+    const joy = U.input.joy, S = G.state;
+    if (!joy.active && (S.paused || (S.player && S.player.dead))) return;
+    vrect.left = V.left; vrect.top = V.top; vrect.width = V.W * V.scale; vrect.height = V.H * V.scale;
+    const c = U.input.config(vrect);
+    if (!c || (!joy.active && !c.fixed)) return;
+    let cx = c.cx, cy = c.cy, mx = 0, my = 0, rr = c.r, alpha = 0.55 * c.opacity;
+    if (joy.active) { cx = joy.ox; cy = joy.oy; mx = joy.mx; my = joy.my; rr = joy.r; alpha = c.opacity; }
+    if (alpha <= 0.02) return;
+    const r = Math.max(8, Math.round(rr / V.scale));
+    joySprites(r);
+    const bx = Math.round((cx - V.left) / V.scale), by = Math.round((cy - V.top) / V.scale);
+    const kx = Math.round((cx + mx - V.left) / V.scale), ky = Math.round((cy + my - V.top) / V.scale);
+    ctx.globalAlpha = alpha;
+    ctx.drawImage(joyBase, bx - (joyBase.width >> 1), by - (joyBase.height >> 1));
+    ctx.drawImage(joyKnob, kx - (joyKnob.width >> 1), ky - (joyKnob.height >> 1));
+    ctx.globalAlpha = 1;
+  }
 
   // ---------------------------------------------------------------- minimap
   let mmC = null, mmX = null, mmImg = null, mm32 = null;

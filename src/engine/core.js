@@ -239,14 +239,18 @@
     return o;
   };
   // Darkened copy used for explored-but-not-visible tiles and props (cached on the source canvas).
+  // U.fogA = how dark (0..1); map variants change it in coarse steps, so each canvas rebuilds at most once per change.
+  U.fogA = 0.56;
   U.dim = function (c) {
-    if (c._dim) return c._dim;
-    const o = U.makeCanvas(c.width, c.height), x = U.ctx2d(o);
+    if (c._dim && c._dimA === U.fogA) return c._dim;
+    const o = c._dim || U.makeCanvas(c.width, c.height), x = U.ctx2d(o);
+    x.globalCompositeOperation = 'source-over';
+    x.clearRect(0, 0, o.width, o.height);
     x.drawImage(c, 0, 0);
     x.globalCompositeOperation = 'source-atop';
-    x.fillStyle = 'rgba(4,5,14,0.56)';
+    x.fillStyle = 'rgba(4,5,14,' + U.fogA + ')';
     x.fillRect(0, 0, o.width, o.height);
-    c._dim = o;
+    c._dim = o; c._dimA = U.fogA;
     return o;
   };
 

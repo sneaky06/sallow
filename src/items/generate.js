@@ -23,7 +23,8 @@
 
   // Probability of each rarity for one item. `boost` is the source multiplier on rare+ odds (elites, bosses, chests).
   // `eliteBoost` multiplies the Legendary Elite odds only (legendary-tier monsters, R3.6).
-  I.rarityChances = function (magicFind, boost, eliteBoost) {
+  // `pallorBoost` (R5.2) multiplies rare and epic odds only: Pallor never touches Legendary Elite, Mythic or set odds.
+  I.rarityChances = function (magicFind, boost, eliteBoost, pallorBoost) {
     const mf = Math.max(0, magicFind || 0);
     boost = boost || 1;
     const p = {};
@@ -32,6 +33,7 @@
       // mythics ignore the source boost: a boss is ~8 ordinary chances, nothing more (R2.2: <= ~0.03% per boss kill)
       p[r] = BASE_P[r] * (1 + effMF(mf, MF_K[r]) / 100) * (r === 'mythic' ? 1 : boost);
       if (r === 'legendary' && eliteBoost) p[r] *= eliteBoost;
+      if ((r === 'rare' || r === 'epic') && pallorBoost) p[r] *= pallorBoost;
       top += p[r];
     }
     if (top > 0.9) { for (const r of TOP_DOWN) p[r] *= 0.9 / top; top = 0.9; }
@@ -42,8 +44,8 @@
     return p;
   };
 
-  function rollRarity(mf, boost, rng, floor, elite) {
-    const p = I.rarityChances(mf, boost, elite);
+  function rollRarity(mf, boost, rng, floor, elite, pallorBoost) {
+    const p = I.rarityChances(mf, boost, elite, pallorBoost);
     let u = rng.next();
     let r = 'common';
     for (let i = ORDER.length - 1; i > 0; i--) {
@@ -103,14 +105,17 @@
   // must be wearable around level 0.75 N.
   function reqLevel(ilvl) { return Math.max(1, Math.min(60, Math.round(ilvl * 0.75))); }
 
-  function newItem(def, ilvl, rarity) {
+  function newItem(def, ilvl, rarity, rng) {
     const it = { id: G.newId(), baseId: def.id, name: def.name, type: def.type, slot: def.slot };
     if (def.weaponType) it.weaponType = def.weaponType;
     if (def.twoHanded) it.twoHanded = true;
+    if (def.armorClass) it.armorClass = def.armorClass;     // 'heavy' | 'light' | 'cloth' — the engine's gear rig reads it
     it.rarity = rarity;
     it.ilvl = ilvl;
     it.reqLevel = reqLevel(ilvl);
     it.icon = { shape: def.icon.shape, color: def.icon.color, accent: def.icon.accent };
+    const look = D.rollLook(def, rng);       // R5.9 appearance family
+    if (look) it.look = look;
     it.base = D.baseStats(def, ilvl);
     it.mods = D.implicitMods(def, ilvl);
     it.value = 1;
@@ -196,7 +201,7 @@
   D.QUALITY = QUALITY;
 
   function buildEquip(def, ilvl, rarity, rng) {
-    const item = newItem(def, ilvl, rarity);
+    const item = newItem(def, ilvl, rarity, rng);
     const tier = ilvl < 20 ? 0 : ilvl < 45 ? 1 : 2;
     if (rarity === 'magic') {
       const first = rollAffixes(item, rng.chance(0.5) ? 2 : 1, 1, rng, QUALITY.magic);
@@ -228,7 +233,9 @@
 
   function buildUnique(u, ilvl, rng) {
     const def = pickTier(u.family, ilvl, rng, true).def;
-    const item = newItem(def, ilvl, u.rarity);
+    const item = newItem(def, ilvl, u.rarity, rng);
+    const look = D.uniqueLook(u, def);
+    if (look) item.look = look;
     item.name = u.name;
     item.uniqueId = u.id;
     if (u.setId) item.setId = u.setId;
@@ -323,7 +330,7 @@
     const prof = player() ? D.classProfile(player()) : null;
     D.setRollClass(prof);
     const explicit = !!(opts.rarity && C.RARITY[opts.rarity]);
-    let rarity = explicit ? opts.rarity : rollRarity(opts.magicFind || 0, opts._boost || 1, rng, opts._floor, opts._elite);
+    let rarity = explicit ? opts.rarity : rollRarity(opts.magicFind || 0, opts._boost || 1, rng, opts._floor, opts._elite, opts._pallor);
     const fixed = opts.baseId ? D.BASES[opts.baseId] : null;
     let slot = fixed ? fixed.slot : normSlot(opts.slot);
     const family = fixed ? fixed.family : opts._family;
@@ -347,17 +354,17 @@
   // ---- loot tables ----
   // n: item count weights; floors: rarity floor for the first items (rest for the remainder); boost: rare+ odds multiplier.
   const SOURCES = {
-    monster:  { n: [[0, 66], [1, 30], [2, 4]], goldP: 0.45, goldM: 1, potP: 0.07, gemP: 0.008, miscP: 0.004, matP: 0.01, boost: 1, floors: [], piles: 1 },
-    champion: { n: [[1, 25], [2, 50], [3, 25]], goldP: 1, goldM: 3, potP: 0.3, gemP: 0.06, miscP: 0.03, matP: 0.12, boost: 1.6, floors: ['magic'], piles: 2 },
-    rare:     { n: [[3, 40], [4, 40], [5, 20]], goldP: 1, goldM: 6, potP: 0.5, gemP: 0.15, miscP: 0.06, matP: 0.3, loreP: 0.04, boost: 2.5, floors: ['rare', 'magic'], piles: 3 },
+    monster:  { n: [[0, 66], [1, 30], [2, 4]], goldP: 0.45, goldM: 1, potP: 0.07, gemP: 0.008, miscP: 0.004, matP: 0.01, boost: 1, floors: [] },
+    champion: { n: [[1, 25], [2, 50], [3, 25]], goldP: 1, goldM: 3, potP: 0.3, gemP: 0.06, miscP: 0.03, matP: 0.12, boost: 1.6, floors: ['magic'] },
+    rare:     { n: [[3, 40], [4, 40], [5, 20]], goldP: 1, goldM: 6, potP: 0.5, gemP: 0.15, miscP: 0.06, matP: 0.3, loreP: 0.04, boost: 2.5, floors: ['rare', 'magic'] },
     boss:     { n: [[7, 25], [8, 35], [9, 25], [10, 15]], goldP: 1, goldM: 20, pots: [2, 3], gems: 1, gemP: 0.4, miscP: 0.5, matP: 1, loreP: 0.3, boost: 4,
-      floors: ['rare', 'rare'], rest: 'magic', piles: 6, lvl: 2 },
+      floors: ['rare', 'rare'], rest: 'magic', lvl: 2 },
     // legendary-tier monsters (R3.6): a small boss, with three times the usual Legendary Elite odds on top of the boost
     legendary: { n: [[5, 35], [6, 40], [7, 25]], goldP: 1, goldM: 12, pots: [1, 2], gems: 0, gemP: 0.5, miscP: 0.25, matP: 0.6, loreP: 0.15, boost: 3, elite: 3,
-      floors: ['rare', 'rare'], rest: 'magic', piles: 4, lvl: 1 },
-    chest:    { n: [[2, 30], [3, 45], [4, 25]], goldP: 1, goldM: 5, potP: 0.5, gemP: 0.15, miscP: 0.08, matP: 0.15, loreP: 0.04, boost: 2, floors: ['magic'], piles: 3 },
-    barrel:   { n: [[0, 86], [1, 14]], goldP: 0.35, goldM: 0.6, potP: 0.08, gemP: 0.004, miscP: 0, matP: 0, boost: 0.8, floors: [], piles: 1 },
-    quest:    { n: [[1, 70], [2, 30]], goldP: 1, goldM: 8, potP: 0, gemP: 0.1, miscP: 0, matP: 0, boost: 3, floors: ['rare'], piles: 1 },
+      floors: ['rare', 'rare'], rest: 'magic', lvl: 1 },
+    chest:    { n: [[2, 30], [3, 45], [4, 25]], goldP: 1, goldM: 5, potP: 0.5, gemP: 0.15, miscP: 0.08, matP: 0.15, loreP: 0.04, boost: 2, floors: ['magic'] },
+    barrel:   { n: [[0, 86], [1, 14]], goldP: 0.35, goldM: 0.6, potP: 0.08, gemP: 0.004, miscP: 0, matP: 0, boost: 0.8, floors: [] },
+    quest:    { n: [[1, 70], [2, 30]], goldP: 1, goldM: 8, potP: 0, gemP: 0.1, miscP: 0, matP: 0, boost: 3, floors: ['rare'] },
   };
   D.SOURCES = SOURCES;
 
@@ -399,19 +406,45 @@
     return table[table.length - 1][0];
   }
 
+  // ---- Pallor (R5.2): opts.pallor is state.flags.pallor (0-100) or G.game.getPallor()'s { value, tier } ----
+  // A number is mapped with the game's own tier thresholds (G.game.PALLOR_TIERS[i].min), else the same defaults.
+  const PALLOR_MIN = [0, 10, 30, 60, 90];
+  D.pallorTier = function (p) {
+    if (p == null) return 0;
+    if (typeof p === 'object') {
+      if (typeof p.tier === 'number') return Math.max(0, Math.min(4, p.tier | 0));
+      p = p.value;
+    }
+    const v = +p || 0, T = G.game && G.game.PALLOR_TIERS;
+    let t = 0;
+    for (let i = 1; i < 5; i++) if (v >= ((T && T[i] && typeof T[i].min === 'number') ? T[i].min : PALLOR_MIN[i])) t = i;
+    return t;
+  };
+  // Per tier: rare/epic odds x(1 + 0.2 t) (never Elite/Mythic/set), extra item chances, +10% gold; from tier 2 some
+  // equipment comes bleached with a hidden affix (D.bleach in pallor.js).
+  D.PALLOR_BLEACH_P = [0, 0, 0.1, 0.16, 0.24];
+  D.pallorBoost = function (t) { return 1 + 0.2 * t; };
+
   I.rollLoot = function (opts) {
     opts = opts || {};
     const rng = opts.rng || G.rng.global;
     const src = SOURCES[opts.source] || SOURCES.monster;
     const level = Math.max(1, Math.round(opts.level || 1));
     const mf = opts.magicFind || 0;
+    const pt = D.pallorTier(opts.pallor);
     const items = [];
 
     let n = pickCount(src.n, rng);
     if (opts.floor && C.RARITY[opts.floor] && n < 1) n = 1;      // a public rarity floor guarantees there is a best item
+    // Pallor quantity: one extra-item chance per tier (smaller for trash so floors don't drown in whites)
+    const extraP = (opts.source === 'monster' || opts.source === 'barrel' || !SOURCES[opts.source]) ? 0.08 : 0.25;
+    for (let t = 0; t < pt; t++) if (rng.chance(extraP)) n++;
     for (let i = 0; i < n; i++) {
-      items.push(I.rollItem({ level: level + (src.lvl || 0), magicFind: mf, rng: rng, _boost: src.boost, _elite: src.elite,
-        _floor: i === 0 ? higher(src.floors[0], opts.floor) : (src.floors[i] || src.rest) }));
+      const it = I.rollItem({ level: level + (src.lvl || 0), magicFind: mf, rng: rng, _boost: src.boost, _elite: src.elite,
+        _pallor: pt ? D.pallorBoost(pt) : 0,
+        _floor: i === 0 ? higher(src.floors[0], opts.floor) : (src.floors[i] || src.rest) });
+      if (pt >= 2 && D.bleach && rng.chance(D.PALLOR_BLEACH_P[pt])) D.bleach(it, rng);
+      items.push(it);
     }
 
     let pots = src.pots ? rng.int(src.pots[0], src.pots[1]) : (rng.chance(src.potP) ? 1 : 0);
@@ -444,71 +477,92 @@
 
     let gold = 0;
     if (rng.chance(src.goldP)) {
-      gold = Math.max(1, Math.round((4 + level * 2) * rng.range(0.6, 1.4) * src.goldM * (1 + (opts.goldFind || 0) / 100)));
+      gold = Math.max(1, Math.round((4 + level * 2) * rng.range(0.6, 1.4) * src.goldM * (1 + (opts.goldFind || 0) / 100) * (1 + 0.1 * pt)));
     }
     return { items: items, gold: gold };
   };
 
-  // ---- ground drops ----
+  // ---- ground drops: loot piles (R5.6) ----
+  // Everything from one kill / chest lands on one pile point: the nearest free tile to the drop (its centre). Every ground
+  // entry of a pile sits on the same x, y and shares `pileId`; a drop within PILE_MERGE tiles of an existing pile joins it.
+  // A pile holds at most one gold entry.
   function goldItem(qty) {
     return { type: 'gold', qty: qty, name: 'Gold', rarity: 'common', icon: { shape: 'gold', color: '#ffd94a' } };
   }
+  D.goldItem = goldItem;
+  const PILE_MERGE = 0.75;
 
-  function scatter(x, y, n) {
-    const rng = G.rng.global;
+  function pilePoint(x, y) {
     const map = G.state.map;
-    const canCheck = map && G.world && G.world.isWalkable;
-    for (let tries = 0; tries < 5; tries++) {
-      const a = rng.next() * Math.PI * 2;
-      const r = n <= 1 ? rng.range(0, 0.3) : rng.range(0.3, 0.6 + Math.min(1.4, n * 0.13));
-      const nx = x + Math.cos(a) * r, ny = y + Math.sin(a) * r;
-      if (!canCheck) return { x: nx, y: ny };
-      let ok = false;
-      try { ok = G.world.isWalkable(map, nx, ny); } catch (err) { ok = false; }
-      if (ok) return { x: nx, y: ny };
+    if (map && G.world && G.world.findFreeTileNear) {
+      let t = null;
+      try { t = G.world.findFreeTileNear(map, x, y, 4); } catch (err) { t = null; }
+      if (t) return { x: t.x + 0.5, y: t.y + 0.5 };
     }
     return { x: x, y: y };
   }
 
-  function place(x, y, item) {
-    const ground = { id: G.newId(), x: x, y: y, item: item };
+  // -> the pile to drop into at (x, y): { pileId, x, y }, joining a nearby pile when there is one.
+  function pileAt(x, y) {
+    const p = pilePoint(x, y);
+    let best = null, bd = PILE_MERGE * PILE_MERGE;
+    for (const g of G.state.groundItems) {
+      if (!g.pileId) continue;
+      const dx = g.x - p.x, dy = g.y - p.y, d = dx * dx + dy * dy;
+      if (d <= bd) { bd = d; best = g; }
+    }
+    return best ? { pileId: best.pileId, x: best.x, y: best.y } : { pileId: G.newId(), x: p.x, y: p.y };
+  }
+
+  function place(pile, item) {
+    if (item.type === 'gold') {
+      for (const g of G.state.groundItems) {
+        if (g.pileId === pile.pileId && g.item.type === 'gold') { g.item.qty += item.qty || 0; return g; }
+      }
+    }
+    const ground = { id: G.newId(), x: pile.x, y: pile.y, item: item, pileId: pile.pileId };
     G.state.groundItems.push(ground);
     G.emit('loot:dropped', { ground: ground });
     if (item.type !== 'gold' && rord(item.rarity) >= rord('rare')) {
-      G.emit('fx:spawn', { type: 'lootbeam', x: x, y: y, color: C.RARITY[item.rarity].color });
+      G.emit('fx:spawn', { type: 'lootbeam', x: pile.x, y: pile.y, color: C.RARITY[item.rarity].color });
     }
     return ground;
   }
 
   I.dropItemAt = function (x, y, item) {
     if (!item) return null;
-    return place(x, y, item);
+    return place(pileAt(x, y), item);
+  };
+
+  // Sort key for a ground entry: equipment by rarity, then gems / consumables / lore, gold last.
+  function groundRank(g) {
+    const it = g.item;
+    if (it.type === 'gold') return -1;
+    return rord(it.rarity) * 10 + (D.isEquip && D.isEquip(it) ? 5 : 0) + (it.ilvl || 0) / 1000;
+  }
+  D.groundRank = groundRank;
+
+  I.getPile = function (pileId) {
+    const out = [];
+    for (const g of G.state.groundItems) if (g.pileId === pileId) out.push(g);
+    out.sort(function (a, b) { return groundRank(b) - groundRank(a); });
+    return out;
   };
 
   I.dropLoot = function (x, y, opts) {
+    opts = opts || {};
     const loot = I.rollLoot(opts);
-    const src = SOURCES[opts && opts.source] || SOURCES.monster;
-    const total = loot.items.length + (loot.gold ? src.piles : 0);
+    if (!loot.items.length && !loot.gold) return loot;
+    const pile = pileAt(x, y);
     let best = -1, bestItem = null;
     for (const item of loot.items) {
-      const p = scatter(x, y, total);
-      place(p.x, p.y, item);
+      place(pile, item);
       const equip = item.type === 'weapon' || item.type === 'armor' || item.type === 'jewelry';
       const o = equip ? rord(item.rarity) : 0;
       if (o > best) { best = o; bestItem = item; }
     }
-    if (loot.gold) {
-      const piles = Math.max(1, Math.min(src.piles, loot.gold));
-      let left = loot.gold;
-      for (let i = 0; i < piles; i++) {
-        const q = i === piles - 1 ? left : Math.max(1, Math.round(loot.gold / piles * G.rng.global.range(0.7, 1.3)));
-        const amt = Math.min(left, q);
-        if (amt <= 0) break;
-        left -= amt;
-        const p = scatter(x, y, total);
-        place(p.x, p.y, goldItem(amt));
-      }
-    }
+    if (loot.gold) place(pile, goldItem(loot.gold));
+    loot.pileId = pile.pileId;
     if (best >= rord('set')) {
       G.emit('sfx', { name: 'loot_legendary' });
       G.emit('ui:toast', { text: C.RARITY[bestItem.rarity].name + ' drop: ' + bestItem.name, color: C.RARITY[bestItem.rarity].color });

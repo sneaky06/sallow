@@ -307,6 +307,65 @@ window.G = { manifest: {} };
       var c = E.getPortrait({ body: b, color: COLS[i], accent: ACCS[i], weapon: C.WEAPON_LOOKS[(i + 1) % 9] }, i % 2 ? 48 : 64);
       var o = document.createElement('canvas'); o.width = c.width; o.height = c.height; o.getContext('2d').drawImage(c, 0, 0); s8.appendChild(o);
     });
+    // ------------------------------------------------------------ R5
+    var VARIANTS = {
+      none: null,
+      drowned_ossuary: { id: 'drowned_ossuary', name: 'The Drowned Ossuary', palette: { tint: '#2a6a7a', amount: 0.4 }, light: { color: '#9fd8ff', radius: 6, ambient: '#3a4a66' }, ambient: { particles: 'drip', density: 1.4, fog: 0.7, sound: 'drip' } },
+      bone_garden: { id: 'bone_garden', name: 'The Bone Garden', palette: { tint: '#b8a878', amount: 0.3 }, light: { color: '#ffe8b0', radius: 8 }, ambient: { particles: 'motes', density: 0.8, color: '#e8ff9a', fog: 0.3, sound: 'choir' } },
+      blood_vault: { id: 'blood_vault', name: 'The Weeping Vault', palette: { tint: '#8a1a22', amount: 0.45, bg: '#0c0204' }, light: { color: '#ff7060', radius: 6.5, ambient: '#5a2024' }, ambient: { particles: 'ash', density: 1.2, color: '#a02020', fog: 0.6, sound: 'heart' } },
+      frost_hollow: { id: 'frost_hollow', name: 'The Rime Hollow', palette: '#7aa8d8', light: { color: '#cfe8ff', radius: 7.5, ambient: '#40506e' }, ambient: { particles: 'snow', density: 1.6, fog: 0.4, sound: 'wind' } },
+      void_rot: { id: 'void_rot', name: 'The Unlit Deep', palette: { tint: '#4a1a6a', amount: 0.55 }, light: { color: '#b890ff', radius: 5, ambient: '#2a1a3a' }, ambient: { particles: 'void', density: 2, fog: 1, sound: 'drone' } },
+      garbage: { palette: { tint: 'nope', amount: 'x' }, light: 'bad', ambient: { particles: 42, sound: {} } },
+    };
+    var s9 = section('R5.10 map.variant (current theme)');
+    Object.keys(VARIANTS).forEach(function (k) { btn(s9, k, function () { S.map.variant = VARIANTS[k]; var m = S.map; S.map = null; E.update(0); S.map = Object.assign({}, m); log('variant ' + k + ' bed=' + E._.audio.bedKind()); }); });
+    var s10 = section('R5.2 pallor');
+    [0, 20, 40, 60, 80, 100].forEach(function (v) { btn(s10, 'pallor ' + v, function () { S.flags.pallor = v; log('pallor ' + v); }); });
+    var s11 = section('R5.9 gear (player) + paper doll');
+    var LOOKS = [['iron_plate', 'iron'], ['rusted_mail', 'rust'], ['grave_wrap', 'bone'], ['ash_plate', 'ash'], ['hunter_leather', 'moss'], ['void_shroud', 'void'], ['crowned_ossuary', 'gold'], ['horned_fiend_plate', 'blood'], ['frost_rime_mail', 'frost'], ['zzx_unknown', 'qqq'], ['spiked_thorn_leather', ['#5a3a2a', '#2a1a10', '#ff3b4e']]];
+    var WT = ['sword', 'axe', 'mace', 'dagger', 'bow', 'staff', 'wand', 'banana'], OFF = ['shield', 'orb', 'tome', 'quiver'];
+    var gid = 50000;
+    function gearSet(li, mix) {
+      var eq = {}, L = function (i) { var l = LOOKS[(i + LOOKS.length) % LOOKS.length]; return { family: l[0], palette: l[1] }; };
+      eq.weapon = { id: gid++, weaponType: WT[(li + (mix ? 3 : 0)) % WT.length], look: L(li) };
+      if (eq.weapon.weaponType !== 'bow' && eq.weapon.weaponType !== 'staff') eq.offhand = { id: gid++, offhandType: OFF[li % OFF.length], look: L(li + (mix ? 1 : 0)) };
+      else if (eq.weapon.weaponType === 'bow') eq.offhand = { id: gid++, offhandType: 'quiver', look: L(li) };
+      ['helm', 'chest', 'gloves', 'boots'].forEach(function (s, i) { eq[s] = { id: gid++, look: L(li + (mix ? i * 2 : 0)) }; });
+      return eq;
+    }
+    var doll = document.createElement('canvas'); doll.width = doll.height = 96; doll.style.background = '#1a1620';
+    function showDoll() { var c = E.getPlayerPreview(S.player, 96); var x = doll.getContext('2d'); x.clearRect(0, 0, 96, 96); x.drawImage(c, 0, 0); }
+    var gi = 0;
+    btn(s11, 'next family set', function () { S.player.equipment = gearSet(gi++ % LOOKS.length, false); G.emit('equipment:changed', {}); showDoll(); log('gear ' + E.gearKey(S.player).slice(0, 80)); });
+    btn(s11, 'mixed set', function () { S.player.equipment = gearSet(gi++ % LOOKS.length, true); G.emit('equipment:changed', {}); showDoll(); });
+    btn(s11, 'no look (baseId only)', function () { S.player.equipment = { weapon: { id: gid++, weaponType: 'mace', baseId: 'mace_3', name: 'Morning Star', icon: { shape: 'mace', color: '#9aa0aa' } }, chest: { id: gid++, armorClass: 'heavy', baseId: 'heavy_chest_2', name: 'Steel Plate', icon: { shape: 'armor', color: '#8a8e96' } }, helm: { id: gid++, armorClass: 'cloth', name: 'Silk Cowl', icon: { shape: 'helm', color: '#5a4a8a' } } }; showDoll(); });
+    btn(s11, 'naked', function () { S.player.equipment = {}; showDoll(); });
+    btn(s11, 'no equipment field', function () { delete S.player.equipment; showDoll(); });
+    btn(s11, 'class: warrior/sorc', function () { var w = S.player.sprite.body === 'caster'; S.player.sprite = w ? { body: 'humanoid', color: '#9a3b2e', accent: '#c9c2b0', scale: 1, weapon: 'sword' } : { body: 'caster', color: '#3a4f9a', accent: '#ffb347', scale: 1, weapon: 'staff' }; showDoll(); });
+    s11.appendChild(document.createElement('br')); s11.appendChild(doll);
+    var s12 = section('R5.6 loot piles');
+    var pid = 1;
+    btn(s12, 'kill pile (5)', function () {
+      var p = S.player, x = p.x + Math.cos(p.facing) * 1.5, y = p.y + Math.sin(p.facing) * 1.5, rs = Object.keys(C.RARITY), id = 'pile' + pid++;
+      for (var i = 0; i < 5; i++) { var r = rs[Math.min(rs.length - 1, (Math.pow(Math.random(), 2) * rs.length) | 0)], sh = C.ICON_SHAPES[(Math.random() * 23) | 0];
+        S.groundItems.push({ id: G.newId(), pileId: id, x: x, y: y, item: i === 0 ? { type: 'gold', qty: 33, name: 'Gold', rarity: 'common', icon: { shape: 'gold', color: '#ffd94a' } } : { name: C.RARITY[r].name + ' ' + sh, rarity: r, type: 'weapon', icon: { shape: sh, color: C.RARITY[r].color } } }); }
+      G.emit('sfx', { name: 'loot' });
+    });
+    btn(s12, 'boss pile (12)', function () {
+      var p = S.player, id = 'pile' + pid++;
+      for (var i = 0; i < 12; i++) { var r = i === 0 ? 'mythic' : ['common', 'magic', 'rare', 'epic', 'set'][i % 5], sh = C.ICON_SHAPES[(i * 5) % 23];
+        S.groundItems.push({ id: G.newId(), pileId: id, x: p.x + 1, y: p.y - 1, item: { name: 'Item ' + i, rarity: r, type: 'armor', icon: { shape: sh, color: C.RARITY[r].color } } }); }
+      G.emit('sfx', { name: 'loot_legendary' });
+    });
+    btn(s12, 'single (pileId)', function () { var p = S.player; S.groundItems.push({ id: G.newId(), pileId: 'pile' + pid++, x: p.x - 1, y: p.y + 1, item: { name: 'Lone Ring', rarity: 'rare', type: 'jewelry', icon: { shape: 'ring', color: '#ffe45b' } } }); });
+    var s13 = section('R5.1 joystick');
+    var setJ = function (j, op) { S.settings.hud = { joystick: j, opacity: op == null ? 1 : op }; log('hud.joystick ' + JSON.stringify(j)); };
+    btn(s13, 'floating left (default)', function () { delete S.settings.hud; log('hud removed'); });
+    btn(s13, 'floating right', function () { setJ({ mode: 'floating', x: 0.8, y: 0.8, size: 0.25 }); });
+    btn(s13, 'fixed left', function () { setJ({ mode: 'fixed', x: 0.18, y: 0.8, size: 0.28 }); });
+    btn(s13, 'fixed right big 60%', function () { setJ({ mode: 'fixed', x: 0.85, y: 0.75, size: 0.4 }, 0.6); });
+    btn(s13, 'fixed off-screen', function () { setJ({ mode: 'fixed', x: 1.4, y: -2, size: 3 }); });
+
     window.__h = { setTheme: function (t) { forceMenu = false; setTheme(t); }, zoo: zoo, menu: function () { forceMenu = true; S.scene = 'menu'; S.map = null; } };
 
     setTheme('crypt');

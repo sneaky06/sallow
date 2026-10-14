@@ -29,6 +29,7 @@
   add('Volley', '#e8dcb0', 'fires a fan of shots', timer('volley', 4));
   add('Evasive', '#bbbbbb', 'dodges a quarter of all hits', function (e) { e.stats.dodge = 25; });
   add('Armoured', '#9aa0aa', 'shrugs off physical damage', function (e) { e.stats.armor = e.stats.armor * 3 + 30 + e.level * 12; });
+  add('Siege', '#d9a05b', 'shells anyone standing still at range', timer('siege', 2));      // R5.5: casters must keep moving
   // legendary-only: one visible mechanic each
   add('Splitting', '#ffb347', 'splits in two when slain', null, true);
   add('Nova', '#ff7a2b', 'charges a huge nova (step out of the ring)', timer('nova', 4), true);
@@ -43,14 +44,23 @@
     'Eater of Names', 'the Long Night', 'Scourge of Emberfall', 'the Thousandth Grave'];
 
   // Roll and apply modifiers for an elite. `shared` (champion packs) forces the modifier so the pack matches.
+  // R5.5: from depth 21 the pool grows with deep-only modifiers (more past 30 and 40), and rares/legendaries usually lead
+  // with one of them. R5.2: Pallor tiers add modifiers to rares and legendaries. Neither changes anything above depth 21 at 0 Pallor.
   game.rollAffixes = function (e, rarity, rng, shared) {
-    const pool = game.AFFIX_IDS.slice();
+    const depth = G.state.map ? Math.max(1, G.state.map.depth | 0) : e.level;
+    const pool = game.affixPool ? game.affixPool(depth) : game.AFFIX_IDS.slice();
     rng.shuffle(pool);
+    const deep = game.deepAffixes ? game.deepAffixes(depth) : [];
+    if (deep.length && rarity !== 'champion' && rng.next() < 0.6) {
+      const d = rng.pick(deep);
+      pool.splice(pool.indexOf(d), 1); pool.unshift(d);
+    }
+    const extra = rarity === 'champion' || !game.pallorExtraMods ? 0 : game.pallorExtraMods();
     let list;
     if (rarity === 'champion') list = [shared || pool[0]];
-    else if (rarity === 'rare') list = pool.slice(0, rng.int(2, 3));
-    else list = [rng.pick(game.LEGEND_AFFIXES)].concat(pool.slice(0, e.level >= 14 ? 4 : 3));
-    for (const name of list) { e.affixes.push(name); A[name].apply(e); }
+    else if (rarity === 'rare') list = pool.slice(0, rng.int(2, 3) + extra);
+    else list = [rng.pick(game.LEGEND_AFFIXES)].concat(pool.slice(0, (e.level >= 14 ? 4 : 3) + extra));
+    for (const name of list) { if (e.affixes.indexOf(name) >= 0) continue; e.affixes.push(name); A[name].apply(e); }
     e.hp = e.stats.hpMax;
   };
 
@@ -169,9 +179,20 @@
           U.sfx('cast');
           break;
         }
+        case 'siege':
+          mt[key] = 3;
+          if (t.type === 'player' && d > 4 && d < 11 && (game.stillT || 0) > 1) {
+            enemyZone(e, t.x, t.y, 1.5, 0.9, 1.5, 'phys', { color: '#d9a05b', shake: 2 });
+            U.fx('spark', e.x, e.y, { color: '#d9a05b' });
+          }
+          break;
+        default:
+          if (game.DEEP_TIMERS && game.DEEP_TIMERS[key]) game.DEEP_TIMERS[key](e, t, d, mt, key);
+          else mt[key] = 99;
       }
     }
   };
+  game.enemyZone = enemyZone;
 
   // ------------------------------ floor modifiers (R3.7) ------------------------------
   // reward: bonus applied to every kill on the floor (percent magic find / gold find / XP).
@@ -193,14 +214,20 @@
   game.FLOOR_MOD_IDS = Object.keys(game.FLOOR_MODS);
 
   // 0–2 mods from depth 4, more (and nastier ones unlocked) deeper. Deterministic for a given rng (seeded from map.seed).
+  // R5.5: past depth 20 a deep-only modifier usually leads; past 30 every floor has at least one, past 40 up to three.
   game.rollFloorMods = function (depth, rng, bossFloor) {
     const roll = rng.next();              // always consume the same number of draws
     const order = rng.shuffle(game.FLOOR_MOD_IDS.slice());
+    const lead = rng.next();
     if (depth < 4 || bossFloor) return [];
+    const FM = game.FLOOR_MODS;
     const p0 = depth < 10 ? 0.4 : depth < 20 ? 0.2 : 0.1, p2 = depth < 10 ? 0.1 : depth < 20 ? 0.3 : 0.45;
-    const n = roll < p0 ? 0 : roll > 1 - p2 ? 2 : 1;
+    let n = roll < p0 ? 0 : roll > 1 - p2 ? 2 : 1;
+    if (depth > 30 && n < 1) n = 1;
+    if (depth > 40 && roll > 0.8) n = 3;
     const out = [];
-    for (const id of order) { if (out.length >= n) break; if (depth >= game.FLOOR_MODS[id].min) out.push(id); }
+    if (n > 0 && depth > 20 && lead < 0.65) for (const id of order) if (FM[id].deep && depth >= FM[id].min) { out.push(id); break; }
+    for (const id of order) { if (out.length >= n) break; if (depth >= FM[id].min && out.indexOf(id) < 0) out.push(id); }
     return out;
   };
 
@@ -223,11 +250,13 @@
 
   // Stat-level floor effects, applied to every hostile monster created on the floor (waves and adds included).
   game.applyFloorMods = function (e) {
+    if (game.applyPallor) game.applyPallor(e);          // R5.2: Pallor pressure (no-op while locked or at 0)
     const m = G.state.map;
     if (!m || !m.mods || !m.mods.length) return;
     if (m.mods.indexOf('hasted') >= 0) { e.speed *= 1.25; e.atkCd *= 0.8; }
     if (m.mods.indexOf('bloodlust') >= 0) { e.dmgMin *= 1.25; e.dmgMax *= 1.25; }
     if (m.mods.indexOf('armoured') >= 0) { e.stats.hpMax = Math.round(e.stats.hpMax * 1.4); e.hp = e.stats.hpMax; }
+    if (game.applyDeepFloorMods) game.applyDeepFloorMods(e, m.mods);
   };
 
   G.on('scene:changed', function (ev) {
@@ -250,7 +279,7 @@
   const G = window.G, game = G.game, U = game.U, W = game.W;
   game.cursedShrine = function (x, y) {
     const S = G.state, map = S.map, depth = Math.max(1, map.depth | 0);
-    const id = game.pickMonsterType(depth, map.theme), mod = U.rng.pick(game.AFFIX_IDS);
+    const id = game.pickMonsterType(depth, map.theme), mod = U.rng.pick(game.affixPool ? game.affixPool(depth) : game.AFFIX_IDS);
     for (let i = 0; i < 3; i++) {
       const a = i * 2.1, spot = W.free(x + Math.cos(a) * 2, y + Math.sin(a) * 2, 3);
       if (!spot) continue;

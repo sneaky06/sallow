@@ -146,6 +146,16 @@
           function () { st.lootFilter = FILTERS[(FILTERS.indexOf(cur) + 1) % FILTERS.length]; }),
         toggleRow('Auto-pickup gold', null, !!st.autoPickupGold, function () { st.autoPickupGold = !st.autoPickupGold; }),
         toggleRow('Damage numbers', null, !!st.showDamage, function () { st.showDamage = !st.showDamage; }),
+        h('div', { class: 'ed-h', text: 'Controls' }),
+        ui._hudSettings ? (function () {
+          const hs = ui._hudSettings();
+          return [
+            toggleRow('Joystick', hs.joystick.mode === 'fixed' ? 'Always in the same spot' : 'Appears where your thumb lands',
+              h('span', { class: 'ed-gold', text: hs.joystick.mode === 'fixed' ? 'Fixed' : 'Floating' }),
+              function () { hs.joystick.mode = hs.joystick.mode === 'fixed' ? 'floating' : 'fixed'; if (ui._applyHud) ui._applyHud(); }),
+            toggleRow('Edit HUD layout', 'Move buttons, size, fade', h('span', { class: 'ed-gold', text: '>' }), function () { ui._editHud(); }),
+          ];
+        })() : null,
         h('div', { class: 'ed-h', text: 'Junk rules' }),
         ui._junkBlock ? ui._junkBlock() : null,
         ui._junkButton ? ui._junkButton() : null,

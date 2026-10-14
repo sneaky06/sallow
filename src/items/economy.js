@@ -43,9 +43,10 @@
   }
 
   // Sets and both Legendary sub-tiers are never junk and never touched by a bulk action (R3.1 / R3.9).
+  // R5.8: locked items are protected the same way.
   function protectedItem(item) {
     const r = C.RARITY[item.rarity] || {};
-    return item.rarity === 'set' || r.tier === 'legendary';
+    return item.rarity === 'set' || r.tier === 'legendary' || !!item.locked;
   }
   D.protectedItem = protectedItem;
 
@@ -63,6 +64,7 @@
     const p = P();
     const item = p && p.inventory[invIndex];
     if (!item) return 0;
+    if (item.locked) { D.fail('Unlock it first'); return 0; }
     const r = sellAt(p, invIndex);
     D.addGold(p, r.gold, 'sell');
     invChanged();
@@ -91,6 +93,44 @@
     return gold;
   };
 
+  // ---- mass selling (R5.8): every piece of equipment at or below a rarity; never sets, Legendary (either sub-tier),
+  // locked items, unrevealed bleached items, gems, lore or consumables. Sold items go to buyback as usual.
+  function sellableAtOrBelow(item, limit) {
+    return !!item && D.isEquip(item) && !protectedItem(item) && !(item.bleached && item.hidden) && rord(item.rarity) <= limit;
+  }
+  // -> { count, gold, gems } (gems = socketed gems that would be ground to dust: warn when > 0)
+  I.previewSellAtOrBelow = function (rarityKey) {
+    const p = G.state.player;
+    const out = { count: 0, gold: 0, gems: 0 };
+    if (!p || !p.inventory || !C.RARITY[rarityKey]) return out;
+    const limit = rord(rarityKey);
+    for (const it of p.inventory) {
+      if (!sellableAtOrBelow(it, limit)) continue;
+      out.count++;
+      out.gold += sellValue(it);
+      out.gems += socketedCount(it);
+    }
+    return out;
+  };
+  // -> { count, gold }
+  I.sellAtOrBelow = function (rarityKey) {
+    const p = P();
+    const out = { count: 0, gold: 0 };
+    if (!p || !C.RARITY[rarityKey]) return out;
+    const limit = rord(rarityKey);
+    for (let i = 0; i < C.INV_SIZE; i++) {
+      if (!sellableAtOrBelow(p.inventory[i], limit)) continue;
+      out.gold += sellAt(p, i).gold;
+      out.count++;
+    }
+    if (out.count) {
+      D.addGold(p, out.gold, 'sell');
+      D.toast('Sold ' + out.count + ' item' + (out.count > 1 ? 's' : '') + ' for ' + out.gold + ' gold', '#ffd94a');
+      invChanged();
+    }
+    return out;
+  };
+
   // ---- junk rules (R3.1) ----
   const JUNK_DEFAULT = { maxRarity: 'common', action: 'sell', auto: false, keepUpgrades: true, keepSocketed: true };
   function junkRules() {
@@ -101,6 +141,7 @@
 
   I.isJunk = function (item) {
     if (!D.isEquip(item) || protectedItem(item)) return false;
+    if (item.bleached && item.hidden) return false;      // R5.2: an unrevealed secret is never junk
     const rules = junkRules();
     if (!rules.maxRarity || rules.maxRarity === 'none' || !C.RARITY[rules.maxRarity]) return false;
     if (rord(item.rarity) > rord(rules.maxRarity)) return false;
@@ -235,6 +276,7 @@
     const item = p && p.inventory[invIndex];
     if (!item) return false;
     if (!D.isEquip(item)) return D.fail('Cannot salvage that');
+    if (item.locked) return D.fail('Unlock it first');
     const m = salvageAt(p, invIndex).materials;
     const parts = [];
     for (const k in m) if (m[k]) parts.push('+' + m[k] + ' ' + (k === 'gemdust' ? 'gem dust' : k));

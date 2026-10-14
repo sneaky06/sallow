@@ -20,7 +20,7 @@
   let hud = null, visible = false;
   const el = { skills: [], cds: [], cdTxt: [], skIco: [] };
   // last values written to the DOM
-  const last = { hp: -1, hpT: -1, mp: -1, mpT: -1, xp: -1, area: '', gold: -1, potHp: -1, potMp: -1, attr: -1, sp: -1, portal: null, boss: -2, bossName: '', corpse: -2, sealed: null, lock: '' };
+  const last = { hp: -1, hpT: -1, mp: -1, mpT: -1, xp: -1, area: '', gold: -1, potHp: -1, potMp: -1, attr: -1, sp: -1, portal: null, boss: -2, bossName: '', corpse: -2, sealed: null, lock: '', floor: '', pal: '' };
   const slots = [];           // per skill slot: { id, mpCost, cooldown, cdStep, cdSec, nomana }
   let skDirty = true, questDirty = true, tick = 0, slow = 0, mmCtx = null, mmFailed = false;
   let goldFeed = null, goldFeedSum = 0, goldFeedT = 0;
@@ -42,8 +42,13 @@
     el.area = h('div', { class: 'ed-area' });
     el.areaTxt = document.createTextNode('');
     el.goldTxt = h('small');
-    el.area.append(el.areaTxt, el.goldTxt);
-    el.tracker = h('div', { class: 'ed-tracker' });
+    // R5.10 floor name and R5.2 Pallor meter sit under the depth label
+    el.floor = h('small', { class: 'ed-floor', style: 'display:none' });
+    el.palFill = h('i');
+    el.palTxt = h('span');
+    el.pallor = h('div', { class: 'ed-pallor', style: 'display:none' }, h('div', { class: 'ed-palbar' }, el.palFill), el.palTxt);
+    el.area.append(el.areaTxt, el.goldTxt, el.floor, el.pallor);
+    el.tracker = h('div', { class: 'ed-tracker ed-mv' });
     el.mm = h('canvas', { width: 80, height: 80 });
     mmCtx = el.mm.getContext('2d');
 
@@ -80,15 +85,17 @@
     press(el.potHp, function () { G.emit('input:potion', { kind: 'hp' }); });
     press(el.potMp, function () { G.emit('input:potion', { kind: 'mp' }); });
 
-    const cluster = h('div', { class: 'ed-cluster' },
-      h('div', { class: 'ed-vitals' },
-        h('div', { class: 'ed-orb hp' }, el.hpFill, el.hpTxt), el.potHp, el.potMp, h('div', { class: 'ed-orb mp' }, el.mpFill, el.mpTxt)));
+    // R5.1: the action cluster is split into pieces the player can move one by one (hudedit.js); the CSS defaults
+    // reproduce the old cluster: potions + orbs on top, 2x2 skills, attack at the bottom right.
+    el.vitals = h('div', { class: 'ed-vitals ed-mv' },
+      h('div', { class: 'ed-orb hp' }, el.hpFill, el.hpTxt), el.potHp, el.potMp, h('div', { class: 'ed-orb mp' }, el.mpFill, el.mpTxt));
+    el.skillBox = h('div', { class: 'ed-skills ed-mv' });
 
     for (let i = 0; i < C.SKILL_SLOTS; i++) {
       const ico = h('i', { class: 'ed-ico' });
       const cd = h('div', { class: 'ed-cd' });
       const txt = h('u');
-      const b = h('button', { type: 'button', class: 'ed-skill empty', style: 'grid-column:' + (i % 2 + 1) + ';grid-row:' + ((i >> 1) + 2), 'aria-label': 'Skill ' + (i + 1) },
+      const b = h('button', { type: 'button', class: 'ed-skill empty', 'aria-label': 'Skill ' + (i + 1) },
         ico, cd, txt, h('em', { text: String(i + 1) }));
       press(b, function () {
         const p = S.player;
@@ -97,10 +104,10 @@
       });
       el.skills.push(b); el.cds.push(cd); el.cdTxt.push(txt); el.skIco.push(ico);
       slots.push({ id: undefined, mpCost: 0, cooldown: 0, cdStep: -1, cdSec: -1, nomana: null });
-      cluster.appendChild(b);
+      el.skillBox.appendChild(b);
     }
 
-    el.atk = h('button', { type: 'button', class: 'ed-atk', 'aria-label': 'Attack' }, ui._icon({ shape: 'slash', color: '#ffb0a0', accent: '#b3202a' }, 48), 'Attack');
+    el.atk = h('button', { type: 'button', class: 'ed-atk ed-mv', 'aria-label': 'Attack' }, ui._icon({ shape: 'slash', color: '#ffb0a0', accent: '#b3202a' }, 48), 'Attack');
     el.atk.addEventListener('pointerdown', function (e) {
       e.preventDefault();
       try { el.atk.setPointerCapture(e.pointerId); } catch (err) { /* synthetic pointer */ }
@@ -111,23 +118,52 @@
     const release = function () { G.input.attackHeld = false; el.atk.classList.remove('on'); };
     ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(function (t) { el.atk.addEventListener(t, release); });
     window.addEventListener('blur', release);
-    cluster.appendChild(el.atk);
 
     // R4.4 class action (Ranger dash): shown only when the class has one; sits above the attack button (portrait) or
     // just left of the action cluster (landscape) — never in the joystick zone.
     el.dashIco = h('i', { class: 'ed-ico' });
     el.dashCd = h('div', { class: 'ed-cd' });
     el.dashName = h('span', { text: 'Dash' });
-    el.dash = h('button', { type: 'button', class: 'ed-dash', 'aria-label': 'Dash' }, el.dashCd, el.dashIco, el.dashName);
+    el.dash = h('button', { type: 'button', class: 'ed-dash ed-mv', 'aria-label': 'Dash' }, el.dashCd, el.dashIco, el.dashName);
     press(el.dash, function () { G.emit('input:classaction', {}); dash.poll = 0; });
 
+    // the portal button left the top row so it can be placed on its own; by default it sits where it always did
+    el.bTp.className += ' ed-portal ed-mv';
+    el.mmBtn = h('button', { type: 'button', class: 'ed-mm ed-mv', 'aria-label': 'Map', onclick: function () { ui._sfx('click'); ui.open('map'); } }, el.mm);
     hud = h('div', { class: 'ed-hud', style: 'display:none' },
-      h('div', { class: 'ed-xp' }, el.xp), el.area, el.tracker,
-      h('button', { type: 'button', class: 'ed-mm', 'aria-label': 'Map', onclick: function () { ui._sfx('click'); ui.open('map'); } }, el.mm),
-      h('div', { class: 'ed-topbtns' }, el.bTp, el.bInv, el.bSkl, el.bQst, el.bMenu),
-      el.boss, el.lock, el.feed, cluster, el.dash);
+      h('div', { class: 'ed-xp' }, el.xp), el.area, el.tracker, el.mmBtn,
+      h('div', { class: 'ed-topbtns' }, el.bInv, el.bSkl, el.bQst, el.bMenu), el.bTp,
+      el.boss, el.lock, el.feed, el.vitals, el.skillBox, el.atk, el.dash);
     layers.hud.appendChild(hud);
+    ui._hudEl = hud;
+    // movable pieces for the HUD editor, in the order they are listed there
+    ui._hudMovables = {
+      atk: { el: el.atk, label: 'Attack' }, skills: { el: el.skillBox, label: 'Skills' }, vitals: { el: el.vitals, label: 'Potions' },
+      dash: { el: el.dash, label: 'Dash' }, portal: { el: el.bTp, label: 'Portal' }, mm: { el: el.mmBtn, label: 'Map' },
+      tracker: { el: el.tracker, label: 'Quests' },
+    };
   }
+
+  // ---------- floor name + Pallor ----------
+  const ROMAN = ['', 'I', 'II', 'III', 'IV'];
+  // R5.10: the world team names each floor; the field is read defensively (floorName first, the variant name last)
+  ui._floorName = function () {
+    const m = S.map;
+    if (!m || S.scene !== 'dungeon') return '';
+    const v = m.variant && typeof m.variant === 'object' ? m.variant : null;
+    const n = m.floorName || (v && v.floorName) || (typeof m.name === 'string' ? m.name : '') || (v && v.name) || '';
+    return typeof n === 'string' ? n : '';
+  };
+  // { value 0..100, tier 0..4, effects } once the ending has unlocked Pallor, else null
+  function pallorInfo() {
+    if (!S.flags.pallorUnlocked) return null;
+    let p = null;
+    if (G.game && G.game.getPallor) { try { p = G.game.getPallor(); } catch (err) { p = null; } }
+    const value = Math.max(0, Math.min(100, Math.round(p && p.value != null ? +p.value : +S.flags.pallor || 0)));
+    const tier = p && p.tier != null ? p.tier | 0 : Math.min(4, Math.floor(value / 25));
+    return { value: value, tier: tier, effects: (p && Array.isArray(p.effects)) ? p.effects : [] };
+  }
+  ui._pallorInfo = pallorInfo;
 
   // ---------- slow refreshers ----------
   function refreshSkills(p) {
@@ -186,6 +222,22 @@
       const FM = (G.game && G.game.FLOOR_MODS) || {};
       const names = fm ? fm.map(function (id) { return (FM[id] && FM[id].name) || id; }) : [];
       el.goldTxt.replaceChildren(gold + ' g', names.length ? h('span', { class: 'ed-mods', text: '  ' + names.join(' · ') }) : '');
+    }
+    // floor name (R5.10) and Pallor (R5.2); the quest tracker's default top follows the label's height
+    const fname = ui._floorName();
+    const pal = pallorInfo();
+    const palKey = pal ? pal.value + '|' + pal.tier : '';
+    if (fname !== last.floor || palKey !== last.pal) {
+      if ((fname !== '') !== (last.floor !== '')) el.floor.style.display = fname ? 'block' : 'none';
+      if (fname !== last.floor) el.floor.textContent = fname;
+      if ((palKey !== '') !== (last.pal !== '')) el.pallor.style.display = pal ? 'flex' : 'none';
+      if (pal) {
+        el.palFill.style.width = pal.value + '%';
+        el.palTxt.textContent = 'Pallor ' + pal.value + (pal.tier > 0 ? ' ' + ROMAN[Math.min(pal.tier, 4)] : '');
+        el.pallor.className = 'ed-pallor t' + Math.min(pal.tier, 4);
+      }
+      last.floor = fname; last.pal = palKey;
+      hud.style.setProperty('--trk-top', (el.area.offsetTop + el.area.offsetHeight + 4) + 'px');
     }
     const portal = S.scene === 'dungeon';
     if (portal !== last.portal) { last.portal = portal; el.bTp.style.display = portal ? '' : 'none'; }
@@ -460,6 +512,20 @@
     el.lockTitle.textContent = 'The seal is broken';
     last.lock = 'The chest is yours'; el.lockTxt.textContent = last.lock;
     el.lock.style.display = 'block';
+  });
+
+  // R5.10: name the floor once on arrival (after the scene settles, so it is not lost under the arrival toasts)
+  let floorTimer = 0;
+  G.on('scene:changed', function (e) {
+    clearTimeout(floorTimer);
+    if (!e || e.scene !== 'dungeon') return;
+    floorTimer = setTimeout(function () {
+      const n = ui._floorName();
+      if (!n || S.scene !== 'dungeon' || !S.player) return;
+      const pal = S.map && S.map.variant && S.map.variant.palette;
+      const col = pal && typeof pal === 'object' && /^#[0-9a-f]{3,6}$/i.test(pal.accent || pal.light || '') ? (pal.accent || pal.light) : '#d8c9a3';
+      ui._banner(n, 'Depth ' + S.depth + ' · ' + ui._themeName(S.depth), col, 3.5);
+    }, 700);
   });
 
   G.on('scene:changed', function () {

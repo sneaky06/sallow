@@ -261,7 +261,7 @@
   // Stepped radial light for the additive light map.
   U.lightSprite = function (key) {
     if (lights[key]) return lights[key];
-    const c = LCOL[key] || LCOL.warm, b = new U.Buf(64, 64);
+    const c = LCOL[key] || (typeof key === 'string' && key[0] === '#' ? U.rgbOf(key) : LCOL.warm), b = new U.Buf(64, 64);
     for (let y = 0; y < 64; y++) {
       for (let x = 0; x < 64; x++) {
         const d = Math.hypot(x - 31.5, y - 31.5) / 32;

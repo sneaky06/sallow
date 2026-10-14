@@ -135,6 +135,102 @@
     return [Math.round(tipX), Math.round(tipY)];
   }
 
+  // ---- visible gear (R5.9). GEAR is set only while a geared player sheet is being built; null otherwise.
+  // Each piece L = { mat, m, md, ml, t, td, g, horns, crown, spikes, glowy } (see gear.js).
+  let GEAR = null;
+  function gearBoots(g, L, x, fy, w) {
+    g.r(x, fy - 2, w, 3, L.m); g.r(x, fy - 2, w, 1, L.mat === 'cloth' ? L.md : L.ml); g.d(x + w - 1, fy, L.md);
+    if (L.mat === 'plate') { g.d(x, fy - 3, L.ml); g.r(x, fy - 1, w, 1, L.md); }
+    else if (L.mat === 'leather') g.r(x, fy - 2, w, 1, L.t);
+    else if (L.mat === 'cloth') g.d(x, fy - 1, L.t);
+    else if (L.mat === 'bone') g.d(x + w, fy, L.ml);
+    if (L.spikes) g.d(x - 1, fy - 2, L.ml);
+  }
+  function gearChest(g, L, tl, tt, tw, th, back) {
+    const m = L.m, md = L.md, ml = L.ml, t = L.t, mid = tl + (tw >> 1);
+    if (L.mat === 'bone') {
+      g.r(tl, tt, tw, th, md);
+      for (let y = 0; y < th - 1; y += 2) g.r(tl + 1, tt + y, tw - 2, 1, y ? m : ml);
+      if (!back) g.r(mid, tt, 1, th - 1, ml);
+    } else {
+      g.r(tl, tt, tw, th, m);
+      g.r(tl, tt, 1, th, md); g.r(tl + tw - 1, tt + 1, 1, th - 1, md); g.r(tl + 1, tt, tw - 2, 1, ml);
+      if (L.mat === 'mail') { for (let y = tt + 1; y < tt + th - 1; y++) for (let x = tl + 1; x < tl + tw - 1; x++) if ((x + y) & 1) g.d(x, y, md); }
+      else if (L.mat === 'leather') { if (!back) { g.l(tl + 1, tt + 1, tl + tw - 2, tt + th - 2, t); g.d(tl + 2, tt + 2, ml); g.d(tl + tw - 3, tt + 3, ml); } else g.l(tl + tw - 2, tt + 1, tl + 1, tt + th - 2, t); }
+      else if (L.mat === 'cloth') { g.r(tl, tt + th, tw, 2, md); g.r(tl, tt + th + 1, tw, 1, t); if (!back) g.r(mid, tt + 1, 1, th - 1, t); }
+      else if (L.mat === 'plate' && !back) { g.r(mid, tt + 1, 1, th - 3, ml); g.d(mid - 2, tt + 2, ml); }
+    }
+    g.r(tl, tt + th - 2, tw, 1, L.mat === 'cloth' ? L.td : t);                         // belt / sash line
+    if (L.acc && !back) g.d(mid, tt + th - 2, L.acc);                                // buckle
+    if (L.mat === 'plate' || L.mat === 'bone' || L.spikes) {                           // pauldrons
+      g.r(tl - 1, tt - 1, 3, 2, ml); g.r(tl + tw - 2, tt - 1, 3, 2, m); g.d(tl - 1, tt, md); g.d(tl + tw, tt, md);
+      if (L.spikes) { g.d(tl - 1, tt - 2, ml); g.d(tl + tw, tt - 2, ml); }
+    }
+    if (L.g && !back) { g.d(mid, tt + 2, L.g); if (L.glowy) g.d(mid, tt + 3, L.gd); }
+  }
+  function gearHelm(g, L, P, hx, ht, hw, hh, back) {
+    const m = L.m, md = L.md, ml = L.ml, t = L.t;
+    switch (L.mat) {
+      case 'plate':
+        g.r(hx - 1, ht - 1, hw + 2, hh, m); g.r(hx - 1, ht - 1, hw + 2, 1, ml); g.r(hx - 1, ht - 1, 1, hh, md);
+        if (!back) { g.r(hx + 2, ht + 2, hw - 1, 1, P.dark); g.d(hx + hw - 2, ht + 3, md); if (L.g) g.d(hx + hw - 1, ht + 2, L.g); }
+        if (!L.horns && !L.crown && !L.spikes) g.r(hx + 1, ht - 2, hw - 2, 1, t);       // crest
+        break;
+      case 'mail':
+        if (back) g.r(hx - 1, ht - 1, hw + 2, hh + 1, m);
+        else { g.r(hx - 1, ht - 1, hw + 2, 3, m); g.r(hx - 1, ht, 3, hh, m); g.r(hx + 2, ht + hh - 1, hw - 2, 1, md); }
+        for (let y = ht; y < ht + hh; y++) for (let x = hx - 1; x < hx + hw + 1; x++) if (((x + y) & 1) && (back || x < hx + 2 || y < ht + 2)) g.d(x, y, md);
+        g.r(hx - 1, ht - 1, hw + 2, 1, ml);
+        break;
+      case 'leather':
+        g.r(hx - 1, ht - 1, hw + 2, 2, m); g.r(hx - 1, ht + 1, hw + 2, 1, md); g.r(hx - 1, ht + 1, 2, 3, md); g.r(hx, ht - 1, hw, 1, ml);
+        break;
+      case 'cloth':
+        g.r(hx - 1, ht - 1, hw + 2, hh + 1, md); g.r(hx, ht - 2, hw, 1, md); g.r(hx - 1, ht - 1, hw + 2, 1, m); g.r(hx - 1, ht + hh - 1, hw + 2, 1, t);
+        if (!back) { g.r(hx + 2, ht + 1, hw - 2, hh - 2, P.dark); g.d(hx + hw - 2, ht + 2, L.g || P.eye); g.d(hx + hw - 4, ht + 2, L.g || P.eye); }
+        break;
+      case 'bone':
+        g.r(hx - 1, ht - 2, hw + 2, 4, ml); g.r(hx - 1, ht + 2, 2, 3, m); g.r(hx - 1, ht - 2, 1, 4, m);
+        if (!back) { g.d(hx + hw - 2, ht - 1, P.dark); g.d(hx + hw - 4, ht - 1, P.dark); g.r(hx + 1, ht + 1, hw - 1, 1, md); g.d(hx + 2, ht + 1, ml); g.d(hx + 4, ht + 1, ml); if (L.g) g.d(hx + hw - 2, ht - 1, L.g); }
+        break;
+      default:                                                                         // generic open helm
+        g.r(hx - 1, ht - 1, hw + 2, 3, m); g.r(hx - 1, ht - 1, hw + 2, 1, ml); g.r(hx - 1, ht + 2, 2, 3, md);
+        if (!back) g.r(hx + hw - 1, ht + 2, 1, 2, md);
+    }
+    if (L.horns) { g.d(hx - 2, ht - 1, ml); g.d(hx - 2, ht - 2, ml); g.d(hx - 3, ht - 3, t); g.d(hx + hw + 1, ht - 1, ml); g.d(hx + hw + 1, ht - 2, ml); g.d(hx + hw + 2, ht - 3, t); }
+    if (L.crown) { g.r(hx, ht - 2, hw, 1, t); g.d(hx, ht - 3, t); g.d(hx + (hw >> 1), ht - 3, t); g.d(hx + hw - 1, ht - 3, t); g.d(hx + (hw >> 1), ht - 2, L.g || '#ff3b4e'); }
+    if (L.spikes) { g.d(hx + 1, ht - 2, ml); g.d(hx + 3, ht - 3, ml); g.d(hx + 5, ht - 2, ml); }
+  }
+  // off-hand held in the back hand: shield / orb / tome; quiver is worn (see biped)
+  function gearOffhand(g, L, kind, tl, sh, back) {
+    const m = L.m, md = L.md, ml = L.ml, t = L.t;
+    if (kind === 'orb') {
+      const x = tl - 2, y = sh + 4;
+      g.r(x - 1, y - 1, 3, 3, L.g || ml); g.d(x - 1, y - 1, '#ffffff'); g.d(x + 1, y + 1, L.gd || md);
+      return;
+    }
+    if (kind === 'tome') {
+      if (back) { g.r(tl - 3, sh + 3, 2, 5, m); return; }
+      g.r(tl - 4, sh + 3, 4, 5, m); g.r(tl - 4, sh + 3, 1, 5, '#d8d0b8'); g.r(tl - 3, sh + 3, 3, 1, ml); g.d(tl - 1, sh + 5, t);
+      if (L.g) g.d(tl - 2, sh + 5, L.g);
+      return;
+    }
+    if (back) { g.r(tl - 3, sh, 2, 7, md); return; }
+    if (L.mat === 'leather' || L.mat === 'cloth' || L.mat === 'bone') {             // round buckler
+      g.r(tl - 3, sh + 1, 5, 5, m); g.r(tl - 2, sh, 3, 7, m); g.r(tl - 3, sh + 1, 1, 4, ml); g.r(tl - 2, sh, 3, 1, ml);
+      g.r(tl - 1, sh + 3, 1, 1, t); g.d(tl - 2, sh + 6, md);
+    } else {                                                                           // kite / heater
+      g.r(tl - 3, sh, 5, 7, m); g.r(tl - 2, sh + 7, 3, 1, m); g.d(tl - 1, sh + 8, md);
+      g.r(tl - 3, sh, 5, 1, ml); g.r(tl - 3, sh, 1, 6, ml); g.r(tl + 1, sh + 1, 1, 6, md);
+      g.r(tl - 1, sh + 1, 1, 6, t); g.r(tl - 3, sh + 3, 5, 1, t);
+    }
+    if (L.g || L.acc) g.d(tl - 1, sh + 3, L.g || L.acc);
+    if (L.spikes) g.d(tl - 4, sh + 3, ml);
+  }
+  function gearQuiver(g, L, tl, tt, tw) {
+    g.l(tl + tw - 2, tt - 3, tl, tt + 5, L.m, 2); g.d(tl + tw - 2, tt - 4, L.ml); g.d(tl + tw - 1, tt - 4, L.t); g.d(tl + tw - 3, tt - 4, L.ml);
+  }
+
   // Two-legged rig shared by humanoid / skeleton / caster / brute / demon.
   const RIG = {
     humanoid: { leg: 6, lw: 2, tw: 8, th: 7, hw: 6, hh: 6, aw: 2 },
@@ -149,8 +245,10 @@
     const hip = -o.leg, tl = -(o.tw >> 1) + lean, tt = hip - o.th + bob;
     const hx = -(o.hw >> 1) + lean + (back ? 0 : 1) + (o.hunch && !back ? 2 : 0), ht = tt - o.hh + (o.neck || 0) + (o.hunch ? 2 : 0);
     const sh = tt + 2, aw = o.aw;
+    const GR = GEAR;
     const flesh = o.bones ? P.c : o.bare ? P.cl : P.skin;
-    const sleeve = o.bones ? P.cd : o.bare ? P.c : P.cd;
+    const sleeve = GR && GR.chest ? GR.chest.md : o.bones ? P.cd : o.bare ? P.c : P.cd;
+    const hand = GR && GR.gloves ? GR.gloves.m : flesh, handB = GR && GR.gloves ? GR.gloves.md : o.bones ? P.cd : flesh === P.skin ? P.skinD : P.c;
     let fx, fy;                               // weapon hand
     switch (p.arm) {
       case 1: fx = tl + o.tw - 1; fy = sh - 3; break;
@@ -164,9 +262,10 @@
     let tip = [fx, fy];
     const frontArm = function () {
       g.l(tl + o.tw - 1, sh, fx, fy, sleeve, aw);
-      g.r(fx, fy, aw, aw, flesh);
-      if (o.bare && aw > 2) g.r(fx - 1, fy, aw + 1, aw, flesh);
-      if (wpn && wpn !== 'none') tip = weapon(g, P, wpn, fx + (aw > 1 ? 1 : 0), fy, p);
+      g.r(fx, fy, aw, aw, hand);
+      if (o.bare && aw > 2) g.r(fx - 1, fy, aw + 1, aw, hand);
+      if (GR && GR.gloves) { const L = GR.gloves; if (L.mat === 'plate' || L.mat === 'leather' || L.mat === 'mail') g.r(fx - 1, fy - 1, aw + 1, 1, L.ml); if (L.spikes) g.d(fx + aw, fy, L.ml); }
+      if (wpn && wpn !== 'none') tip = weapon(g, (GR && GR.wP) || P, wpn, fx + (aw > 1 ? 1 : 0), fy, p);
       if (p.glow) glow(g, P, tip[0], tip[1] - (wpn && wpn !== 'none' ? 0 : 2), p.glow);
     };
 
@@ -193,11 +292,14 @@
       const ax = -1 - o.lw + p.la + hl, bx = 1 + p.lb + hl;
       g.r(ax, hip, o.lw, o.leg - p.ua, legC); g.r(ax, -1 - p.ua, o.lw + 1, 1, o.bones ? P.c : P.boot);
       g.r(bx, hip, o.lw, o.leg - p.ub, legC2); g.r(bx, -1 - p.ub, o.lw + 1, 1, o.bones ? P.cl : P.boot);
+      if (GR && GR.boots) { gearBoots(g, GR.boots, ax, -1 - p.ua, o.lw + 1); gearBoots(g, GR.boots, bx, -1 - p.ub, o.lw + 1); }
     }
+    if (o.robe && GR && GR.boots) { const sw = p.anim === 'walk' ? (p.f & 1 ? 0 : p.f === 0 ? 1 : -1) : 0; g.r(tl + hl + sw, -1, 3, 1, GR.boots.m); g.r(tl + o.tw - 3 + hl - sw, -1, 3, 1, GR.boots.md); }
 
     // back arm (and shield)
     if (p.arm === 4 || p.arm === 5) g.l(tl, sh, tl - 2, sh - 4, sleeve, aw);
-    else g.r(tl - aw + 1, sh, aw, o.long ? 8 : 5, sleeve), g.r(tl - aw + 1, sh + (o.long ? 8 : 5), aw, Math.max(1, aw - 1), o.bones ? P.cd : flesh === P.skin ? P.skinD : P.c);
+    else g.r(tl - aw + 1, sh, aw, o.long ? 8 : 5, sleeve), g.r(tl - aw + 1, sh + (o.long ? 8 : 5), aw, Math.max(1, aw - 1), handB);
+    if (GR && GR.off && GR.off.kind === 'quiver' && !back) gearQuiver(g, GR.off.L, tl, tt, o.tw);
 
     // torso
     if (o.bones) {
@@ -216,7 +318,11 @@
         else g.r(tl + 2, tt + 1, o.tw - 4, 1, P.cd);
       }
     }
-    if (wpn === 'shield' && !back) {
+    if (GR && GR.chest) gearChest(g, GR.chest, tl, tt, o.tw, o.th, back);
+    if (GR && GR.off) {
+      if (GR.off.kind === 'quiver') { if (back) gearQuiver(g, GR.off.L, tl, tt, o.tw); }
+      else gearOffhand(g, GR.off.L, GR.off.kind, tl, sh, back);
+    } else if (wpn === 'shield' && !back) {
       g.r(tl - 3, sh, 5, 7, P.a); g.r(tl - 2, sh + 7, 3, 1, P.a); g.r(tl - 3, sh, 5, 1, P.al); g.r(tl - 3, sh, 1, 6, P.al);
       g.r(tl - 1, sh + 2, 1, 3, P.ad); g.r(tl - 2, sh + 3, 3, 1, P.ad);
     } else if (wpn === 'shield') {
@@ -224,7 +330,11 @@
     }
 
     // head
-    if (o.hood) {
+    if (GR && GR.helm) {
+      g.r(hx, ht, o.hw, o.hh, flesh);
+      if (!back) { g.d(hx + o.hw - 2, ht + 3, P.dark); g.d(hx + o.hw - 4, ht + 3, P.dark); g.r(hx + 2, ht + o.hh - 1, o.hw - 2, 1, P.skinD); }
+      gearHelm(g, GR.helm, P, hx, ht, o.hw, o.hh, back);
+    } else if (o.hood) {
       g.r(hx - 1, ht - 1, o.hw + 2, o.hh + 1, P.cd); g.r(hx, ht - 2, o.hw, 1, P.cd); g.r(hx - 1, ht - 1, o.hw + 2, 1, P.c);
       if (!back) { g.r(hx + 2, ht + 1, o.hw - 2, o.hh - 2, P.dark); g.d(hx + o.hw - 2, ht + 2, P.eye); g.d(hx + o.hw - 4, ht + 2, P.eye); }
     } else if (o.bones) {
@@ -440,7 +550,7 @@
   const cache = new Map();
   const DEFAULT = { body: 'humanoid', color: '#8a8a96', accent: '#c8c8d0', scale: 1, weapon: 'none' };
   U.sprites = {
-    CELL: CELL, OX: OX, OY: OY,
+    CELL: CELL, OX: OX, OY: OY, palette: palette,
     get: function (desc) {
       if (!desc || typeof desc !== 'object') desc = DEFAULT;
       let s = desc.scale;
@@ -455,6 +565,17 @@
       if (cache.size > 160) cache.clear();
       cache.set(key, sheet);
       return sheet;
+    },
+    // Uncached build of a sheet with visible gear drawn into the rig (gear.js caches the result per equipment combo).
+    // gear = { helm, chest, gloves, boots, off: { kind, L }, wP } of resolved looks; wpn = weapon look to draw.
+    buildGeared: function (desc, gear, wpn) {
+      if (!desc || typeof desc !== 'object') desc = DEFAULT;
+      const body = BODIES.indexOf(desc.body) >= 0 ? desc.body : 'humanoid';
+      if (WEAPONS.indexOf(wpn) < 0) wpn = 'none';
+      GEAR = gear || null;
+      try { return buildSheet(desc, body, wpn, 1); }
+      catch (err) { console.warn('[engine] gear sheet build failed', err); GEAR = null; return buildSheet(desc, body, wpn, 1); }
+      finally { GEAR = null; }
     },
     // frame column for an animation at time t (seconds in that animation)
     column: function (anim, t) {

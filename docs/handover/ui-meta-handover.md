@@ -52,3 +52,26 @@ Status (2026-10-13, Revision 2 pass): section 5 + R2.2–R2.7 implemented and ve
 - Dash button from G.game.getClassAction(), emits input:classaction; lockdown counter reads G.game.getLockdown().
 - Player-facing name comes from G.ui.GAME_NAME (style.js) = 'Sallow'. Save key 'emberdeep.save' and cache prefix 'emberdeep-' unchanged.
   sw.js VERSION emberdeep-v5. manifest.webmanifest name/short_name are 'Sallow' (static JSON cannot read the constant).
+
+## Revision 5 (2026-10-14)
+- New src/ui/hudedit.js (R5.1). state.settings.hud = { size 'S'|'M'|'L', opacity 0.4..1, layouts: { portrait|landscape: { [id]: {x,y} } },
+  joystick: { mode, x, y, size } }. Piece ids: atk, skills, vitals (orbs + potions), dash, portal, mm, tracker = centre as a fraction of
+  the safe-area HUD box; 'joy' = fraction of the window. A piece with no entry keeps its CSS default, so Reset deletes entries.
+  hud.joystick is mirrored from the current orientation for the engine (size = stick DIAMETER / short side, engine input.js).
+  Opened from the pause menu ("Edit HUD layout"); Controls section also toggles Floating/Fixed. Snap grid 16 px, clamped to the safe area,
+  grabs are ≥44 px. Button size is the CSS var --bs (all action sizes are calc()s with a 44 px floor), opacity is --hop on .ed-mv.
+  The old .ed-cluster grid is gone: .ed-vitals / .ed-skills / .ed-atk / .ed-portal are absolutely placed; the portal left the top row.
+- New src/ui/pile.js: pile popup on pile:open (getPile / pickup / pickupPile, upgrades first, "?" opens the tooltip with Take), and the
+  "New N" review button in the bag (pitch): cards for every bag item with foundAt > state.flags.reviewedAt — Equip / Sell (town) or
+  Salvage / Keep, one tap each. Items from one pile share foundAt; the mark only moves past a timestamp once all its items are done.
+- Sort picker (R5.7) in bag, vendor Sell tab and stash: state.settings.sort; sortInventory(mode) / sortStash(mode).
+- Sell tab (R5.8): "Sell all ≤ Common / Magic / Rare" with live count + gold from previewSellAtOrBelow, confirm, sellAtOrBelow.
+  Tooltip Lock/Unlock (items.setLocked(item, bool), falls back to item.locked); padlock mark on cells (replaces the junk tag).
+- Tooltip extras (inventory.js extraLines): look family + Matched n/4 (+bonus lines once a match is in reach) via items.getLook / LOOKS,
+  awakened affixes + "Awakening k / next kills" (items.AWAKEN_AT), bleached "???" plate. In Details view an items-team line wins.
+- Paper doll + Stats tab use G.engine.getPlayerPreview(player, size) (portrait fallback).
+- story.js: ending onDone → flags.pallorUnlocked, flags.titles/title = 'Warden of the Well' (shown after the name in the bag and Stats),
+  a 3-line Pallor explanation. Heroes who saw the ending before get the unlock silently on the next scene change.
+- hud.js: floor name (map.floorName → variant.floorName → map.name → variant.name) under the depth label + arrival banner;
+  Pallor meter (game.getPallor, fallback flags.pallor) once unlocked. Quest tracker top follows the label height (--trk-top).
+- sw.js VERSION emberdeep-v6, ui._VERSION 0.6.0.

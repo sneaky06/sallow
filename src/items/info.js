@@ -8,10 +8,20 @@
   const C = G.C;
 
   const UNARMED = { dmgMin: 1, dmgMax: 3, attackSpeed: 1.2, weaponType: 'none', twoHanded: false };
-  const COL = { grey: '#8a8a92', white: '#e8e8e8', mod: '#8fb4ff', imp: '#c0c8d8', set: '#3ddc6a', red: '#ff5b5b', gold: '#ffd94a', flavor: '#b89b6a', gem: '#e0b0ff' };
+  const COL = { grey: '#8a8a92', white: '#e8e8e8', mod: '#8fb4ff', imp: '#c0c8d8', set: '#3ddc6a', red: '#ff5b5b', gold: '#ffd94a', flavor: '#b89b6a', gem: '#e0b0ff',
+    pale: '#e8e2cc', awake: '#e8d8a0', match: '#7fd4c8' };
 
   function isEquip(item) { return !!item && (item.type === 'weapon' || item.type === 'armor' || item.type === 'jewelry') && !!item.slot; }
   D.isEquip = isEquip;
+
+  // Every mod that counts: rolled + implicit mods (revealed bleached affixes live there too) plus awakened ones (R5.3).
+  // item.hidden (an unrevealed bleached affix) never counts.
+  const NONE = [];
+  function allMods(item) {
+    const m = (item && item.mods) || NONE;
+    return item && item.awakened && item.awakened.length ? m.concat(item.awakened) : m;
+  }
+  D.allMods = allMods;
 
   // Make sure the player carries every container this module relies on (safe to call any time).
   D.ensure = function (p) {
@@ -50,7 +60,7 @@
         if (it.base.armor) out.armor += it.base.armor;
         if (it.base.block) out.block += it.base.block;
       }
-      if (it.mods) for (const m of it.mods) if (out[m.stat] !== undefined) out[m.stat] += m.value;
+      for (const m of allMods(it)) if (out[m.stat] !== undefined) out[m.stat] += m.value;
       if (it.sockets) {
         for (const g of it.sockets) {
           if (g) for (const e of D.gemEffects(g, it)) out[e.stat] += e.value;
@@ -65,6 +75,8 @@
         if (counts[id] >= +n) for (const b of set.bonuses[n]) out[b[0]] += b[1];
       }
     }
+    const matched = D.matchedOf(eq);          // R5.9 Matched look bonus (separate from sets)
+    if (matched) for (const b of matched.bonuses) out[b[0]] += b[1];
     return out;
   }
 
@@ -216,7 +228,7 @@
     const b = item && item.base;
     if (!b || !b.dmgMax) return 0;
     let mn = b.dmgMin, mx = b.dmgMax, pct = 0;
-    for (const m of item.mods || []) {
+    for (const m of allMods(item)) {
       if (m.stat === 'dmgMin') mn += m.value;
       else if (m.stat === 'dmgMax') mx += m.value;
       else if (m.stat === 'dmgPct') pct += m.value;
@@ -225,12 +237,12 @@
   };
   function itemArmor(item) {
     let a = (item && item.base && item.base.armor) || 0;
-    if (item) for (const m of item.mods || []) if (m.stat === 'armor') a += m.value;
+    if (item) for (const m of allMods(item)) if (m.stat === 'armor') a += m.value;
     return a;
   }
   function statOf(item, stat) {
     let v = 0;
-    if (item) for (const m of item.mods || []) if (m.stat === stat) v += m.value;
+    if (item) for (const m of allMods(item)) if (m.stat === stat) v += m.value;
     return v;
   }
 
@@ -256,7 +268,7 @@
       h = { label: 'Armor', value: v, delta: cmp ? v - itemArmor(replaced) : null, pct: false };
     } else {
       let best = null, bw = -1;
-      for (const m of item.mods || []) {
+      for (const m of allMods(item)) {
         const w = Math.abs(m.value) * ((prof.weights[m.stat] || 0.1));
         if (w > bw) { bw = w; best = m.stat; }
       }
@@ -290,7 +302,11 @@
     const tip = { name: item.name + (item.qty > 1 ? ' ×' + item.qty : ''), color: r.color, lines: lines, headline: null };
     if (item.type === 'gold') { tip.name = item.qty + ' Gold'; tip.color = COL.gold; return tip; }
     const p = G.state.player;
+    let worn = false;
+    if (p && p.equipment) for (const s of C.EQUIP_SLOTS) if (p.equipment[s] === item) worn = true;
     tip.headline = headline(item);       // R3.4: { label, value, delta, pct } — delta vs equipped, null if nothing to compare
+    tip.locked = !!item.locked;          // R5.8: the UI draws the lock toggle from this
+    tip.bleached = !!(item.bleached && item.hidden);
 
     lines.push({ text: typeLine(item), color: COL.grey });
     // the mythic effect sits directly beneath the "Legendary Mythic …" label
@@ -330,7 +346,16 @@
       if (b.armor) lines.push({ text: b.armor + ' Armor', color: COL.white });
       if (b.block) lines.push({ text: b.block + '% Block', color: COL.white });
       for (const m of item.mods || []) if (m.implicit) lines.push({ text: I.formatStat(m.stat, m.value), color: COL.imp });
-      for (const m of item.mods || []) if (!m.implicit) lines.push({ text: I.formatStat(m.stat, m.value), color: COL.mod });
+      for (const m of item.mods || []) {
+        if (!m.implicit) lines.push({ text: I.formatStat(m.stat, m.value) + (m.bleached ? '  (bleached)' : ''), color: m.bleached ? COL.pale : COL.mod });
+      }
+      // R5.2 bleached: one hidden affix until the item reaches town
+      if (item.bleached && item.hidden) lines.push({ text: '??? — bleached; revealed when you bring it to town alive', color: COL.pale });
+      else if (item.faded) lines.push({ text: 'Bleached — its secret faded when you fell', color: COL.grey });
+      // R5.3 awakened affixes + progress
+      for (const a of item.awakened || []) lines.push({ text: '✧ ' + a.name + ': ' + I.formatStat(a.stat, a.value), color: COL.awake });
+      const prog = D.awakenProgress && D.awakenProgress(item);
+      if (prog && (worn || item.kills)) lines.push({ text: prog, color: COL.grey });
       for (const g of item.sockets || []) {
         if (g) {
           const perm = D.isPermanentGem(g);
@@ -352,6 +377,24 @@
           lines.push({ text: '(' + k + ') ' + txt, color: n >= +k ? COL.set : COL.grey });
         }
       }
+      // R5.9 look family; armour pieces that can match show the Matched bonus and how many worn pieces share it
+      const look = I.getLook(item), fam = look && I.LOOKS[look.family];
+      if (fam) {
+        if (fam.matched && D.LOOK_SLOTS.indexOf(item.slot) >= 0) {
+          const eq = Object.assign({}, (p && p.equipment) || {});
+          if (!worn) eq[item.slot] = item;
+          let n = 0;
+          for (const s of D.LOOK_SLOTS) { const l = I.getLook(eq[s]); if (l && l.family === fam.id) n++; }
+          lines.push({ text: fam.name + ' look · Matched ' + n + '/4', color: n >= 2 ? COL.match : COL.grey });
+          // the bonuses only once a match is in reach (keeps everyday tooltips short, R3.4)
+          if (n >= 2) {
+            const txt = [2, 4].map(function (k) {
+              return '(' + k + ') ' + fam.matched[k].map(function (bn) { return I.formatStat(bn[0], bn[1]); }).join(', ');
+            }).join(' · ');
+            lines.push({ text: txt, color: COL.match });
+          }
+        } else lines.push({ text: fam.name + ' look', color: COL.grey });
+      }
       const lvl = (p && p.level) || 1;
       lines.push({ text: 'Requires Level ' + item.reqLevel + '  ·  Item Level ' + item.ilvl, color: item.reqLevel > lvl ? COL.red : COL.grey });
       if (item.type === 'weapon') {
@@ -359,6 +402,7 @@
         if (fav.length) lines.push({ text: 'Favoured by ' + fav.join(', '), color: COL.grey });
       }
     }
+    if (item.locked) lines.push({ text: 'Locked — never sold, salvaged or junked', color: COL.grey });
     lines.push({ text: 'Sell: ' + (item.value || 0) * (item.qty || 1) + ' gold', color: COL.gold });
     if (item.flavor) lines.push({ text: '“' + item.flavor + '”', color: COL.flavor });
     return tip;

@@ -79,3 +79,69 @@ Status: done. `tests/world.html` (launch config `world`, port 8382) → "Run aut
 ## Open questions for the lead
 1. Lava x6 is a cost, not a ban: tap-to-move can route through shallow lava when the dry way is much longer. OK?
 2. Lockdown frequency and wave counts by depth - tune?
+
+## Revision 5 — floor variants, layout styles, landmarks (R5.10)
+
+Check: `tests/world.html` → "Run automated checks": **PASS — 682 dungeons (depth 1–40, 10 seeds each, plus every variant × every layout it can use, boss floors included) + 10 towns, 682,403 assertions, 0 failed**. Generation avg 0.67 ms/map, p95 1.2 ms, max 2.5 ms. No map needed a retry or the fallback layout.
+
+### map fields added (dungeons only)
+```js
+map.floorName   // 'The Drowned Ossuary' — one of 3 names per variant, picked from the seed
+map.variant = {
+  id, name,          // 'drowned_vaults', 'Drowned Vaults'
+  layout,            // layout actually used: see below ('fallback' if everything failed — never seen)
+  palette: { tint: '#rrggbb', tintAmount: 0..1,   // colour multiplied over lit tiles+walls; amount 0 = no tint
+             saturation: 0.1..1.6, brightness: 0.6..1.3,   // 1 = unchanged
+             accent: '#rrggbb',                    // magic glow: crystals, runes, shrines
+             liquid: '#rrggbb' | null },           // water/lava body override, null = theme default
+  light:   { color: '#rrggbb', radius: 0.6..1.4,   // player light colour, multiplier on the default radius
+             torch: '#rrggbb', torchRadius: 0.6..1.5, // torch/campfire colour, multiplier on prop.light
+             flicker: 0..1 },
+  ambient: { darkness: 0..0.8,                     // extra darkening on top of the theme (0 = theme default)
+             fog: 0..1, fogColor: '#rrggbb',       // distance haze density and colour
+             particles: { kind: 'dust'|'ember'|'ash'|'spore'|'drip'|'mote'|'snow'|'bubble'|'rune'|'none', color, density: 0..1 },
+             sound: 'drip'|'wind'|'hum'|'crackle'|'whisper'|'rumble'|'chime'|'silence' },   // ambient bed
+  blend:   null | { theme: 'crypt'|'caves'|'inferno', amount: 0..1 },   // deep abyss floors: which theme is bleeding in
+}
+map.landmarks = [{ id, name, x, y, w, h }]   // 0-3 per floor; rect in tiles. Not a room type — map.rooms is unchanged.
+```
+All plain JSON, a fresh copy per map. `G.world.VARIANTS` (data table incl. depth ranges) and `G.world.pickVariant(depth, seed)` are public; the UI can read `map.floorName` directly.
+
+### Variants (depth range → pool; chosen deterministically from the seed, weighted)
+- crypt: restless_graves 1–4, forgotten_cellars 1–3, ossuary 2–5, drowned_vaults 3–5, gravelord_approach 5
+- caves: mossy_caverns 6–10, fungal_warrens 6–9, crystal_lake 7–10, amber_hollows 6–8
+- inferno: smouldering_halls 11–14, magma_flows 12–15, ash_wastes 11–15, forgeworks 13–15
+- abyss 16–20 (and up to 26–30): starless_isles, shattered_spire, glasswork_drift
+- **deep-only (never above depth 20)**: fallen_cathedral (crypt blend), cinder_drift (inferno blend), overgrown_dark (caves blend) from 21; unmaking from 31; pale_end from 41. Each has `blend` set and its own layout that really mixes in the other theme's tiles (walls, lava, water), so the blend shows even if the engine ignores `blend`.
+
+### Layouts (3 per theme, 3 more deep)
+crypt: ossuary_halls · collapsed_catacomb (rubble, ragged breaches, few doors) · flooded_crypt (half the rooms drowned, plank walkways) —
+caves: caverns · warrens (many small chambers, wobbly tunnels) · underground_lake (one huge lake) —
+inferno: broken_halls · magma_flows (3–4 lava rivers) · ash_fields (no lava, rubble, open ground) —
+abyss: floating_chambers · scattered_isles (a dozen small islands) · shattered_spire (central platform + ring of satellites) —
+abyss 21+: fallen_cathedral (floating rooms with chancel walls) · cinder_isles (platforms with lava pits) · hollow_grove (cave blobs over the void).
+The variant picks the layout; if a layout fails validation its retries fall back to the theme's plain layout (`ossuary_halls`, `caverns`, `broken_halls`, `floating_chambers`), then `fallback`.
+
+### Landmarks
+Stamped before liquids are deepened, each validated: the floor's dry ground must stay one piece, else rolled back and another room tried. ~50% of floors from depth 3 get one, ~12% two (fewer on depth 1–2); variants bias which.
+flooded_crypt (crypt: pool, island, chest(s) behind a plank walkway) · forge_island (inferno/abyss: same with lava and a campfire) · collapsed_bridge (ravine across a room, two broken bridge stubs facing each other, a deep gap, a ledge along one wall, chest at the far stub) · bone_garden (dead trees, tombstones, bones in a lattice, chest in the middle) · chained_arena (elite room: ring of pillars, **a guaranteed `elite` spawn on the central tile**, a chest) · crystal_grotto (crystal ring + shrine + chests) · pyre_court (campfire ring + shrine + chest) · hidden_cache (below).
+Uses only existing prop types; `tree` (dead tree) and `campfire` now also appear in dungeons.
+
+### Hidden cache (the world team's own pitch)
+~40% of floors from depth 2 (not abyss): a one-tile gap in a room wall holds a lone `crate` with `secret: true` (`interact:'barrel'`, solid). Behind it a short passage and a 3×3 closet with a chest, two barrels and bones. The closet is only reachable once the crate is broken (the generator and checks treat secret crates as non-blocking for connectivity, like any breakable). No spawns are placed inside. **Game:** nothing to do — breaking the crate as a barrel opens it; optionally toast "A hidden cache!" when a `secret` prop is broken.
+
+### Other notes
+- Props rule additions: `secret: true` crate (above). Chained-arena elite is in `map.spawns` as an ordinary `kind:'elite'`.
+- Determinism: variant, name and landmarks derive only from (depth, seed) and are in the determinism check.
+- Test hook: `G.world._force = { variant, layout }` forces a variant/layout (used by tests/world.html); leave it null in the game. `G.world._lastAttempts` = attempts used by the last map.
+- Palette/light/ambient values are decisions only; the engine reads them. Values were picked for a dark Sallow look (tints at 0.22–0.45).
+
+### R5.10 format correction (aligned to the engine's reader — this supersedes the field list above)
+`map.variant` fields as actually emitted (names/units follow `engine-r5-shapes.md`):
+```js
+palette: { tint, amount: 0..1, saturation, brightness, accent, liquid|null }
+light:   { color, radius: tiles (player light, default 7), ambient: '#hex' (gloom colour), torch, torchRadius (× prop.light), flicker: 0..1 }
+ambient: { particles: 'mist|ash|ember|spore|drip|snow|motes|void', density: 0..2, color, fog: 0..1, darkness: 0..0.8, sound: 'wind|drone|drip|fire|heart|choir|water|none' }
+blend:   null | { theme, amount }
+```
+`map.floorName` holds the floor name (the UI reads it); `palette.accent` is the banner colour. Fields the engine ignores today (saturation, brightness, accent, liquid, torch*, flicker, darkness, blend) are there for later.

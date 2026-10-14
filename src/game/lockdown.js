@@ -89,7 +89,7 @@
   game.lockdownReward = function (p, x, y) {
     const I = G.items;
     if (!I) return;
-    const opts = { source: 'chest', level: Math.max(1, G.state.depth | 0), magicFind: p.stats.magicFind || 0, goldFind: p.stats.goldFind || 0, floor: 'rare' };
+    const opts = { source: 'chest', level: Math.max(1, G.state.depth | 0), magicFind: p.stats.magicFind || 0, goldFind: p.stats.goldFind || 0, floor: 'rare', pallor: game.pallorValue ? game.pallorValue() : 0 };
     try {
       if (I.dropLoot) I.dropLoot(x, y, opts);
     } catch (err) { console.error('[game] lockdown reward failed', err); }

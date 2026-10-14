@@ -64,3 +64,56 @@ index.html (all five teams loaded, new game → town rendered, zero console erro
   `entity.affixes` are listed under the plate (2 names + "+N" when more than 3) when the monster is within 6 tiles of the
   player, or when `player.targetId` / `state.targetId` equals its id (neither field exists yet — see question to lead).
 - Icon overrides are 16x16 now; tier files are gone. `getPortrait` honours `desc.id` (classId, monsterId, `npc_<role>`).
+
+## Revision 5 (engine side)
+New files: `gear.js` (visible gear, paper doll), `variant.js` (floor variants). Manifest order: … sprites, gear, … assets, variant, render.
+- **Loot piles (R5.6)**: ground items sharing `pileId` draw as one heap: best item on top (rarity, then equipment over
+  consumables, gold lowest), two lesser icons peeking out, a count badge, one label "Best Name +N", and the best item's
+  glow/beam. Items without `pileId`, and piles of one, look as before. New drops "spill": they burst out of the pile
+  point and settle into it (cosmetic, 0.5 s, fixed pool of 24); the heap hops when each one lands; Legendary-tier drops
+  flash the screen edge when they spawn (moved here from first draw).
+- **Visible gear (R5.9)**: the player's weapon/off-hand/helm/chest/gloves/boots are drawn from `item.look`
+  ({ family, palette, material?, glow? }). `look.material` (plate|mail|leather|cloth|bone) wins; otherwise words in
+  the family / baseId / name or `armorClass` decide. Palette: name, [main, trim, glow], or { main, trim, accent, glow }.
+  Family words add horns / crown / spikes, ember / void / frost glows. One sheet per equipment combination (cache 24),
+  ~1.5 ms to build; per frame only a numeric signature check of the 6 item ids. Weapon look = `item.weaponType`;
+  off-hand = `offhandType` (shield / orb / tome / quiver). `G.engine.getPlayerPreview(player, size = 96)` → transparent
+  canvas, idle front frame scaled by whole pixels; a new canvas when the gear changes (redraw on `equipment:changed`).
+  Hand-drawn overlay format: see "Gear overlays" below (for ART_SPEC.md).
+- **Floor variants (R5.10)**: `map.variant` is resolved once per map (`U.variant.get`): tileset tinted / desaturated /
+  brightened (canvas composites, once per floor, ~2.5 ms; water/lava take `palette.liquid`), `blend` mixes the other
+  theme's floor and wall tiles in as noise patches, `light.color/radius` = player light, `light.ambient` gives the
+  darkness its hue, `ambient.darkness` how deep it is, `ambient.fog` how dark explored-unseen ground gets,
+  `light.torch/torchRadius/flicker` restyle every warm prop light, particles mist|ash|ember|spore|drip|snow|motes|void
+  with density 0–2, and a WebAudio sound bed wind|drone|drip|water|fire|heart|choir|none (theme default when absent:
+  town wind, crypt drip, caves water, inferno fire, abyss heart). Beds crossfade over ~1.5 s, are off when
+  `settings.sfx === false` or `settings.ambience === false`.
+- **Pallor (R5.2)**: tier from `G.game.getPallor().tier` (else `flags.pallor / 20`), 0 in town. One composite fill
+  ('saturation' blend, grey) over the lit world, eased ~2 s per tier, plus a pale wash at tier 4. Loot beams, loot icons,
+  spell fx, labels, plates and bars are drawn after it and stay saturated. Tier ≥ 3 adds a faint high beating tone to the
+  sound bed. `G.engine.getPallorLevel()` = current eased amount 0..0.85.
+- **Joystick (R5.1)**: `settings.hud.joystick = { mode, x, y, size }` (x, y = centre as fractions of the viewport, size =
+  diameter as a fraction of the short side, radius clamped 24–80 px); `hud.portrait/landscape.joystick` override per
+  orientation; `hud.opacity` dims it. Fixed: drawn at the anchor (55% alpha idle), grabbed by a touch within 1.6 radii,
+  knob clamps at the rim. Floating: zone = left 40% (x < 0.5) or right 40% (x ≥ 0.5).
+- `U.dim` now follows `U.fogA` (rebuilt lazily when a floor's fog differs). `U.lightSprite` accepts '#hex' keys.
+
+### Gear overlays (hand-drawn) — proposed ART_SPEC text
+**Gear overlays — `assets/gear/<family>_<slot>.png`** (slot = weapon, offhand, helm, chest, gloves, boots; family = the
+item's `look.family`, e.g. `gear/rusted_mail_chest.png`). Listed in `assets/assets.js` like every other file.
+- They are worn by a **base body**: `assets/sprites/<classId>_base.png` (e.g. `warrior_base.png`), or one shared
+  `assets/sprites/player_base.png`. The base is a normal character sheet (640 × 80, same grid, anchor x 20 / y 34, same 16
+  columns and 2 rows as section 2) drawn in plain underclothes, **no weapon, no armour**. Draw every class base on the same
+  body template (same height, same poses frame by frame) so one overlay fits every class.
+- **Overlay sheet: 640 × 80 px**, exactly the base sheet's grid: 16 columns × 2 rows of 40 × 40 cells, feet anchor
+  x 20 / y 34, row 0 front-right, row 1 back-right, columns as in section 2 (idle 0–1, walk 2–5, attack 6–8, cast 9–11,
+  hit 12, die 13–15). Draw only the piece itself, on transparent pixels, sitting exactly where it covers the base body in
+  that frame. Include the piece's own 1 px dark outline. No ground shadow.
+- **Draw order** (the game composes it): front-facing rows: base → boots → chest → gloves → helm → offhand → weapon.
+  Back-facing rows: offhand → weapon → base → boots → chest → gloves → helm (held items go behind the body when you see
+  the back). So a weapon overlay only needs the weapon and the hand gripping it; a helm only the helm.
+- Empty frames reuse that sheet's frame 0 of the same row; an empty back row reuses the front row (same as characters).
+- Without a base sheet, overlays are not used: the procedural figure shows procedural gear, and a hand-drawn full class
+  sheet (`sprites/<classId>.png`) is shown as drawn with no gear. Slots whose family has no overlay show nothing on a
+  hand-drawn base, so draw a family's pieces together.
+- Big bodies (80 px cells) are not supported for the player.

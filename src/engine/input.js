@@ -4,9 +4,33 @@
   'use strict';
   const G = window.G, E = G.engine, U = E._;
   const JOY_R = 46, DEADZONE = 0.16;                 // CSS px / fraction
-  const joy = { active: false, id: -1, ox: 0, oy: 0, x: 0, y: 0, mx: 0, my: 0, mag: 0 };
+  const joy = { active: false, id: -1, ox: 0, oy: 0, x: 0, y: 0, mx: 0, my: 0, mag: 0, r: JOY_R, fixed: false };
   const keys = Object.create(null);
   let canvas = null;
+
+  // R5.1: state.settings.hud.joystick = { mode: 'floating'|'fixed', x, y, size } — x, y = stick centre as fractions of
+  // the viewport (window.innerWidth / innerHeight), size = stick diameter as a fraction of min(innerWidth, innerHeight). Optional orientation overrides
+  // hud.portrait.joystick / hud.landscape.joystick, and hud.opacity (0..1). Read on touch-down and when drawing.
+  const cfg = { fixed: false, right: false, cx: 0, cy: 0, r: JOY_R, opacity: 1 };
+  function frac(v, d) { return typeof v === 'number' && isFinite(v) ? Math.max(0, Math.min(1, v)) : d; }
+  function readCfg(rect) {
+    const S = G.state, hud = S && S.settings && S.settings.hud;
+    const land = rect.width > rect.height;
+    const o = hud && typeof hud === 'object' ? hud : {};
+    const ori = land ? o.landscape : o.portrait;
+    const j = (ori && typeof ori === 'object' && ori.joystick && typeof ori.joystick === 'object') ? ori.joystick : (o.joystick && typeof o.joystick === 'object' ? o.joystick : {});
+    // UI writes fractions of the full viewport (window.innerWidth / innerHeight); size = DIAMETER / min(innerW, innerH)
+    const vw = window.innerWidth || rect.width, vh = window.innerHeight || rect.height, short = Math.min(vw, vh) || 1;
+    cfg.fixed = j.mode === 'fixed';
+    const x = frac(j.x, land ? 0.14 : 0.2), y = frac(j.y, land ? 0.72 : 0.8);
+    cfg.right = x >= 0.5;
+    cfg.r = typeof j.size === 'number' && j.size > 0 ? Math.max(24, Math.min(80, j.size * short / 2)) : JOY_R;
+    // keep a fixed stick fully on screen
+    cfg.cx = Math.max(cfg.r + 4, Math.min(vw - cfg.r - 4, x * vw));
+    cfg.cy = Math.max(cfg.r + 4, Math.min(vh - cfg.r - 4, y * vh));
+    cfg.opacity = frac(o.opacity, 1);
+    return cfg;
+  }
 
   // screen-space direction → normalised world direction scaled by mag
   function setMove(sx, sy, mag) {
@@ -33,11 +57,15 @@
       else if (e.button === 2) G.emit("input:classaction", {});
       return;
     }
-    if (!joy.active && e.clientX - rect.left < rect.width * 0.4) {
-      joy.active = true; joy.id = e.pointerId;
-      joy.ox = joy.x = e.clientX; joy.oy = joy.y = e.clientY; joy.mx = joy.my = 0; joy.mag = 0;
+    const c = readCfg(rect);
+    const inZone = c.fixed ? Math.hypot(e.clientX - c.cx, e.clientY - c.cy) <= c.r * 1.6
+      : c.right ? e.clientX - rect.left > rect.width * 0.6 : e.clientX - rect.left < rect.width * 0.4;
+    if (!joy.active && inZone) {
+      joy.active = true; joy.id = e.pointerId; joy.fixed = c.fixed; joy.r = c.r;
+      if (c.fixed) { joy.ox = c.cx; joy.oy = c.cy; } else { joy.ox = e.clientX; joy.oy = e.clientY; }
+      joy.x = e.clientX; joy.y = e.clientY; joy.mx = joy.my = 0; joy.mag = 0;
       try { canvas.setPointerCapture(e.pointerId); } catch (err) { /* synthetic events */ }
-      refresh();
+      if (c.fixed) onMove(e); else refresh();
     } else {
       tap(e.clientX, e.clientY);
     }
@@ -45,13 +73,16 @@
   function onMove(e) {
     if (!joy.active || e.pointerId !== joy.id) return;
     let dx = e.clientX - joy.ox, dy = e.clientY - joy.oy;
-    const d = Math.hypot(dx, dy);
-    if (d > JOY_R) {                                   // drag the base along so the stick never "runs out"
-      joy.ox += dx * (1 - JOY_R / d); joy.oy += dy * (1 - JOY_R / d);
-      dx = e.clientX - joy.ox; dy = e.clientY - joy.oy;
+    const d = Math.hypot(dx, dy), R = joy.r;
+    if (d > R) {
+      if (joy.fixed) { dx *= R / d; dy *= R / d; }    // fixed: the knob stops at the rim
+      else {                                           // floating: drag the base along so the stick never "runs out"
+        joy.ox += dx * (1 - R / d); joy.oy += dy * (1 - R / d);
+        dx = e.clientX - joy.ox; dy = e.clientY - joy.oy;
+      }
     }
     joy.x = e.clientX; joy.y = e.clientY;
-    const n = Math.min(1, d / JOY_R);
+    const n = Math.min(1, d / R);
     joy.mag = n < DEADZONE ? 0 : (n - DEADZONE) / (1 - DEADZONE);
     joy.mx = dx; joy.my = dy;
     refresh();
@@ -93,6 +124,7 @@
 
   U.input = {
     joy: joy, JOY_R: JOY_R,
+    config: function (rect) { return rect || canvas ? readCfg(rect || canvas.getBoundingClientRect()) : null; },
     init: function (c) {
       canvas = c;
       c.style.touchAction = 'none';

@@ -1270,6 +1270,7 @@ ok(back.hp < 1e6 && front[0].hp < 1e6 && front[1].hp < 1e6, 'Whirlwind hits all 
 
     rev2Tests();
     rev3Tests();
+    rev5Tests();
 
     // ------------------------------------------------------------------
     section('Event vocabulary');
@@ -1788,6 +1789,282 @@ ok(back.hp < 1e6 && front[0].hp < 1e6 && front[1].hp < 1e6, 'Whirlwind hits all 
   }
 
   // =====================================================================================================
+  // Revision 5: Pallor, deep-only pools + caster pressure, loot piles, Close Call
+  // =====================================================================================================
+  function rev5Tests() {
+    const A = game.AFFIXES, FM = game.FLOOR_MODS, U = game.U;
+    const noMonsters = function () { S.entities = S.entities.filter(function (e) { return e.type !== 'monster'; }); game.live.foes.length = 0; S.projectiles.length = 0; game.zones.length = 0; };
+    const god = function (p) { H.mods = { hpMax: 1e7 }; game.recomputeStats(p); p.hp = p.stats.hpMax; };
+    const mon = function (id, x, y, lvl, rar) { const e = game.createMonster(id, x, y, lvl || 6, rar || 'normal'); e.ai.st = 'chase'; S.entities.push(e); return e; };
+    const toasts = []; const oT = G.on('ui:toast', function (e) { toasts.push(e.text); });
+    let p;
+
+    section('R5.2 Pallor');
+    p = fresh('warrior', false, 1); noMonsters();
+    const g0 = game.getPallor();
+    ok(g0.value === 0 && g0.tier === 0 && Array.isArray(g0.effects) && !g0.effects.length, 'locked: getPallor() → { value 0, tier 0, effects [] }');
+    G.emit('input:tap', { x: 43.5, y: 15.5 }); step(20, function () { return S.depth === 1; });
+    ok(S.depth === 2 && !(S.flags.pallor > 0), 'locked: taking the stairs adds no Pallor');
+    p = fresh('warrior', false, 1); noMonsters(); S.flags.pallorUnlocked = true;
+    toasts.length = 0;
+    G.emit('input:tap', { x: 43.5, y: 15.5 }); step(20, function () { return S.depth === 1; });
+    let g1 = game.getPallor();
+    ok(S.depth === 2 && S.flags.pallor === 10 && g1.value === 10 && g1.tier === 1 && g1.effects.length >= 2, 'unlocked: stairs down → +10 Pallor, tier 1: ' + g1.effects.join('; '));
+    ok(toasts.some(function (t) { return /^Pallor I /.test(t); }), 'reaching a new tier is announced', toasts.join(' | '));
+    noMonsters(); S.flags.sealed = false;
+    p = S.player; p.x = 40.5; p.y = 15.5; game.onPlayerMoved(true);
+    G.emit('input:tap', { x: 43.5, y: 15.5 }); step(10, function () { return S.depth === 2; });
+    ok(S.depth === 3 && S.flags.pallor === 20, 'a second floor by the stairs → 20');
+    G.scenes.enterDungeon(4);
+    ok(S.flags.pallor === 20, 'entering a floor any other way (waypoint, portal, corpse run) adds nothing');
+    G.scenes.enterTown();
+    ok(S.flags.pallor === 0 && game.getPallor().value === 0, 'town resets Pallor to 0');
+    ok(game.pallorGain(25) === 10 && game.pallorGain(35) === 15 && game.pallorGain(45) === 20, 'gain per floor: 10, 15 past depth 30, 20 past 40');
+    S.flags.pallor = 95; G.scenes.enterDungeon(30); game.pallorStairs = 'stairs_down'; game.spawnMapEntities(G.world.generateDungeon(31, 77));
+    ok(S.flags.pallor === 100, 'Pallor caps at 100');
+
+    // monster pressure by tier
+    p = fresh('warrior', true, 6); god(p); S.flags.pallorUnlocked = true;
+    S.flags.pallor = 0; const n0 = game.createMonster('skeleton', 5, 5, 6, 'normal');
+    S.flags.pallor = 95; const n4 = game.createMonster('skeleton', 5, 5, 6, 'normal');
+    ok(Math.abs(n4.stats.hpMax / n0.stats.hpMax - 1.5) < 0.02 && Math.abs(n4.dmgMax / n0.dmgMax - 1.24) < 0.01 && game.getPallor().tier === 4,
+      'tier IV: monsters +50% life, +24% damage (' + n0.stats.hpMax + ' → ' + n4.stats.hpMax + ')');
+    let rareN = 0, legN = 0, pallid = 0, legOnly = true;
+    const rng = G.rng.create(99);
+    for (let i = 0; i < 200; i++) {
+      const r = game.createMonster('skeleton', 5, 5, 8, 'rare', rng), l = game.createMonster('skeleton', 5, 5, 16, 'legendary', rng), n = game.createMonster('skeleton', 5, 5, 6, 'normal', rng);
+      rareN += r.affixes.length; legN += l.affixes.length;
+      if (l.affixes.filter(function (a) { return A[a].legendary; }).length !== 1) legOnly = false;
+      if (n.affixes.indexOf('Pallid') >= 0) pallid++;
+    }
+    ok(rareN / 200 >= 4 && rareN / 200 <= 5 && legN / 200 >= 6 && legN / 200 <= 7 && legOnly, 'tier IV: rares carry ' + (rareN / 200).toFixed(1) + ' modifiers, legendaries ' + (legN / 200).toFixed(1) + ' (+2 each)');
+    ok(pallid >= 30 && pallid <= 75, 'tier IV: about a quarter of normal monsters are Pallid (' + pallid + '/200)');
+    S.flags.pallor = 30; const r2 = game.createMonster('skeleton', 5, 5, 8, 'rare', G.rng.create(5)), c2 = game.createMonster('skeleton', 5, 5, 8, 'champion', G.rng.create(5));
+    ok(r2.affixes.length >= 3 && c2.affixes.length === 1 && game.getPallor().effects.some(function (t) { return /Bleached/.test(t); }), 'tier II: rares +1 modifier, champions keep one; effects mention bleached drops');
+    S.flags.pallor = 95;
+    let hunted = 0;
+    for (let s = 0; s < 10; s++) { const m = G.world.generateDungeon(6, 3000 + s); S.map = m; S.entities = []; game.spawnMapEntities(m); if (S.entities.some(function (e) { return e.rarity === 'legendary'; })) hunted++; }
+    ok(hunted === 10, 'tier IV: a legendary hunts every non-boss floor (' + hunted + '/10)');
+    p = fresh('warrior', true, 6); god(p); S.flags.pallorUnlocked = true; S.flags.pallor = 64;
+    const victim = mon('skeleton', p.x + 2, p.y); game.applyHit(victim, { phys: 1e9 }, { src: p });
+    ok(H.lastDrop && H.lastDrop.pallor === 64 && H.lastDrop.source === 'monster', 'kills pass pallor to dropLoot (opts.pallor = ' + (H.lastDrop && H.lastDrop.pallor) + ')');
+    p = fresh('warrior', false, 1); noMonsters(); S.flags.pallorUnlocked = true; S.flags.pallor = 40;
+    G.emit('input:tap', { x: 8.5, y: 5.5 }); step(8, function () { return !S.map.props[S.map.props.length - 4].used; });
+    ok(H.lastDrop && H.lastDrop.source === 'chest' && H.lastDrop.pallor === 40, 'chests pass pallor to dropLoot too');
+    // Pallid hits
+    p = fresh('warrior', true, 6); H.mods = null; game.recomputeStats(p);
+    const pl = mon('skeleton', p.x + 1, p.y); pl.affixes = ['Pallid'];
+    p.hp = p.stats.hpMax * 0.5; pl.speed = 0; pl.atkCd = 99; pl.ai.atk = 99; game.monsterOnHit(pl, p, 10);
+    const hp1 = p.hp, healed = game.heal(p, 100); step(1);
+    ok(game.getEffect(p, 'bleach') && Math.abs(healed - 50) < 0.6 && p.hp <= hp1 + 50.5 && A.Pallid.tell, 'Pallid hits bleach: healing halved (' + healed.toFixed(1) + ' of 100), no regeneration');
+    S.flags.pallorUnlocked = false; S.flags.pallor = 95; const lk = game.createMonster('skeleton', 5, 5, 6);
+    S.flags.pallor = 0; const lk0 = game.createMonster('skeleton', 5, 5, 6);
+    ok(game.getPallor().value === 0 && lk.stats.hpMax === lk0.stats.hpMax, 'locked: a stored Pallor value has no effect');
+
+    section('R5.5 deep-only pools');
+    const D = game.DEEP_AFFIX_IDS;
+    ok(game.affixPool(20).join() === game.AFFIX_IDS.join() && game.affixPool(21).length === game.AFFIX_IDS.length + 3 && game.affixPool(31).length === game.AFFIX_IDS.length + 5 && game.affixPool(41).length === game.AFFIX_IDS.length + D.length,
+      'monster modifiers: ' + D.length + ' deep-only (3 from depth 21, +2 from 31, +3 from 41), none above 21');
+    ok(D.every(function (k) { return A[k].tell && /^#[0-9a-f]{6}$/i.test(A[k].color) && A[k].min >= 21 && game.AFFIX_IDS.indexOf(k) < 0 && game.LEGEND_AFFIXES.indexOf(k) < 0; }), 'each deep modifier has a colour, a tell and a minimum depth: ' + D.join(', '));
+    p = fresh('warrior', true, 6);
+    const deepShare = function (depth, rarity) {
+      S.map.depth = depth; let n = 0; const r = G.rng.create(depth);
+      for (let i = 0; i < 100; i++) { const e = game.createMonster('skeleton', 5, 5, depth, rarity, r); if (e.affixes.some(function (a) { return A[a].deep; })) n++; }
+      return n;
+    };
+    const ds20 = deepShare(20, 'rare'), ds25 = deepShare(25, 'rare'), dl45 = deepShare(45, 'legendary'), dc45 = deepShare(45, 'champion');
+    let tooDeep = false; S.map.depth = 25;
+    for (let i = 0; i < 100; i++) if (game.createMonster('skeleton', 5, 5, 25, 'rare').affixes.some(function (a) { return A[a].min > 25; })) tooDeep = true;
+    ok(ds20 === 0 && ds25 >= 50 && dl45 >= 60 && dc45 >= 10 && !tooDeep, 'deep modifiers on rares: 0% at 20, ' + ds25 + '% at 25 (only depth-21 ones); legendaries ' + dl45 + '% at 45; champion packs ' + dc45 + '%');
+    S.map.depth = 6;
+    const deepFM = Object.keys(FM).filter(function (k) { return FM[k].deep; });
+    let early = 0, at25 = 0, at35min = 9, three = 0, mid = 0, late41 = 0;
+    for (let s = 0; s < 80; s++) {
+      const r = function (d) { return game.rollFloorMods(d, G.rng.create(s * 31 + d), false); };
+      if (r(19).some(function (k) { return FM[k].deep; })) early++;
+      const m25 = r(25); if (m25.some(function (k) { return FM[k].deep; })) at25++; if (m25.some(function (k) { return FM[k].min > 25; })) late41 += 100;
+      const m35 = r(35); at35min = Math.min(at35min, m35.length); if (m35.some(function (k) { return FM[k].min === 31; })) mid++;
+      if (r(45).length === 3) three++;
+    }
+    ok(deepFM.length >= 6 && deepFM.every(function (k) { return FM[k].min >= 21 && FM[k].name && FM[k].desc; }) && early === 0 && late41 === 0, deepFM.length + ' deep-only floor modifiers, never above their depth: ' + deepFM.map(function (k) { return FM[k].name + ' (' + FM[k].min + ')'; }).join(', '));
+    ok(at25 >= 35 && at35min >= 1 && mid >= 10 && three >= 5, 'deep floors: a deep modifier on ' + at25 + '/80 at depth 25; every depth-35 floor has ≥ 1 (' + mid + ' with a 31+ one); ' + three + '/80 depth-45 floors carry 3');
+
+    // every deep monster modifier does its thing
+    const probe = function (name, setup, check, secs) {
+      p = fresh('warrior', true, 6); god(p); p.mp = p.stats.mpMax; S.map.depth = 45;
+      const e = mon('skeleton', p.x + 1.2, p.y); e.affixes = [name]; A[name].apply(e); e.stats.hpMax = e.hp = 1e6; e.dmgMin = e.dmgMax = 5;
+      const c = { e: e, p: p }; if (setup) setup(c);
+      const err0 = H.errors.length;
+      step(secs || 6, function () { if (c.watch) c.watch(c); });
+      const r = H.errors.length === err0 && check(c);
+      S.map.depth = 1;
+      return r;
+    };
+    const res = {};
+    res.Gravewalker = probe('Gravewalker', function (c) { c.e.hp = 1; c.e.stats.hpMax = 50; game.applyHit(c.e, { phys: 100 }, { src: c.p }); c.w = game.wisps.length; c.p.x -= 4; },
+      function (c) { return c.w === 1 && S.entities.some(function (e) { return e.risen && !e.dead && /^Risen/.test(e.name) && e.noLoot; }); }, 4);
+    res['Gravewalker (laid to rest)'] = probe('Gravewalker', function (c) { c.e.hp = 1; c.e.stats.hpMax = 50; game.applyHit(c.e, { phys: 100 }, { src: c.p }); const w = game.wisps[0]; c.p.x = w.x; c.p.y = w.y; },
+      function () { return !game.wisps.length && !S.entities.some(function (e) { return e.risen; }); }, 4);
+    res.Siphoning = probe('Siphoning', function (c) { game.addEffect(c.p, { id: 'shrine', t: 60, mods: { dmgPct: 40 } }); }, function (c) { return !game.getEffect(c.p, 'shrine'); });
+    res.Devouring = probe('Devouring', function (c) { const d = mon('skeleton', c.e.x + 1, c.e.y); game.applyHit(d, { phys: 1e9 }, { src: c.p }); c.e.hp = 5e5; c.dmg0 = c.e.dmgMax; },
+      function (c) { return c.e.devoured === 1 && c.e.hp > 5e5 && c.e.dmgMax > c.dmg0; }, 3);
+    res.Arcing = probe('Arcing', function (c) { c.e.x = c.p.x - 2; c.e.y = c.p.y; c.e.speed = 0; const o = mon('skeleton', c.p.x + 2, c.p.y); o.speed = 0; o.dmgMin = o.dmgMax = 0; c.hp0 = c.p.hp;
+      c.e.dmgMin = c.e.dmgMax = 1000; c.e.atkCd = 999; c.e.ai.atk = 999; }, function (c) { return c.p.hp < c.hp0; }, 2);
+    res.Hexing = probe('Hexing', null, function (c) { return game.getEffect(c.p, 'hex') && game.getEffect(c.p, 'hex').taken === 25; });
+    res.Duplicating = probe('Duplicating', function (c) { c.e.hp = 4e5; }, function () { return S.entities.filter(function (e) { return /^Echo of/.test(e.name) && e.noLoot; }).length === 1; }, 1);
+    res['Undying Pact'] = probe('Undying Pact', function (c) { c.o = mon('skeleton', c.e.x, c.e.y + 2); c.o.speed = 0; c.e.speed = 0; },
+      function (c) { game.applyHit(c.o, { phys: 1e9 }, { src: c.p }); const held = !c.o.dead && c.o.hp === 1; game.applyHit(c.e, { phys: 1e12 }, { src: c.p }); game.updateMonsters(1 / 30); game.applyHit(c.o, { phys: 1e9 }, { src: c.p }); return held && c.e.dead && c.o.dead; }, 0.5);
+    res['Time Warp'] = probe('Time Warp', null, function (c) { return game.getEffect(c.p, 'time_warp') && game.speedMult(c.p) < 0.8; }, 1);
+    const badDeep = Object.keys(res).filter(function (k) { return !res[k]; });
+    ok(!badDeep.length, 'each deep monster modifier has a visible effect: ' + Object.keys(res).join(', '), badDeep.join(', '));
+    p = fresh('warrior', true, 6); god(p); S.map.depth = 45;
+    const errD = H.errors.length;
+    D.concat(['Pallid', 'Siege']).forEach(function (af, i) { const e = mon(['skeleton', 'bone_mage', 'ghoul'][i % 3], p.x + 2 + (i % 4), p.y - 3 + i, 40, 'rare'); e.affixes = [af]; A[af].apply(e); });
+    step(15, function () { if (S.player.hp < 1e6) S.player.hp = S.player.stats.hpMax; });
+    ok(H.errors.length === errD && S.entities.every(jsonable) && jsonable(game.zones) && jsonable(game.wisps), 'all deep modifiers fight together cleanly at depth 45; state stays JSON-able');
+    S.map.depth = 1;
+
+    // deep floor modifiers
+    const onFloor = function (mods, depth) {
+      p = fresh('warrior', true, depth || 25); god(p); noMonsters();
+      S.map.mods = mods; S.map._reward = null; return p;
+    };
+    p = onFloor(['restless']); mon('skeleton', p.x + 9, p.y).speed = 0;
+    let rz = 0; step(3.5, function () { if (game.zones.some(function (z) { return z.faction === 'enemy' && Math.hypot(z.x - S.player.x, z.y - S.player.y) < 0.1; })) rz++; });
+    p.hp = p.stats.hpMax; let moving = 0; game.zones.length = 0;
+    step(4, function (t) { G.input.move.x = Math.sin(t * 3) > 0 ? 1 : -1; if (game.zones.some(function (z) { return z.faction === 'enemy'; })) moving++; }); G.input.move.x = 0;
+    ok(rz > 0 && moving === 0, 'Restless Ground: standing still 2 s erupts under you; keeping on the move never does');
+    p = fresh('warrior', true, 25); god(p);
+    const hm = G.world.generateDungeon(25, 4242); hm.mods = ['hexed']; G.emit('scene:changed', { scene: 'dungeon', depth: 25, map: hm });
+    const glyphs = game.zones.filter(function (z) { return z.glyph; });
+    let gHit = 0; const oG = G.on('player:damaged', function () { gHit++; });
+    if (glyphs[0]) { p.x = glyphs[0].x + 0.6; p.y = glyphs[0].y; }
+    step(0.1); const flared = glyphs[0] && !glyphs[0].trap && glyphs[0].delay > 0; step(1);
+    ok(glyphs.length >= 6 && glyphs.every(function (z) { return z.faction === 'enemy' && G.world.isWalkable(S.map, z.x, z.y); }) && flared && gHit >= 1 && game.zones.indexOf(glyphs[0]) < 0,
+      'Hexed Glyphs: ' + glyphs.length + ' glyphs placed on arrival; stepping near one flares it (telegraph) and it bursts');
+    oG();
+    p = onFloor(['warded']); const wd = mon('skeleton', p.x + 3, p.y); const ward = game.getEffect(wd, 'ward');
+    const hp0w = wd.hp; game.applyHit(wd, { phys: 5 }, { src: p });
+    ok(ward && ward.absorb > 0 && wd.hp === hp0w, 'Warded: monsters carry an absorbing ward (' + (ward && ward.absorb) + ')');
+    p = onFloor(['echoes'], 35); let wN = 0;
+    for (let i = 0; i < 40; i++) { const v = mon('skeleton', p.x + 6, p.y + (i % 5)); game.applyHit(v, { phys: 1e9 }, { src: p }); }
+    wN = game.wisps.length;
+    ok(wN >= 8 && wN <= 26, 'Restless Dead: about 40% of the slain leave a wisp (' + wN + '/40)');
+    p = onFloor(['rifts'], 35); mon('skeleton', p.x + 9, p.y).speed = 0;
+    step(10);
+    ok(S.entities.filter(function (e) { return e.riftSpawn; }).length === 3, 'Riven: a rift opens near you and spills 3 shadows');
+    p = onFloor(['blood_moon'], 45); const bm = mon('skeleton', p.x + 3, p.y); const cd0 = bm.atkCd; bm.hp = bm.stats.hpMax * 0.45; step(0.3);
+    ok(bm.atkCd < cd0 * 0.8, 'Blood Moon: monsters frenzy below half life');
+    p = onFloor(['thin_veil'], 45); H.mods = null; game.recomputeStats(p); p.hp = 1; p.potions.hp = 2; game.usePotion('hp');
+    ok(Math.abs(p.hp - 1 - p.stats.hpMax * 0.2) <= 1, 'Thin Veil: potions heal half (' + Math.round(p.hp - 1) + ' of ' + p.stats.hpMax + ')');
+
+    section('R5.5 caster pressure on normal floors');
+    const shooterAt = function (dist, still, depth) {
+      p = fresh('sorcerer', true, depth || 6); god(p); noMonsters();
+      const a = mon('skeleton_archer', p.x + dist, p.y); a.ai.atk = 99; a.atkCd = 99; a.ai.aimCd = 0;
+      let aimed = 0, heavy = 0;
+      step(4, function (t) {
+        if (!still) { G.input.move.y = Math.sin(t * 4) > 0 ? 1 : -1; }
+        if (a.ai.aim) aimed++;
+        if (S.projectiles.some(function (q) { return q.srcId === a.id && q.color === '#ff5050'; })) heavy++;
+      });
+      G.input.move.y = 0;
+      return { aimed: aimed, heavy: heavy };
+    };
+    const sStill = shooterAt(6.5, true), sMove = shooterAt(6.5, false), sNear = shooterAt(1.5, true), sShallow = shooterAt(6.5, true, 2);
+    ok(sStill.aimed > 0 && sStill.heavy > 0, 'a shooter marks a caster standing still at range and fires a heavy aimed shot');
+    ok(!sMove.aimed && !sNear.aimed && !sShallow.aimed, 'no aimed shots at a moving target, at melee range, or above depth 3');
+    p = fresh('sorcerer', true, 6); god(p); noMonsters(); H.mods = null; game.recomputeStats(p); p.hp = p.stats.hpMax;
+    const arch = mon('skeleton_archer', p.x + 6.5, p.y); arch.ai.atk = 99; arch.atkCd = 99; arch.ai.aimCd = 0; arch.dmgMin = arch.dmgMax = 10;
+    step(3, function () { return !arch.ai.aim; }); const marked = !!arch.ai.aim, hpA = p.hp;
+    G.input.move.y = 1; step(1); G.input.move.y = 0; step(0.5);
+    ok(marked && hpA === p.hp, 'moving after the mark dodges the aimed shot');
+    p = fresh('necromancer', true, 6); god(p); noMonsters();
+    for (let i = 0; i < 3; i++) { const s = game.createMinion('minion_skeleton', p.x + 3, p.y - 1 + i, p, 1); s.speed = 0; S.entities.push(s); }
+    const sh = mon('skeleton_archer', p.x + 7, p.y), ml = mon('skeleton', p.x + 4.5, p.y);
+    [sh, ml].forEach(function (e) { e.speed = 0; e.ai.tt = 0; });
+    step(0.2);
+    ok(sh.ai.tgt === 0 && ml.ai.tgt !== 0, 'shooters target whoever stands furthest back (the necromancer behind the skeletons); melee still takes the nearest');
+    const siegeAt = function (dist, still) {
+      p = fresh('sorcerer', true, 6); god(p); noMonsters();
+      const e = mon('skeleton_archer', p.x + dist, p.y); e.affixes = ['Siege']; A.Siege.apply(e); e.speed = 0; e.ai.atk = 99; e.atkCd = 99; e.ai.aimCd = 99;
+      let z = 0; step(6, function (t) { if (!still) G.input.move.y = Math.sin(t * 4) > 0 ? 1 : -1; if (game.zones.some(function (q) { return q.srcId === e.id; })) z++; });
+      G.input.move.y = 0; return z;
+    };
+    const bossMark = function (still) {
+      p = fresh('sorcerer', true, 5); god(p); noMonsters();
+      const b = game.createBoss(5, p.x + 7, p.y); b.speed = 0; b.ai.st = 'chase'; b.ai.gcd = 99; b.ai.atk = 99; b.atkCd = 99; S.entities.push(b);
+      let n = 0; step(5, function (t) { if (!still) G.input.move.y = Math.sin(t * 4) > 0 ? 1 : -1; if (S.projectiles.some(function (q) { return q.srcId === b.id && q.color === '#ff5050'; })) n++; });
+      G.input.move.y = 0; return n;
+    };
+    ok(bossMark(true) > 0 && bossMark(false) === 0, 'bosses mark a target standing still at range and fire a fast volley at the spot; a moving target is never marked');
+    p = fresh('necromancer', true, 5); god(p); noMonsters();
+    const gb = game.createBoss(5, p.x + 8, p.y); gb.speed = 0; gb.ai.st = 'chase'; gb.ai.gcd = 0.5; S.entities.push(gb);
+    const golem = game.createMinion('minion_golem', gb.x - 1.2, gb.y, p, 1); golem.speed = 0; golem.stats.hpMax = golem.hp = 1e7; S.entities.push(golem);
+    let castAt = null; step(8, function () { if (gb.ai.cast && !castAt) castAt = { x: gb.ai.cast.x, y: gb.ai.cast.y, tgt: gb.ai.tgt }; return !castAt; });
+    ok(castAt && castAt.tgt === golem.id && Math.hypot(castAt.x - p.x, castAt.y - p.y) < 1.5, 'a taunting golem holds the boss\'s swings, but its abilities still go for the necromancer');
+    golem.dead = true; golem.ai.corpse = 0;
+    const add = mon('skeleton', p.x + 4, p.y); add.bossAdd = gb.id; add.speed = 0; add.ai.tt = 0;
+    const sk = game.createMinion('minion_skeleton', add.x - 1, add.y, p, 1); sk.speed = 0; S.entities.push(sk);
+    step(0.2);
+    ok(add.ai.tgt === 0, 'boss adds go for the player, not the skeleton beside them');
+    const skHp = function (src) { sk.hp = sk.stats.hpMax = 1e6; sk.stats.armor = 0; game.applyHit(sk, { fire: 100 }, { src: src }); return 1e6 - sk.hp; };
+    ok(Math.abs(skHp(gb) / skHp(add) - 2.5) < 0.05, 'bosses deal 2.5× damage to summons');
+    ok(game.AFFIX_IDS.indexOf('Siege') >= 0 && siegeAt(6, true) > 0 && siegeAt(6, false) === 0 && siegeAt(2, true) === 0, 'Siege modifier shells a target standing still at range; never a moving or close one');
+
+    section('R5.6 loot piles');
+    const realGetPile = G.items.getPile;
+    G.items.getPile = function (pid) { return S.groundItems.filter(function (g) { return g.pileId === pid; }); };
+    const pileAt = function (pid, x, y, items) {
+      return items.map(function (it) { const g = { id: G.newId(), x: x, y: y, pileId: pid, item: it }; S.groundItems.push(g); return g; });
+    };
+    const armor = function (n) { return { id: G.newId(), type: 'armor', name: n, rarity: 'magic' }; };
+    const gold = function (q) { return { type: 'gold', qty: q, name: 'Gold', rarity: 'common', icon: { shape: 'gold', color: '#ffd94a' } }; };
+    p = fresh('warrior', true, 1); noMonsters(); S.groundItems.length = 0; S.settings.autoPickupGold = false;
+    const evs = []; const oP = G.on('pile:open', function (e) { evs.push(e); });
+    pileAt(7, p.x + 5, p.y, [armor('A'), armor('B'), gold(30)]);
+    const gold0 = p.gold;
+    G.emit('input:tap', { x: p.x + 5, y: p.y }); step(4, function () { return !evs.length; });
+    ok(evs.length === 1 && evs[0].pileId === 7 && S.groundItems.length === 2 && p.gold === gold0 + 30 && Math.hypot(p.x - (S.groundItems[0] || {}).x, p.y - (S.groundItems[0] || {}).y) <= 1.05,
+      'tap a pile of several items → walk to it, take its gold, emit pile:open { pileId }');
+    S.groundItems.length = 0; evs.length = 0;
+    pileAt(8, p.x + 4, p.y + 2, [armor('Solo'), gold(12)]);
+    G.emit('input:tap', { x: p.x + 4, y: p.y + 2 }); step(4, function () { return S.groundItems.length > 0; });
+    ok(!evs.length && !S.groundItems.length, 'a pile with one item (plus gold) is simply picked up');
+    S.groundItems.push({ id: G.newId(), x: p.x - 3, y: p.y, item: armor('Loose') });
+    G.emit('input:tap', { x: p.x - 3, y: p.y }); step(3, function () { return S.groundItems.length > 0; });
+    ok(!evs.length && !S.groundItems.length, 'a ground item without a pile is picked up as before');
+    S.settings.autoPickupGold = true; const gold1 = p.gold;
+    pileAt(9, p.x + 1.2, p.y, [armor('C'), armor('D'), gold(40)]); step(0.5);
+    ok(p.gold === gold1 + 40 && S.groundItems.length === 2 && !evs.length, 'auto-pickup takes the gold out of a nearby pile and leaves the items');
+    S.groundItems.length = 0;
+    G.emit('input:attack', {});
+    pileAt(10, p.x + 1.5, p.y, [armor('E'), armor('F')]); G.emit('input:attack', {}); step(2, function () { return !evs.length; });
+    ok(evs.length === 1 && evs[0].pileId === 10, 'the attack button with nothing to fight opens the nearest pile');
+    oP(); G.items.getPile = realGetPile; S.groundItems.length = 0;
+
+    section('Close Call (combat pitch)');
+    p = fresh('sorcerer', true, 6); god(p); noMonsters(); toLevel(p, 6);
+    const cdSkill = Object.keys(game.SKILLS).filter(function (id) { return game.SKILLS[id].classId === 'sorcerer' && game.SKILLS[id].kind === 'active'; })[0];
+    p.cooldowns[cdSkill] = 5;
+    let texts = []; const oX = G.on('fx:text', function (e) { texts.push(e.text); });
+    game.addZone({ x: p.x, y: p.y, r: 1.6, delay: 0.5, faction: 'enemy', dmg: 50, dtype: 'fire', lvl: 6 });
+    step(0.2); p.x += 3; game.onPlayerMoved(true); const hpC = p.hp; step(0.5);
+    const cc = game.getEffect(p, 'close_call');
+    ok(cc && cc.stacks === 1 && cc.dealt === 15 && p.hp === hpC && p.cooldowns[cdSkill] < 4.5 && texts.indexOf('CLOSE CALL') >= 0, 'stepping out of a telegraph at the last moment: CLOSE CALL (+15% damage, cooldowns −1 s)');
+    step(1);
+    game.addZone({ x: p.x, y: p.y, r: 1.6, delay: 0.5, faction: 'enemy', dmg: 50, dtype: 'fire', lvl: 6 }); step(0.2); p.x -= 3; game.onPlayerMoved(true); step(0.5);
+    ok(game.getEffect(p, 'close_call').stacks === 2 && game.getEffect(p, 'close_call').dealt === 30, 'chained close calls stack (×2 → +30%)');
+    p.effects = []; step(1); const hpS = p.hp;
+    game.addZone({ x: p.x, y: p.y, r: 1.6, delay: 0.5, faction: 'enemy', dmg: 50, dtype: 'fire', lvl: 6 }); step(0.8);
+    game.addZone({ x: p.x + 2.5, y: p.y, r: 1.6, delay: 0.5, faction: 'enemy', dmg: 50, dtype: 'fire', lvl: 6 }); step(0.8);
+    ok(!game.getEffect(p, 'close_call') && p.hp < hpS, 'no close call for staying in the circle or never being in it');
+    oX();
+
+    oT(); H.mods = null;
+  }
+
+  // =====================================================================================================
   // Balance bot: plays with hold-attack + skills off cooldown + potions, sidesteps telegraphs, ranged classes back off.
   // =====================================================================================================
   function botStep(st) {
@@ -1840,7 +2117,7 @@ ok(back.hp < 1e6 && front[0].hp < 1e6 && front[1].hp < 1e6, 'Whirlwind hits all 
         if (game.useSkill((i + st.rot) % 4)) { st.rot++; break; }
       }
     }
-    if (p.hp < p.stats.hpMax * 0.45 && game.usePotion('hp')) st.potions++;
+    if (p.hp < p.stats.hpMax * 0.45 && game.usePotion('hp')) { st.potions++; st.hpPots = (st.hpPots || 0) + 1; }
     if (p.mp < p.stats.mpMax * 0.15 && game.usePotion('mp')) st.potions++;
     st.minHp = Math.min(st.minHp, p.hp / p.stats.hpMax);
   }
@@ -1947,7 +2224,11 @@ ok(back.hp < 1e6 && front[0].hp < 1e6 && front[1].hp < 1e6, 'Whirlwind hits all 
       let totalDeaths = 0;
       for (let depth = opts.startDepth || 1; depth <= maxDepth; depth++) {
         shop();
+        // opts.pallorFrom: Pallor unlocks at that depth and every later floor counts as taken by the stairs (the
+        // between-floor shop() is a stand-in, not a town visit); a death resets it, as respawning in town would.
+        if (opts.pallorFrom && depth >= opts.pallorFrom) { S.flags.pallorUnlocked = true; if (depth > opts.pallorFrom) game.pallorStairs = 'stairs_down'; }
         G.scenes.enterDungeon(depth);
+        const pallor0 = game.getPallor().value;
         const st = { t: 0, rot: 0, potions: 0, minHp: 1, pt: 0, path: null, equips: 0, lastX: 0, lastY: 0, stuckT: 0, unstuck: 0 };
         const total = S.entities.filter(function (e) { return e.type === 'monster' && e.faction === 'enemy'; }).length;
         let t = 0, deaths = 0, bossT0 = -1, bossTime = -1, bossDeaths = 0, n = 0, lvl0 = S.player.level;
@@ -1958,6 +2239,7 @@ ok(back.hp < 1e6 && front[0].hp < 1e6 && front[1].hp < 1e6, 'Whirlwind hits all 
           if (p.dead) {
             deaths++; totalDeaths++;
             if (bossT0 >= 0 && bossTime < 0) bossDeaths++;
+            if (S.flags.pallorUnlocked) S.flags.pallor = 0;
             game.revivePlayer(); shop();
             p.potions.hp = Math.max(p.potions.hp, 3);          // a town trip always nets a few potions
             // back to the stairs, monsters reset (as a real corpse run would find them)
@@ -1970,8 +2252,8 @@ ok(back.hp < 1e6 && front[0].hp < 1e6 && front[1].hp < 1e6, 'Whirlwind hits all 
           S.time += dt; game.update(dt); t += dt; n++;
           const boss = bossT0 < 0 || bossTime < 0 ? S.entities.find(function (e) { return e.rarity === 'boss'; }) : null;
           if (boss) {
-            if (bossT0 < 0 && !boss.dead && boss.ai.st !== "sleep") { bossT0 = t; st.bossPots = st.potions; st.minHp = 1; }
-            if (bossT0 >= 0 && boss.dead && bossTime < 0) { bossTime = t - bossT0; st.bossMin = st.minHp; st.bossPots = st.potions - st.bossPots; }
+            if (bossT0 < 0 && !boss.dead && boss.ai.st !== "sleep") { bossT0 = t; st.bossPots = st.potions; st.bossHp = st.hpPots || 0; st.minHp = 1; }
+            if (bossT0 >= 0 && boss.dead && bossTime < 0) { bossTime = t - bossT0; st.bossMin = st.minHp; st.bossPots = st.potions - st.bossPots; st.bossHp = (st.hpPots || 0) - st.bossHp; }
           }
           if (n % 45 === 0) {
             lootAndGear(st);
@@ -1992,7 +2274,7 @@ ok(back.hp < 1e6 && front[0].hp < 1e6 && front[1].hp < 1e6, 'Whirlwind hits all 
         lootAndGear(st);
         const p = S.player;
         const row = { cls: cid, mode: mode, depth: depth, theme: S.map.theme, monsters: total, left: left(), time: Math.round(t), deaths: deaths, potions: st.potions, minHp: Math.round(st.minHp * 100),
-          level: p.level, gained: p.level - lvl0, boss: bossTime >= 0 ? Math.round(bossTime) : (depth % C.BOSS_EVERY === 0 ? 'not killed' : ''), bossDeaths: bossDeaths, bossMin: st.bossMin !== undefined ? Math.round(st.bossMin * 100) : "", bossPots: bossTime >= 0 ? st.bossPots : "", equips: st.equips, unstuck: st.unstuck, gear: gearSummary(p), gold: p.gold };
+          level: p.level, gained: p.level - lvl0, boss: bossTime >= 0 ? Math.round(bossTime) : (depth % C.BOSS_EVERY === 0 ? 'not killed' : ''), bossDeaths: bossDeaths, bossMin: st.bossMin !== undefined ? Math.round(st.bossMin * 100) : "", bossPots: bossTime >= 0 ? st.bossPots : "", bossHpPots: bossTime >= 0 ? st.bossHp : "", equips: st.equips, unstuck: st.unstuck, gear: gearSummary(p), gold: p.gold, pallor: pallor0, mods: (S.map.mods || []).join('+') };
         rows.push(row);
         if (opts.onRow) opts.onRow(row);
         window.__prog = { rows: rows, done: false, errors: H.errors.slice() };
@@ -2006,6 +2288,53 @@ ok(back.hp < 1e6 && front[0].hp < 1e6 && front[1].hp < 1e6, 'Whirlwind hits all 
     return rows;
   }
   window.runProgression = runProgression; window.botStep = botStep;
+
+  // Every class × auto-build mode, `reps` times. Progress and result in window.__matrix ({ done, rows, text }).
+  // runMatrix({ reps: 4, maxDepth: 20 })  ·  runMatrix({ reps: 3, maxDepth: 30, pallorFrom: 21 })
+  async function runMatrix(opts) {
+    opts = opts || {};
+    const reps = opts.reps || 3, classes = opts.classes || Object.keys(game.CLASSES), modes = opts.modes || ['single', 'aoe', 'balanced'], all = [];
+    window.__matrix = { done: false, rows: all, text: '' };
+    for (let rep = 0; rep < reps; rep++) for (const mode of modes) for (const cls of classes) {
+      const rows = await runProgression({ classes: [cls], mode: mode, maxDepth: opts.maxDepth || 20, pallorFrom: opts.pallorFrom });
+      rows.forEach(function (r) { r.rep = rep; all.push(r); });
+    }
+    window.__matrix = { done: true, rows: all, text: matrixTable(all, classes, modes), errors: H.errors.slice() };
+    return window.__matrix;
+  }
+  function matrixTable(A, classes, modes) {
+    const avg = function (a) { return a.length ? a.reduce(function (s, v) { return s + v; }, 0) / a.length : NaN; };
+    const f1 = function (v) { return isNaN(v) ? '-' : v.toFixed(1); };
+    const isNum = function (v) { return typeof v === 'number'; };
+    const out = ['Bosses at depth 5/10/15/20 — potions per boss kill (avg, hp+mana), of which hp, per depth, boss-fight deaths, bosses not killed, floor deaths 1–20, level at 20',
+      'class/mode            pots  hp    5/10/15/20            bossDeaths  unkilled  deaths  lvl20'];
+    const pad = function (s, n) { s = String(s); return s + ' '.repeat(Math.max(1, n - s.length)); };
+    const cls = {};
+    for (const c of classes) for (const m of modes) {
+      const R = A.filter(function (r) { return r.cls === c && r.mode === m; });
+      const B = R.filter(function (r) { return r.depth <= 20 && r.depth % 5 === 0; }), K = B.filter(function (r) { return isNum(r.boss); });
+      const pots = K.map(function (r) { return r.bossPots; });
+      (cls[c] = cls[c] || []).push.apply(cls[c], pots);
+      (cls[c + '_hp'] = cls[c + '_hp'] || []).push.apply(cls[c + '_hp'], K.map(function (r) { return r.bossHpPots; }));
+      out.push(pad(c + '/' + m, 22) + pad(f1(avg(pots)), 6) + pad(f1(avg(K.map(function (r) { return r.bossHpPots; }))), 6) + pad([5, 10, 15, 20].map(function (d) { return f1(avg(K.filter(function (r) { return r.depth === d; }).map(function (r) { return r.bossPots; }))); }).join('/'), 22) +
+        pad(B.reduce(function (s, r) { return s + r.bossDeaths; }, 0), 12) + pad(B.length - K.length, 10) + pad(R.filter(function (r) { return r.depth <= 20; }).reduce(function (s, r) { return s + r.deaths; }, 0), 8) +
+        f1(avg(R.filter(function (r) { return r.depth === 20; }).map(function (r) { return r.level; }))));
+    }
+    out.push('class average potions per boss: ' + classes.map(function (c) { return c + ' ' + f1(avg(cls[c])) + ' (hp ' + f1(avg(cls[c + '_hp'])) + ')'; }).join(', '));
+    if (A.some(function (r) { return r.depth > 20; })) {
+      out.push('', 'Depths 21+ — deaths, potions per floor, highest Pallor, boss 25 and 30 (potions / boss-fight deaths), level at 30, deepest floor per rep',
+        'class/mode            deaths  pots/floor  pallor  boss25      boss30      lvl30  reached');
+      for (const c of classes) for (const m of modes) {
+        const R = A.filter(function (r) { return r.cls === c && r.mode === m && r.depth > 20; });
+        const b = function (d) { const X = R.filter(function (r) { return r.depth === d; }); return f1(avg(X.filter(function (r) { return isNum(r.bossPots); }).map(function (r) { return r.bossPots; }))) + '/' + X.reduce(function (s, r) { return s + r.bossDeaths; }, 0); };
+        const reps = []; A.forEach(function (r) { if (r.cls === c && r.mode === m) reps[r.rep] = Math.max(reps[r.rep] || 0, r.depth); });
+        out.push(pad(c + '/' + m, 22) + pad(R.reduce(function (s, r) { return s + r.deaths; }, 0), 8) + pad(f1(avg(R.map(function (r) { return r.potions; }))), 12) + pad(Math.max.apply(null, [0].concat(R.map(function (r) { return r.pallor; }))), 8) +
+          pad(b(25), 12) + pad(b(30), 12) + pad(f1(avg(A.filter(function (r) { return r.cls === c && r.mode === m && r.depth === 30; }).map(function (r) { return r.level; }))), 7) + reps.join(','));
+      }
+    }
+    return out.join('\n');
+  }
+  window.runMatrix = runMatrix; window.matrixTable = matrixTable;
 
   window.runTests = runTests; window.runSim = runSim; window.simRun = simRun;
 

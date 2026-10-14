@@ -107,7 +107,11 @@
       ui._sfx('click');
       i++;
       if (i < job.lines.length) show();
-      else { close(); next(); }
+      else {
+        close();
+        if (o.onDone) { try { o.onDone(); } catch (err) { console.error('[ui story]', err); } }
+        next();
+      }
     });
     show();
     close = ui._modal(box, { dismiss: false, pause: true });
@@ -154,7 +158,39 @@
     const MAIN = meta._MAIN || [];
     if (MAIN.length && q.id === MAIN[MAIN.length - 1].id && !seen('ending')) {
       markSeen('ending');
-      say(ENDING, {});
+      say(ENDING, { onDone: unlockEndgame });
+    }
+  });
+
+  // ---------- endgame unlock (R5.2 / R5.5) ----------
+  // When the ending has been read: Pallor switches on, the hero earns a title, deeper floors are open.
+  const TITLE = 'Warden of the Well';
+  function unlockEndgame() {
+    const f = S.flags;
+    const first = !f.pallorUnlocked;
+    f.pallorUnlocked = true;
+    if (!Array.isArray(f.titles)) f.titles = [];
+    if (f.titles.indexOf(TITLE) < 0) f.titles.push(TITLE);
+    if (!f.title) f.title = TITLE;
+    if (G.meta.save) G.meta.save();
+    if (first) {
+      ui._sfx('levelup');
+      ui._banner('Title earned', TITLE, '#dfc06a', 5);
+      setTimeout(function () {
+        say(['Every floor you go down without coming home, the dark leaches a little more colour out of you. That is Pallor.',
+          'The paler you are, the richer the deep pays — and the harder it bites. Some finds come back bleached, hiding something until you bring them home.',
+          'Come home, and the colour returns. Die pale, and the bleached things stay below with your corpse.'], {});
+      }, 600);
+    }
+  }
+  ui._heroTitle = function () { return (S.player && typeof S.flags.title === 'string') ? S.flags.title : ''; };
+  // A hero who read the ending before this build still gets the unlock (once, quietly).
+  G.on('scene:changed', function (e) {
+    if (e && e.scene !== 'menu' && S.player && seen('ending') && !S.flags.pallorUnlocked) {
+      S.flags.pallorUnlocked = true;
+      if (!Array.isArray(S.flags.titles)) S.flags.titles = [];
+      if (S.flags.titles.indexOf(TITLE) < 0) S.flags.titles.push(TITLE);
+      if (!S.flags.title) S.flags.title = TITLE;
     }
   });
 

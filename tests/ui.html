@@ -628,6 +628,35 @@ function installStubs() {
   GG.spawnMapEntities = function (map) { spawn0(map); if (map.kind === 'dungeon' && map.depth >= 4) map.mods = ['hasted', 'gloom']; };
   var BOSSN = { boss_gravelord: 'Morgrath the Gravelord', boss_broodmother: 'Skarn the Broodmother', boss_tyrant: 'Azgalor, the Ember Tyrant', boss_hollow: 'Xal\'thuun, the Hollow Star' };
   GG.getMonsterInfo = function (id) { return { id: id, name: BOSSN[id] || id, sprite: { body: 'skeleton', color: '#ccc', accent: '#444', scale: 1 }, boss: !!BOSSN[id] }; };
+
+  // ---------- Revision 5 stubs ----------
+  var NOBULK = function (it) { return !it || it.locked || it.rarity === 'set' || C.RARITY[it.rarity].tier || it.type === 'gem' || it.type === 'lore'; };
+  GI.previewSellAtOrBelow = function (r) {
+    var n = 0, g = 0; S.player.inventory.forEach(function (it) { if (it && !NOBULK(it) && RO(it.rarity) <= RO(r)) { n++; g += it.value * (it.qty || 1); } });
+    return { count: n, gold: g };
+  };
+  GI.sellAtOrBelow = function (r) {
+    var p = S.player, res = GI.previewSellAtOrBelow(r);
+    p.inventory.forEach(function (it, i) { if (it && !NOBULK(it) && RO(it.rarity) <= RO(r)) p.inventory[i] = null; });
+    addGold(res.gold); invChanged(); return res;
+  };
+  var SORTK = { rarity: function (a, b) { return RO(b.rarity) - RO(a.rarity); }, level: function (a, b) { return b.ilvl - a.ilvl; }, value: function (a, b) { return b.value - a.value; },
+    slot: function (a, b) { return String(a.slot).localeCompare(String(b.slot)); }, newest: function (a, b) { return (b.foundAt || 0) - (a.foundAt || 0); },
+    upgrades: function (a, b) { return (GI.verdict(b) === 'up') - (GI.verdict(a) === 'up'); } };
+  function sortArr(arr, mode) { var f = SORTK[mode] || SORTK.rarity; var items = arr.filter(Boolean).sort(function (a, b) { return f(a, b) || RO(b.rarity) - RO(a.rarity); }); for (var i = 0; i < arr.length; i++) arr[i] = items[i] || null; }
+  GI.sortInventory = function (mode) { GI.lastSort = mode; sortArr(S.player.inventory, mode); invChanged(); };
+  GI.sortStash = function (mode) { GI.lastStashSort = mode; sortArr(S.stash, mode); G.emit('inventory:changed', {}); };
+  GI.getPile = function (pid) { return S.groundItems.filter(function (g) { return g.pileId === pid; }); };
+  GI.pickup = function (gid) {
+    var gi = S.groundItems.findIndex(function (g) { return g.id === gid; }); if (gi < 0) return false;
+    var g = S.groundItems[gi];
+    if (g.item.type === 'gold') { addGold(g.item.qty); S.groundItems.splice(gi, 1); return true; }
+    if (!GI.addToInventory(g.item)) { toast('Your bag is full', '#ff5b5b'); return false; }
+    S.groundItems.splice(gi, 1); G.emit('item:picked', { item: g.item }); return true;
+  };
+  GI.pickupPile = function (pid) { var t = 0, l = 0; GI.getPile(pid).forEach(function (g) { if (GI.pickup(g.id)) t++; else l++; }); return { taken: t, left: l }; };
+  GI.LOOKS = { ash_plate: { name: 'Ash Plate', matched: { 2: '+5% armor', 4: '+10% life, embers trail your steps' } } };
+  GG.getPallor = function () { var v = S.flags.pallor | 0; return { value: v, tier: Math.min(4, Math.floor(v / 25)), effects: v >= 25 ? ['Monsters +10% life'] : [] }; };
 }
 
 // =====================================================================================================
@@ -687,6 +716,24 @@ function buildDev() {
   b('dash on/off', function () { G.game.dashOn = !G.game.dashOn; });
   b('lockdown wave', function () { G.game.lock = G.game.lock ? { room: {}, wave: Math.min(3, G.game.lock.wave + 1), waves: 3 } : { room: {}, wave: 1, waves: 3 }; S.flags.sealed = true; if (G.game.lock.wave === 1) G.emit('room:locked', { room: {} }); });
   sec('misc');
+  sec('revision 5');
+  b('pile x5', function () {
+    var p = S.player, pid = G.newId();
+    ['common', 'magic', 'rare', 'epic'].forEach(function (r) { var it = G.items.rollItem({ level: p.level, rarity: r }); S.groundItems.push({ id: G.newId(), x: p.x + 1, y: p.y, pileId: pid, item: it }); });
+    S.groundItems.push({ id: G.newId(), x: p.x + 1, y: p.y, pileId: pid, item: { type: 'gold', qty: 57, name: 'Gold', rarity: 'common', icon: { shape: 'gold', color: '#ffd94a' } } });
+    G.emit('pile:open', { pileId: pid });
+  });
+  b('fill bag junk', function () { for (var i = 0; i < 12; i++) pick(i % 3 ? 'common' : 'magic'); });
+  b('look+awaken item', function () {
+    var it = G.items.rollItem({ level: S.player.level, rarity: 'rare', slot: 'chest' }); it.look = { family: 'ash_plate', palette: 0 }; it.kills = 180;
+    it.awakened = [{ stat: 'resFire', value: 12 }]; it.bleached = true; it.hidden = { stat: 'dmgPct', value: 9 };
+    var h2 = G.items.rollItem({ level: S.player.level, rarity: 'magic', slot: 'helm' }); h2.look = { family: 'ash_plate', palette: 0 };
+    S.player.equipment.helm = h2; G.items.addToInventory(it); G.emit('item:picked', { item: it });
+  });
+  b('pallor +25', function () { S.flags.pallorUnlocked = true; S.flags.pallor = Math.min(100, (S.flags.pallor | 0) + 25); });
+  b('floor name', function () { if (S.map) { S.map.floorName = 'The Drowned Ossuary'; S.map.variant = { id: 'v', name: 'Flooded', palette: { accent: '#7fd4ff' } }; } G.emit('scene:changed', { scene: S.scene, depth: S.depth, map: S.map }); });
+  b('play ending', function () { G.emit('quest:completed', { quest: { id: 'main_8', main: true, status: 'done' } }); });
+  b('edit hud', function () { G.ui._editHud(); });
   b('toast', function () { G.emit('ui:toast', { text: 'A cold wind rises from below.', color: '#7fd4ff' }); });
   b('save', function () { out.textContent = 'save -> ' + G.meta.save(); });
   b('corrupt save', function () { localStorage.setItem(G.meta._KEY, '{"v":1,"player":'); out.textContent = 'hasSave -> ' + G.meta.hasSave(); });

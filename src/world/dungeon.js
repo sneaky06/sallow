@@ -110,7 +110,7 @@
   function addLockdowns(ctx) {
     if (ctx.isBoss || ctx.depth < 2) return;
     let want = ctx.rng.weighted([{ w: 25, n: 0 }, { w: 50, n: 1 }, { w: 25, n: 2 }]).n;
-    const cands = ctx.rng.shuffle(ctx.rooms.filter(function (r) { return r.type === 'normal'; }));
+    const cands = ctx.rng.shuffle(ctx.rooms.filter(function (r) { return r.type === 'normal' && !r.lm && !r.noLock; }));
     for (const r of cands) {
       if (want <= 0) break;
       if (tryLockdown(ctx, r)) want--;
@@ -118,7 +118,7 @@
   }
 
   // One generation attempt. Returns a finished ctx, or null if the result fails validation.
-  function build(depth, seed, layoutName) {
+  function build(depth, seed, layoutName, def) {
     const rng = G.rng.create(seed);
     const theme = C.themeForDepth(depth);
     const isBoss = depth % C.BOSS_EVERY === 0;
@@ -134,6 +134,7 @@
     }
     const ctx = gen.makeCtx(w, h, rng, depth, theme);
     ctx.isBoss = isBoss;
+    ctx.variantDef = def;
     if (isBoss) ctx.mx1 = w - gen.BOSS_STRIP - 1;
 
     gen.layouts[layoutName](ctx);
@@ -194,6 +195,9 @@
     take('shrine', rng.chance(0.75) ? 1 : 0);
     for (const r of rest) if (!r.type) r.type = 'normal';
 
+    // Landmarks and the hidden cache: terrain stamps, validated against the dry-ground connectivity of the floor.
+    if (!fallback) { gen.stampLandmarks(ctx); gen.stampCache(ctx); }
+
     // Liquids: deep middles, then drop anything that cannot be waded to.
     gen.deepen(ctx);
     gen.pruneLiquid(ctx, gen.flood(ctx, ctx.spawn.x, ctx.spawn.y, null, WALK));
@@ -233,12 +237,17 @@
     depth = Math.max(1, depth | 0);
     seed = (seed >>> 0) || 1;
     const theme = C.themeForDepth(depth);
-    let ctx = null;
+    const pick = W.pickVariant(depth, seed), variant = pick.variant;
+    let ctx = null, attempts = 0;
+    // Late attempts drop the variant's layout for the theme's plain one; the last resort is the fallback layout.
     for (let a = 0; a < MAX_ATTEMPTS && !ctx; a++) {
-      try { ctx = build(depth, a ? derive(seed, a) : seed, theme); } catch (err) { console.warn('[world] generation attempt failed', err); }
+      attempts++;
+      const layout = a < MAX_ATTEMPTS - 3 ? variant.layout : W.DEFAULT_LAYOUT[theme];
+      try { ctx = build(depth, a ? derive(seed, a) : seed, layout, pick.def); if (ctx) variant.layout = layout; } catch (err) { console.warn('[world] generation attempt failed', err); }
     }
-    if (!ctx) ctx = build(depth, seed, 'fallback');
+    if (!ctx) { attempts++; ctx = build(depth, seed, 'fallback', pick.def); if (ctx) variant.layout = 'fallback'; }
     if (!ctx) throw new Error('world: could not generate depth ' + depth + ' seed ' + seed);
+    W._lastAttempts = attempts;
 
     const filled = gen.populate(ctx);
     const n = ctx.w * ctx.h;
@@ -255,6 +264,9 @@
       }),
       spawns: filled.spawns,
       props: filled.props,
+      variant,
+      floorName: pick.floorName,
+      landmarks: ctx.landmarks.map(function (l) { return { id: l.id, name: l.name, x: l.x, y: l.y, w: l.w, h: l.h }; }),
     };
     W.updateVisibility(map, map.spawn.x + 0.5, map.spawn.y + 0.5);
     return map;

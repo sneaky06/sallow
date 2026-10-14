@@ -108,5 +108,97 @@
   };
   G.on('sfx', function (e) { if (e && e.name) E.sfx(e.name); });
 
-  U.audio = { unlock: unlock, names: Object.keys(R), isRunning: function () { return !!ac && ac.state === 'running'; } };
+  // ---- ambient sound bed (R5.10): one quiet looping layer per floor, crossfaded on change.
+  // Kinds: wind, drone, drip, water, fire, heart, choir, none. Pallor tier >= 3 adds a thin, wrong high tone.
+  // A few nodes per bed, built once per change; the per-frame tick only schedules the odd drip / heartbeat.
+  const BED_VOL = 0.11;
+  let bed = null, wantBed = 'none', wantPallor = 0, nextEv = 0;
+  function loopNoise(ftype, f, q) {
+    const s = ac.createBufferSource(), fl = ac.createBiquadFilter();
+    s.buffer = noiseBuf; s.loop = true; fl.type = ftype; fl.frequency.value = f; fl.Q.value = q || 0.7;
+    s.connect(fl); s.start(0, Math.random() * 0.5);
+    return { src: s, out: fl, filter: fl };
+  }
+  function lfo(rate, depth, param) {
+    const o = ac.createOscillator(), g = ac.createGain();
+    o.frequency.value = rate; g.gain.value = depth; o.connect(g); g.connect(param); o.start();
+    return o;
+  }
+  function buildBed(kind) {
+    const out = ac.createGain(), stops = [];
+    out.gain.value = 0.0001;
+    out.connect(master);
+    const add = function (node, vol) { const g = ac.createGain(); g.gain.value = vol; node.connect(g); g.connect(out); return g; };
+    const osc = function (type, f, vol) { const o = ac.createOscillator(); o.type = type; o.frequency.value = f; o.start(); stops.push(o); return add(o, vol); };
+    let n;
+    switch (kind) {
+      case 'wind': n = loopNoise('bandpass', 420, 0.6); stops.push(n.src, lfo(0.11, 260, n.filter.frequency)); add(n.out, 0.5); break;
+      case 'water': n = loopNoise('lowpass', 700); stops.push(n.src, lfo(0.17, 240, n.filter.frequency)); add(n.out, 0.35); break;
+      case 'fire': {
+        n = loopNoise('lowpass', 140); stops.push(n.src); add(n.out, 0.7);
+        const c = loopNoise('bandpass', 1600, 1.2), g = add(c.out, 0.0); stops.push(c.src, lfo(6.3, 0.12, g.gain), lfo(0.7, 0.06, g.gain));
+        break;
+      }
+      case 'choir': osc('sine', 110, 0.16); osc('sine', 164.8, 0.12); osc('sine', 261.6, 0.07); break;
+      case 'heart': case 'drip': case 'drone': default: {
+        const lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = kind === 'heart' ? 160 : 240;
+        const a = ac.createOscillator(), b = ac.createOscillator(); a.type = b.type = 'sawtooth';
+        a.frequency.value = kind === 'heart' ? 41 : 55; b.frequency.value = a.frequency.value * 1.012;
+        a.connect(lp); b.connect(lp); a.start(); b.start(); stops.push(a, b, lfo(0.07, 60, lp.frequency));
+        add(lp, kind === 'drone' ? 0.3 : 0.16);
+      }
+    }
+    // pallor: a faint detuned high pair that beats slowly; gain follows the tier
+    const pa = ac.createOscillator(), pb = ac.createOscillator(), pg = ac.createGain();
+    pa.type = pb.type = 'sine'; pa.frequency.value = 1661; pb.frequency.value = 1667.5; pg.gain.value = 0;
+    pa.connect(pg); pb.connect(pg); pg.connect(out); pa.start(); pb.start(); stops.push(pa, pb);
+    return { kind: kind, out: out, stops: stops, pallor: pg };
+  }
+  function bedOn() { const S = G.state; return !!(S && S.settings && S.settings.sfx !== false && S.settings.ambience !== false); }
+  function swapBed() {
+    if (!ac || !noiseBuf) return;
+    const kind = bedOn() ? wantBed : 'none';
+    if (bed && bed.kind === kind) return;
+    const t = ac.currentTime;
+    if (bed) {
+      const old = bed;
+      old.out.gain.cancelScheduledValues(t); old.out.gain.setValueAtTime(Math.max(0.0001, old.out.gain.value), t);
+      old.out.gain.exponentialRampToValueAtTime(0.0001, t + 1.2);
+      setTimeout(function () { try { old.stops.forEach(function (s) { s.stop(); }); old.out.disconnect(); } catch (err) { /* already gone */ } }, 1400);
+      bed = null;
+    }
+    if (kind === 'none') return;
+    try {
+      bed = buildBed(kind);
+      bed.out.gain.setValueAtTime(0.0001, t);
+      bed.out.gain.exponentialRampToValueAtTime(BED_VOL, t + 2.5);
+    } catch (err) { bed = null; }
+  }
+  function tickBed() {
+    if (!ac || ac.state !== 'running') return;
+    if ((bed ? bed.kind : 'none') !== (bedOn() ? wantBed : 'none')) swapBed();
+    if (!bed) return;
+    const now = ac.currentTime;
+    bed.pallor.gain.setTargetAtTime(wantPallor >= 3 ? (wantPallor - 2) * 0.012 : 0, now, 1.5);
+    if (now < nextEv) return;
+    if (bed.kind === 'drip' || bed.kind === 'water') {
+      const f = 1400 + Math.random() * 1400;
+      tone('sine', f, f * 0.55, 0.09, 0.05 + Math.random() * 0.04);
+      if (Math.random() < 0.3) tone('sine', f * 1.3, f * 0.7, 0.07, 0.03, 0.12);
+      nextEv = now + 0.8 + Math.random() * (bed.kind === 'drip' ? 3.5 : 5);
+    } else if (bed.kind === 'heart') {
+      tone('sine', 62, 38, 0.16, 0.22); tone('sine', 58, 36, 0.18, 0.16, 0.24);
+      nextEv = now + 1.25 + (wantPallor * 0.08);
+    } else if (bed.kind === 'fire' && Math.random() < 0.6) {
+      noise(0.03, 0.12, 0, 'highpass', 3000, 2000);
+      nextEv = now + 0.15 + Math.random() * 0.9;
+    } else nextEv = now + 2;
+  }
+
+  U.audio = {
+    unlock: unlock, names: Object.keys(R), isRunning: function () { return !!ac && ac.state === 'running'; },
+    setBed: function (kind, pallorTier) { wantBed = typeof kind === 'string' ? kind : 'none'; wantPallor = pallorTier | 0; },
+    tick: function () { try { tickBed(); } catch (err) { /* audio must never break the game */ } },
+    bedKind: function () { return bed ? bed.kind : 'none'; },
+  };
 })();

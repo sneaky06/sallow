@@ -68,7 +68,8 @@
         if (v === 'up') c.appendChild(h('span', { class: 'up', text: '▲' }));
         else if (v === 'down') c.appendChild(h('span', { class: 'dn', text: '▼' }));
       }
-      if (opts.junk && isJunk(item)) { c.className += ' junk'; c.appendChild(h('span', { class: 'jk', text: 'junk' })); }
+      if (item.locked) c.appendChild(h('i', { class: 'lk', 'aria-hidden': 'true' }));
+      else if (opts.junk && isJunk(item)) { c.className += ' junk'; c.appendChild(h('span', { class: 'jk', text: 'junk' })); }
       c.setAttribute('aria-label', item.name || 'item');
       if (opts.onTap) c.addEventListener('click', function () { ui._sfx('click'); opts.onTap(item); });
     } else {
@@ -142,6 +143,7 @@
         for (const e of fx) body.push(h('div', { class: 'ed-fx' }, e.name || 'Mythic effect', e.desc ? h('small', { text: e.desc }) : null));
         for (const m of (item.mods || [])) body.push(h('div', { class: 'ed-tipline', text: modText(m) }));
         for (const g of (item.sockets || [])) body.push(h('div', { class: 'ed-tipline', style: 'color:' + (g ? '#5a1c6e' : '#4a3d2a'), text: g ? '◆ ' + g.name : '◇ Empty socket' }));
+        extraLines(item, null).forEach(function (n) { body.push(n); });
         const lvl = (S.player && S.player.level) || 1;
         if (item.reqLevel > lvl) body.push(h('div', { class: 'ed-tipline ed-bad', text: 'Requires level ' + item.reqLevel }));
       } else {
@@ -158,6 +160,7 @@
           body.push(h('div', { class: 'ed-tipline', text: text === '' ? ' ' : text, style: col ? 'color:' + col : null }));
         }
         if (fx.length && !fxShown) for (const e of fx) body.push(h('div', { class: 'ed-fx' }, e.name || 'Mythic effect', e.desc ? h('small', { text: e.desc }) : null));
+        extraLines(item, tip.lines).forEach(function (n) { body.push(n); });
         const keys = cmp ? Object.keys(cmp).filter(function (k) { return cmp[k]; }) : [];
         if (gear && keys.length) {
           const box = h('div', { class: 'ed-cmp' }, h('div', { class: 'ed-note', text: 'If equipped:' }));
@@ -175,6 +178,10 @@
         if (a.disabled) b.disabled = true;
         return b;
       });
+      // R5.8 lock: on anything the player owns (not vendor stock); a locked item is never sold or junked in bulk
+      if (opts.price == null && opts.lock !== false && lockable(item)) {
+        btns.push(ui._btn(item.locked ? 'Unlock' : 'Lock', function () { toggleLock(item); rebuild(); ui._refresh(); }, item.locked ? 'on' : ''));
+      }
       if (gear) btns.push(ui._btn(showDetails ? 'Less' : 'Details', function () { showDetails = !showDetails; rebuild(); }));
       btns.push(ui._btn('Close', function () { close(); }));
       return ui._dialog(body, btns, 'tip');
@@ -185,6 +192,91 @@
     return close;
   }
   ui._showItem = showItem;
+
+  // ---------- R5.8 locking ----------
+  function lockable(item) { return !!item && item.type !== 'gold' && item.type !== 'lore' && !!(item.slot || item.type === 'gem'); }
+  function toggleLock(item) {
+    const want = !item.locked;
+    let done = false;
+    if (G.items && typeof G.items.setLocked === 'function') { try { G.items.setLocked(item, want); done = true; } catch (err) { done = false; } }
+    else if (G.items && typeof G.items.toggleLock === 'function') { try { G.items.toggleLock(item); done = true; } catch (err) { done = false; } }
+    if (!done || !!item.locked !== want) {                           // plain data flag (contract: item.locked)
+      item.locked = want;
+      if (!want) delete item.locked;
+      ui._sfx('click');
+    }
+  }
+  ui._toggleLock = toggleLock; ui._lockable = lockable;
+
+  // ---------- R5.9 looks, R5.3 awakening, R5.2 bleached ----------
+  const MATCH_SLOTS = ['helm', 'chest', 'gloves', 'boots'];
+  const AWAKEN_AT = [250, 1000, 5000];
+  function titleCase(id) { return String(id).replace(/[_-]+/g, ' ').replace(/\b\w/g, function (c) { return c.toUpperCase(); }); }
+  function lookName(fam) {
+    const L = G.items && (G.items.LOOKS || G.items.LOOK_FAMILIES);
+    const d = L && L[fam];
+    return (d && (d.name || d.label)) || titleCase(fam);
+  }
+  function wornIn(item) {
+    const eq = (S.player && S.player.equipment) || {};
+    for (const k in eq) if (eq[k] === item) return k;
+    return null;
+  }
+  // Lines the items tooltip may not carry yet. In the full view, a line already written by the items team wins.
+  function extraLines(item, tipLines) {
+    const out = [];
+    const has = function (re) { return (tipLines || []).some(function (l) { return re.test(String(l && l.text)); }); };
+    const lookOf = function (it) {
+      if (!it) return null;
+      if (G.items && G.items.getLook) { try { return G.items.getLook(it); } catch (err) { return null; } }
+      return it.look || null;
+    };
+    const famOf = function (it) { const l = lookOf(it); return (l && l.family) || null; };
+    const fam = famOf(item);
+    if (fam && !has(/ look\b|^look:/i)) {
+      const L = G.items && (G.items.LOOKS || G.items.LOOK_FAMILIES);
+      const def = L && L[fam];
+      let line = 'Look: ' + lookName(fam);
+      if (MATCH_SLOTS.indexOf(item.slot) >= 0 && !(def && def.noMatch)) {
+        const eq = (S.player && S.player.equipment) || {};
+        const n = MATCH_SLOTS.filter(function (s) { return famOf(eq[s]) === fam; }).length;
+        const worn = !!wornIn(item);
+        const withThis = worn || famOf(eq[item.slot]) === fam ? n : n + 1;
+        line += ' · Matched ' + n + '/4' + (withThis !== n ? ' (' + withThis + ' with this)' : '');
+        const steps = def && (def.matched || def.bonus);
+        out.push(h('div', { class: 'ed-tipline ed-look' + (withThis >= 2 ? ' on' : ''), text: line }));
+        if (steps && typeof steps === 'object' && withThis >= 2) {      // bonuses only once a match is in reach (R3.4)
+          [2, 4].forEach(function (k) {
+            const d = steps[k];
+            // [[stat, value], ...] from the items table, or plain text
+            const txt = typeof d === 'string' ? d : Array.isArray(d)
+              ? d.map(function (b) { return Array.isArray(b) ? modText({ stat: b[0], value: b[1] }) : String(b); }).join(', ') : (d.desc || '');
+            if (txt) out.push(h('div', { class: 'ed-tipline ed-note', style: 'padding-left:18px' + (withThis >= k ? ';color:#17571b' : ''), text: k + ' worn: ' + txt }));
+          });
+        }
+      } else out.push(h('div', { class: 'ed-tipline ed-look', text: line }));
+    }
+    // awakened affixes, then progress to the next one
+    let aw = item.awakened;
+    if (aw && !Array.isArray(aw)) aw = [aw];
+    if (aw && aw.length && !has(/awaken/i)) {
+      aw.forEach(function (m) {
+        const t = typeof m === 'string' ? m : (m && m.stat ? modText(m) : (m && (m.text || m.name)) || '');
+        if (t) out.push(h('div', { class: 'ed-tipline ed-awake', text: '✧ ' + t }));
+      });
+    }
+    if (item.kills != null && item.slot && !has(/awaken/i)) {
+      const k = item.kills | 0;
+      const steps = (G.items && Array.isArray(G.items.AWAKEN_AT)) ? G.items.AWAKEN_AT : AWAKEN_AT;
+      const next = steps.filter(function (x) { return x > k; })[0];
+      out.push(h('div', { class: 'ed-tipline ed-note', text: next ? 'Awakening: ' + k + ' / ' + next + ' kills' : k + ' kills · fully awakened' }));
+    }
+    if (item.bleached && item.hidden != null && !has(/\?\?\?/)) {
+      out.push(h('div', { class: 'ed-bleach' }, '???', h('small', { text: 'Bleached. Bring it home alive to learn what it hides.' })));
+    }
+    return out;
+  }
+  ui._extraLines = extraLines;
 
   function effectsOf(item) {
     const table = (G.items && G.items.EFFECTS) || {};
@@ -404,6 +496,24 @@
   }
   ui._doll = doll;
 
+  // R5.9: the hero as they look right now (engine overlays worn gear); the class portrait when the engine has no preview
+  function preview(p, size) {
+    const fn = G.engine && G.engine.getPlayerPreview;
+    let src = null;
+    if (fn) { try { src = fn(p, size * 2); } catch (err) { src = null; } }
+    if (!src || !src.width) return ui._portrait(p.sprite, size);
+    const cv = h('canvas', { width: size, height: size, class: 'ed-pt' });
+    const ctx = cv.getContext('2d');
+    if (ctx) {
+      ctx.imageSmoothingEnabled = false;
+      const k = Math.min(size / src.width, size / src.height);
+      const w = Math.round(src.width * k), hh = Math.round(src.height * k);
+      ctx.drawImage(src, Math.round((size - w) / 2), Math.round((size - hh) / 2), w, hh);
+    }
+    return cv;
+  }
+  ui._preview = preview;
+
   function kv(k, v, cls) { return h('div', { class: 'ed-kv' }, h('span', { text: k }), h('b', { class: cls || null, text: v })); }
 
   function matName(k) { return k === 'gemdust' ? 'gem dust' : k; }
@@ -414,6 +524,8 @@
     const box = h('div', { class: 'ed-sum' });
     let w = null;
     if (G.items && G.items.getWeapon) { try { w = G.items.getWeapon(p); } catch (err) { w = null; } }
+    box.appendChild(h('div', { class: 'ed-preview' }, preview(p, 64), h('div', { class: 'ed-pvname' },
+      h('div', { class: 'ed-ember', text: p.name || 'Hero' }), ui._heroTitle && ui._heroTitle() ? h('div', { class: 'ed-note', text: ui._heroTitle() }) : null)));
     box.appendChild(kv('Gold', fmt(p.gold || 0) + ' g', 'ed-gold'));
     if (w) box.appendChild(kv('Weapon', fmt(w.dmgMin + (st.dmgMin || 0)) + '-' + fmt(w.dmgMax + (st.dmgMax || 0))));
     box.appendChild(kv('Armor', fmt(st.armor || 0)));
@@ -442,8 +554,8 @@
     const cls = (G.game && G.game.CLASSES && G.game.CLASSES[p.classId]) || null;
     const pts = p.attrPoints | 0;
     const left = h('div', { class: 'ed-box' },
-      h('div', { style: 'display:flex;gap:8px;align-items:center;margin-bottom:6px' }, ui._portrait(p.sprite || (cls && cls.sprite), 48),
-        h('div', null, h('div', { class: 'ed-ember', text: p.name || 'Hero' }),
+      h('div', { style: 'display:flex;gap:8px;align-items:center;margin-bottom:6px' }, preview(p, 48),
+        h('div', null, h('div', { class: 'ed-ember', text: (p.name || 'Hero') + (ui._heroTitle && ui._heroTitle() ? ', ' + ui._heroTitle() : '') }),
           h('div', { class: 'ed-note', text: 'Level ' + (p.level || 1) + ' ' + ((cls && cls.name) || '') }),
           h('div', { class: 'ed-note', text: 'XP ' + fmt(p.xp || 0) + ' / ' + fmt(p.xpNext || 0) }))),
       h('div', { class: pts > 0 ? 'ed-gold' : 'ed-note', text: pts > 0 ? pts + ' attribute point' + (pts > 1 ? 's' : '') + ' to spend' : 'No attribute points to spend' }),
@@ -477,6 +589,37 @@
       }) : null);
     return h('div', { class: 'ed-body' }, h('div', { class: 'ed-cols' }, left, right));
   }
+
+  // ---------- sorting (R5.7) ----------
+  const SORTS = [['rarity', 'Rarity', 'Best colour first'], ['upgrades', 'Upgrades', 'Green arrows first'], ['newest', 'Newest', 'Latest finds first'],
+    ['slot', 'Slot', 'Weapons, armour, jewellery'], ['level', 'Level', 'Highest item level first'], ['value', 'Value', 'Most gold first']];
+  function sortMode() { const m = S.settings.sort; return SORTS.some(function (s) { return s[0] === m; }) ? m : 'rarity'; }
+  function doSort(which, mode) {
+    if (which !== 'stash') call('sortInventory', mode);
+    if (which !== 'inv' && G.items && G.items.sortStash) call('sortStash', mode);
+  }
+  // which: 'inv' | 'stash' | 'both'. Two taps: Sort, then the order. The choice is remembered for next time.
+  function sortPicker(which) {
+    let close = null;
+    const cur = sortMode();
+    const rows = SORTS.map(function (s) {
+      return h('button', { type: 'button', class: 'ed-row' + (s[0] === cur ? ' on' : ''), onclick: function () {
+        ui._sfx('click'); close();
+        S.settings.sort = s[0];
+        doSort(which, s[0]);
+        if (G.meta && G.meta.save) G.meta.save();
+        ui._refreshNow();
+      } }, h('span', { class: 'n' }, s[1], h('small', { text: s[2] })), s[0] === cur ? h('b', { class: 'ed-gold', text: '✓' }) : null);
+    });
+    close = ui._modal(ui._dialog([h('div', { class: 'ed-h', text: which === 'stash' ? 'Sort stash by' : which === 'both' ? 'Sort stash and pack by' : 'Sort pack by' }), rows],
+      [ui._btn('Cancel', function () { close(); })]));
+  }
+  function sortButton(which) {
+    const b = ui._btn('Sort', function () { sortPicker(which); });
+    b.setAttribute('aria-label', 'Sort (now by ' + sortMode() + ')');
+    return b;
+  }
+  ui._sortButton = sortButton; ui._sortMode = sortMode;
 
   // ---------- junk rules (R3.1) ----------
   const JUNK_LEVELS = ['none', 'common', 'magic', 'rare'];
@@ -573,8 +716,9 @@
       return ui._frame('Hero', {
         tabs: [{ id: 'items', label: 'Items' }, { id: 'char', label: 'Stats', badge: pts > 0 ? '+' + pts : null }],
         tab: view.tab, onTab: function (id) { view.tab = id; ui._refreshNow(); },
-        right: view.tab === 'items' ? [ui._btn('Sort', function () { call('sortInventory'); ui._refresh(); })] : null,
-        foot: view.tab === 'items' && G.items && G.items.processJunk ? [junkButton(), ui._btn('Rules', junkPopup)] : null,
+        right: view.tab === 'items' ? [sortButton('inv')] : null,
+        foot: view.tab === 'items' ? [ui._reviewButton ? ui._reviewButton() : null,
+          G.items && G.items.processJunk ? junkButton() : null, G.items && G.items.processJunk ? ui._btn('Rules', junkPopup) : null] : null,
       }, view.tab === 'char' ? renderChar(p, view) : renderItems(p));
     },
   });

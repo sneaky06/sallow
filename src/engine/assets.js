@@ -124,6 +124,7 @@
       if (img.width !== 128 || img.height !== 672) return;
       tiles[name] = pixels(img);
       applyTiles(name, U.tiles.peek(name));
+      U.assets.ver++;                        // variant-tinted copies rebuild
     },
     sprites: function (name, img) {
       const s = buildSprite(img);
@@ -152,6 +153,8 @@
       }
       projectiles[name] = out;
     },
+    // gear overlays <family>_<slot>.png on the character grid (R5.9); used on top of a hand-drawn <class>_base sheet
+    gear: function (name, img) { if (U.gear) U.gear.addOverlay(name, img); },
     portraits: function (name, img) {
       if (img.width !== 48 || img.height !== 48) return;
       portraits[name] = crop(img, 0, 0, 48, 48);
@@ -160,7 +163,7 @@
   };
 
   function loadImage(path) {
-    const m = /^(tiles|sprites|props|icons|projectiles|portraits)\/([a-z0-9_]+)\.png$/.exec(path);
+    const m = /^(tiles|sprites|props|icons|projectiles|portraits|gear)\/([a-z0-9_]+)\.png$/.exec(path);
     if (!m) return;
     const img = new Image();
     img.onload = function () { try { HANDLERS[m[1]](m[2], img); } catch (err) { /* procedural art stays */ } };
@@ -200,6 +203,7 @@
   };
 
   U.assets = {
+    ver: 0,
     applyTiles: applyTiles,
     load: function () {
       if (started) return;
@@ -221,6 +225,7 @@
       return (e.classId && sprites[e.classId]) || (e.monsterId && sprites[e.monsterId]) || (e.type === 'npc' && sprites['npc_' + e.role]) || null;
     },
     hasIcon: function (d) { return !!iconName(d); },
+    sprite: function (name) { return (nSprites && sprites[name]) || null; },
   };
 
   // ---------------------------------------------------------------- wrap the procedural getters

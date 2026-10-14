@@ -73,8 +73,15 @@
     const p = P();
     if (!p || !item) return false;
     if (item.type === 'gold') { D.addGold(p, item.qty || 0); return true; }
-    // R4.1: lore pages never take a bag slot; the UI marks them found (state.flags.loreFound) and shows the page
-    if (item.type === 'lore') { G.emit('lore:found', { loreIndex: item.loreIndex }); return true; }
+    // R4.1: lore pages never take a bag slot; the UI shows the page. R5.5: we also record state.flags.loreFound as a safety net.
+    if (item.type === 'lore') {
+      const f = G.state.flags || (G.state.flags = {});
+      if (!Array.isArray(f.loreFound)) f.loreFound = [];
+      if (f.loreFound.indexOf(item.loreIndex) < 0) f.loreFound.push(item.loreIndex);
+      G.emit('lore:found', { loreIndex: item.loreIndex });
+      return true;
+    }
+    if (item.foundAt === undefined) item.foundAt = G.state.time || 0;     // R5.7 'newest' sort
     if (item.baseId === 'potion_hp' || item.baseId === 'potion_mp') {
       addPotion(p, item.baseId === 'potion_hp' ? 'hp' : 'mp', item.qty || 1, item.ilvl);
       invChanged();
@@ -91,28 +98,45 @@
     return true;
   };
 
-  I.pickup = function (groundId) {
+  I.pickup = function (groundId, quiet) {
     const p = P();
     const list = G.state.groundItems;
     let idx = -1;
     for (let i = 0; i < list.length; i++) if (list[i].id === groundId) { idx = i; break; }
     if (!p || idx < 0) return false;
     const item = list[idx].item;
+    if (item.type !== 'gold' && item.type !== 'lore') item.foundAt = G.state.time || 0;
     const rules = G.state.settings && G.state.settings.junk;
     let salvaged = null;
     if (item.type === 'gold') {
-      D.addGold(p, item.qty || 0, 'gold');
+      D.addGold(p, item.qty || 0, quiet ? null : 'gold');
     } else if (rules && rules.auto && rules.action === 'salvage' && I.isJunk && I.isJunk(item)) {
       // R3.1 auto-salvage: junk never enters the bag (works with a full bag); the pickup feed gets one quiet line
       salvaged = D.salvageItem(p, item).materials;
       G.emit('inventory:changed', {});
     } else {
-      if (!I.addToInventory(item)) return fail('Inventory full');
-      G.emit('sfx', { name: item.type === 'consumable' ? 'potion' : 'click' });
+      if (!I.addToInventory(item)) return quiet ? false : fail('Inventory full');
+      if (!quiet) G.emit('sfx', { name: item.type === 'consumable' ? 'potion' : 'click' });
     }
     list.splice(idx, 1);
     G.emit('item:picked', salvaged ? { item: item, salvaged: true, materials: salvaged } : { item: item });
     return true;
+  };
+
+  // R5.6: take a whole pile (or everything at/above minRarity; gold, potions, materials and lore are always taken).
+  // -> { taken: n, left: n, full: bool, items: [item taken] }. Quiet: no sound, no toast — the caller (the UI pile popup)
+  // presents the result. item:picked / gold:changed / lore:found still fire per item.
+  I.pickupPile = function (pileId, opts) {
+    const min = opts && opts.minRarity && C.RARITY[opts.minRarity] ? C.RARITY[opts.minRarity].order : -1;
+    const out = { taken: 0, left: 0, full: false, items: [] };
+    if (!P()) return out;
+    for (const g of I.getPile(pileId)) {
+      const it = g.item;
+      const always = it.type === 'gold' || it.type === 'lore' || it.type === 'material' || it.baseId === 'potion_hp' || it.baseId === 'potion_mp';
+      if (!always && (out.full || (C.RARITY[it.rarity] || C.RARITY.common).order < min)) { out.left++; continue; }
+      if (I.pickup(g.id, true)) { out.taken++; out.items.push(it); } else { out.full = true; out.left++; }
+    }
+    return out;
   };
 
   // equip(invIndex[, 'ring1'|'ring2']) — the optional second argument picks the ring slot explicitly.
@@ -253,25 +277,66 @@
     invChanged();
   };
 
+  // ---- sorting (R5.7) ----
+  // Modes: 'rarity' | 'level' | 'slot' | 'value' | 'upgrades' | 'newest'. Stable; equal keys fall back to rarity, then level,
+  // then the current order. No mode = state.settings.sort, else 'slot' (the old fixed order).
   const TYPE_ORDER = { weapon: 0, armor: 1, jewelry: 2, gem: 3, consumable: 4, material: 5 };
   const SLOT_ORDER = { weapon: 0, offhand: 1, helm: 2, chest: 3, gloves: 4, boots: 5, belt: 6, amulet: 7, ring: 8 };
-  function sortItems(arr, size) {
-    const items = [];
-    for (let i = 0; i < size; i++) { if (arr[i]) items.push(arr[i]); arr[i] = null; }
-    items.sort(function (a, b) {
-      return (TYPE_ORDER[a.type] - TYPE_ORDER[b.type]) ||
-        ((SLOT_ORDER[a.slot] || 0) - (SLOT_ORDER[b.slot] || 0)) ||
-        (C.RARITY[b.rarity].order - C.RARITY[a.rarity].order) ||
-        (b.ilvl - a.ilvl) || (a.baseId < b.baseId ? -1 : a.baseId > b.baseId ? 1 : 0) || (a.id - b.id);
+  const VERDICT_ORDER = { up: 0, same: 1, down: 2 };
+  D.SORT_MODES = ['rarity', 'level', 'slot', 'value', 'upgrades', 'newest'];
+  function rk(it) { return (C.RARITY[it.rarity] || C.RARITY.common).order; }
+  function typeKey(it) { return TYPE_ORDER[it.type] !== undefined ? TYPE_ORDER[it.type] : 9; }
+  // primary key per mode, smaller first
+  const SORT_KEY = {
+    rarity: function (it) { return -rk(it); },
+    level: function (it) { return -(it.ilvl || 0); },
+    slot: function (it) { return typeKey(it) * 100 + (SLOT_ORDER[it.slot] || 0); },
+    value: function (it) { return -((it.value || 0) * (it.qty || 1)); },
+    upgrades: function (it) { const v = I.verdict ? I.verdict(it) : null; return v in VERDICT_ORDER ? VERDICT_ORDER[v] : 3; },
+    newest: function (it) { return -(typeof it.foundAt === 'number' ? it.foundAt : -1); },
+  };
+  function sortItems(arr, size, mode) {
+    const key = SORT_KEY[mode] || SORT_KEY.slot;
+    const rows = [];
+    for (let i = 0; i < size; i++) { if (arr[i]) rows.push({ it: arr[i], k: key(arr[i]), i: i }); arr[i] = null; }
+    rows.sort(function (a, b) {
+      return (a.k - b.k) || (rk(b.it) - rk(a.it)) || ((b.it.ilvl || 0) - (a.it.ilvl || 0)) || (a.i - b.i);
     });
-    for (const it of items) putInto(arr, size, it);   // re-inserting merges partial stacks
+    for (const r of rows) putInto(arr, size, r.it);   // re-inserting merges partial stacks
+  }
+  function sortMode(mode) {
+    if (SORT_KEY[mode]) return mode;
+    const s = G.state.settings && G.state.settings.sort;
+    return SORT_KEY[s] ? s : null;
   }
 
-  I.sortInventory = function () {
+  I.sortInventory = function (mode) {
     const p = P();
     if (!p) return;
-    sortItems(p.inventory, C.INV_SIZE);
+    sortItems(p.inventory, C.INV_SIZE, sortMode(mode));
     invChanged();
+  };
+
+  // ---- locking (R5.8): a locked item is never sold, salvaged or junked ----
+  // target: an item, a bag index, an equipment slot name, or { stash: index }. -> the new locked state (false if no item).
+  function lockTarget(target) {
+    const p = G.state.player;
+    if (target && typeof target === 'object' && typeof target.stash === 'number') return stash()[target.stash] || null;
+    if (target && typeof target === 'object') return target;
+    if (!p) return null;
+    return typeof target === 'number' ? (p.inventory || [])[target] || null : (p.equipment || {})[target] || null;
+  }
+  I.setLocked = function (target, locked) {
+    const item = lockTarget(target);
+    if (!item || item.type === 'gold') return false;
+    if (locked) item.locked = true; else delete item.locked;
+    G.emit('sfx', { name: 'click' });
+    invChanged();
+    return !!item.locked;
+  };
+  I.toggleLock = function (target) {
+    const item = lockTarget(target);
+    return item ? I.setLocked(item, !item.locked) : false;
   };
 
   // ---- stash ----
@@ -316,8 +381,8 @@
   };
 
   // Extension: sort the stash the same way as the bag.
-  I.sortStash = function () {
-    sortItems(stash(), C.STASH_SIZE);
+  I.sortStash = function (mode) {
+    sortItems(stash(), C.STASH_SIZE, sortMode(mode));
     invChanged();
   };
 })();

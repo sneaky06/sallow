@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Emberdeep — world harness</title>
+<title>Sallow — world harness</title>
 <style>
   body { margin: 0; background: #111016; color: #d8d4c8; font: 13px/1.4 ui-monospace, Menlo, Consolas, monospace; }
   #bar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 8px; background: #1b1922; position: sticky; top: 0; }
@@ -197,7 +197,7 @@ window.G = { manifest: {} };
     function flood(map, blockSolid, mask, dry, from) {
       const w = map.w, n = w * map.h, tiles = map.tiles, ok = dry ? DRY : C.WALKABLE;
       const blocked = new Uint8Array(n);
-      if (blockSolid) for (const p of map.props) if (p.solid) blocked[p.y * w + p.x] = 1;
+      if (blockSolid) for (const p of map.props) if (p.solid && !p.secret) blocked[p.y * w + p.x] = 1;
       if (mask) for (let i = 0; i < n; i++) if (mask[i]) blocked[i] = 1;
       const dist = new Int32Array(n).fill(-1), q = [from === undefined ? map.spawn.y * w + map.spawn.x : from];
       dist[q[0]] = 0;
@@ -209,6 +209,74 @@ window.G = { manifest: {} };
         }
       }
       return { dist, count: q.length };
+    }
+
+    const HEX = /^#[0-9a-f]{6}$/i, PARTICLES = ['mist', 'ash', 'ember', 'spore', 'drip', 'snow', 'motes', 'void', 'none'];
+    const SOUNDS = ['wind', 'drone', 'drip', 'fire', 'heart', 'choir', 'water', 'none'];
+    function checkVariant(map, depth, R, ok) {
+      const v = map.variant;
+      if (!ok(v && typeof v === 'object', 'map.variant missing')) return;
+      ok(typeof v.id === 'string' && typeof v.name === 'string' && v.name.length > 2 && typeof v.layout === 'string', 'variant id/name/layout');
+      const def = W.VARIANTS.find(function (d) { return d.id === v.id; });
+      ok(def && def.theme === map.theme && depth >= def.min && depth <= def.max, 'variant ' + v.id + ' not valid for depth ' + depth);
+      ok(depth > 20 || !def || def.min <= 20, 'deep-only variant above its depth');
+      ok(v.layout === 'fallback' || !!W._gen.layouts[v.layout], 'unknown layout ' + v.layout);
+      ok(typeof map.floorName === 'string' && map.floorName.length >= 6, 'floorName');
+      const p = v.palette, l = v.light, a = v.ambient;
+      const rng = function (x, lo, hi) { return typeof x === 'number' && x >= lo && x <= hi; };
+      ok(p && HEX.test(p.tint) && rng(p.amount, 0, 1) && rng(p.saturation, 0.1, 1.6) && rng(p.brightness, 0.6, 1.3) && HEX.test(p.accent) && (p.liquid === null || HEX.test(p.liquid)), 'palette fields');
+      ok(l && HEX.test(l.color) && rng(l.radius, 4, 10) && HEX.test(l.ambient) && HEX.test(l.torch) && rng(l.torchRadius, 0.6, 1.5) && rng(l.flicker, 0, 1), 'light fields');
+      ok(a && rng(a.darkness, 0, 0.8) && rng(a.fog, 0, 1) && SOUNDS.indexOf(a.sound) >= 0 && rng(a.darkness, 0, 0.8) &&
+        PARTICLES.indexOf(a.particles) >= 0 && HEX.test(a.color) && rng(a.density, 0, 2), 'ambient fields');
+      ok(v.blend === null || (['crypt', 'caves', 'inferno'].indexOf(v.blend.theme) >= 0 && rng(v.blend.amount, 0, 1)), 'blend field');
+      ok(depth <= 20 || v.blend !== null || def.min <= 20, 'deep floor not blended');
+      try { JSON.parse(JSON.stringify(v)); } catch (e) { ok(false, 'variant not JSON'); }
+      R.variants[v.id] = (R.variants[v.id] || 0) + 1;
+      R.layouts[v.layout] = (R.layouts[v.layout] || 0) + 1;
+      R.attempts[W._lastAttempts] = (R.attempts[W._lastAttempts] || 0) + 1;
+      if (v.layout === 'fallback') R.fallbacks++;
+      if (R.wanted && v.layout !== R.wanted) R.layoutSwaps++;
+      R.names[map.floorName] = 1;
+      const w = map.w, h = map.h;
+      ok(Array.isArray(map.landmarks) && map.landmarks.length <= 3, 'landmarks array');
+      for (const lm of map.landmarks || []) {
+        ok(W._gen.LANDMARKS[lm.id] && lm.x >= 1 && lm.y >= 1 && lm.x + lm.w <= w - 1 && lm.y + lm.h <= h - 1 && lm.w > 0 && lm.h > 0 && typeof lm.name === 'string', 'landmark fields ' + lm.id);
+        R.landmarks[lm.id] = (R.landmarks[lm.id] || 0) + 1;
+        const inLm = function (q) { return q.x >= lm.x && q.y >= lm.y && q.x < lm.x + lm.w && q.y < lm.y + lm.h; };
+        const chests = map.props.filter(function (q) { return q.type === 'chest' && inLm(q); }).length;
+        if (lm.id === 'hidden_cache') {
+          const crates = map.props.filter(function (q) { return q.secret === true && inLm(q); });
+          ok(crates.length === 1 && crates[0].type === 'crate' && crates[0].interact === 'barrel' && crates[0].solid, 'cache needs one secret crate');
+          ok(chests === 1, 'cache chest count ' + chests);
+          const mask = new Uint8Array(w * h);
+          if (crates[0]) mask[crates[0].y * w + crates[0].x] = 1;
+          const sealed = flood(map, true, mask, true), opened = flood(map, true, null, true);
+          const ch = map.props.find(function (q) { return q.type === 'chest' && inLm(q); });
+          if (ch) {
+            let a1 = false, a2 = false;
+            for (const j of [ch.y * w + ch.x - 1, ch.y * w + ch.x + 1, (ch.y - 1) * w + ch.x, (ch.y + 1) * w + ch.x]) { if (sealed.dist[j] >= 0) a1 = true; if (opened.dist[j] >= 0) a2 = true; }
+            ok(!a1, 'cache reachable without breaking the crate');
+            ok(a2, 'cache chest unreachable even with the crate gone');
+          }
+          for (const s of map.spawns) ok(!inLm(s), 'spawn inside the cache');
+        } else {
+          const room = map.rooms.find(function (r) { return r.x === lm.x && r.y === lm.y && r.w === lm.w && r.h === lm.h; });
+          ok(!!room && room.type !== 'lockdown' && room.type !== 'start' && room.type !== 'exit' && room.type !== 'boss', 'landmark is not a plain room (' + (room && room.type) + ')');
+          if (lm.id === 'chained_arena') {
+            const el = map.spawns.filter(function (s) { return s.kind === 'elite' && inLm(s); });
+            R.arenaTotal++; if (el.length === 1) R.arenaElite++;
+            ok(map.props.filter(function (q) { return q.type === 'pillar' && inLm(q); }).length >= 1, 'chained arena pillars');
+          } else if (lm.id === 'crystal_grotto') ok(map.props.filter(function (q) { return q.type === 'crystal' && inLm(q); }).length >= 2, 'grotto crystals');
+          else if (lm.id === 'pyre_court') ok(map.props.filter(function (q) { return q.type === 'campfire' && inLm(q); }).length >= 1, 'pyre campfires');
+          else if (lm.id === 'bone_garden') ok(map.props.filter(function (q) { return (q.type === 'tree' || q.type === 'tombstone') && inLm(q); }).length >= 2, 'garden trees/tombstones');
+          else { R.payoffTotal++; if (chests >= 1) R.payoffChest++; }
+          if (lm.id === 'flooded_crypt' || lm.id === 'forge_island') {
+            let liq = 0;
+            for (let y = lm.y; y < lm.y + lm.h; y++) for (let x = lm.x; x < lm.x + lm.w; x++) if (LIQ[map.tiles[y * w + x]]) liq++;
+            ok(liq >= 8, lm.id + ' has no pool (' + liq + ')');
+          }
+        }
+      }
     }
 
     function checkDungeon(depth, seed, R) {
@@ -224,6 +292,7 @@ window.G = { manifest: {} };
 
       ok(map.kind === 'dungeon' && map.depth === depth && map.seed === seed && map.theme === C.themeForDepth(depth), 'header fields');
       ok(w >= 48 && w <= 80 && h >= 48 && h <= 80, 'size ' + w + 'x' + h);
+      checkVariant(map, depth, R, ok);
       ok(tiles instanceof Uint8Array && tiles.length === n && map.explored.length === n && map.visible.length === n, 'array sizes');
       ok(tiles[map.spawn.y * w + map.spawn.x] === T.STAIRS_UP, 'STAIRS_UP at spawn');
       let down = -1, downs = 0, ups = 0, walkable = 0, dryTiles = 0, borderWalk = 0, naked = 0, badDeep = 0, chasm = 0;
@@ -416,7 +485,7 @@ window.G = { manifest: {} };
     function sig(map) {
       let hsh = 0;
       for (let i = 0; i < map.tiles.length; i++) hsh = (Math.imul(hsh, 31) + map.tiles[i]) | 0;
-      return hsh + '|' + JSON.stringify(map.rooms) + JSON.stringify(map.spawns) + JSON.stringify(map.props);
+      return hsh + '|' + JSON.stringify(map.rooms) + JSON.stringify(map.spawns) + JSON.stringify(map.props) + JSON.stringify(map.variant) + map.floorName + JSON.stringify(map.landmarks);
     }
 
     function checkTown(seed, R) {
@@ -487,13 +556,14 @@ window.G = { manifest: {} };
     }
 
     function runChecks(perDepth) {
-      perDepth = perDepth || 14;
+      perDepth = perDepth || 10;
       const R = { asserts: 0, failed: 0, failures: [], genMs: [], byTheme: {}, monsters: [], props: [], chests: [], exitDist: [], longPathMs: [],
-        roomTypes: {}, spawnKinds: {}, propTypes: {}, liquid: {}, lockdowns: {}, lavaOnMainPath: 0, maps: 0 };
+        roomTypes: {}, spawnKinds: {}, propTypes: {}, liquid: {}, lockdowns: {}, lavaOnMainPath: 0, maps: 0,
+        variants: {}, layouts: {}, landmarks: {}, attempts: {}, names: {}, fallbacks: 0, layoutSwaps: 0, arenaTotal: 0, arenaElite: 0, payoffTotal: 0, payoffChest: 0 };
       // warm up the JIT so timings are representative
       for (let d = 1; d <= 20; d += 5) W.generateDungeon(d, 99);
       const keep = [];
-      for (let d = 1; d <= 25; d++) {
+      for (let d = 1; d <= 40; d++) {
         for (let k = 0; k < perDepth; k++) {
           const seed = (d * 7919 + k * 104729 + 17) >>> 0;
           const m = checkDungeon(d, seed, R);
@@ -505,6 +575,23 @@ window.G = { manifest: {} };
           }
         }
       }
+      // every variant x every layout it can use, across a spread of depths (incl. boss floors)
+      const forcedStart = R.maps;
+      for (const def of W.VARIANTS) {
+        const ds = [];
+        for (let d = def.min; d <= Math.min(def.max, def.min + 9); d++) ds.push(d);
+        for (const lay of def.layouts) {
+          for (let k = 0; k < 6; k++) {
+            W._force = { variant: def.id, layout: lay[0] };
+            R.wanted = lay[0];
+            const d = ds[k % ds.length];
+            checkDungeon(d, (d * 31337 + k * 7717 + def.id.length * 101) >>> 0, R);
+            R.maps++;
+          }
+        }
+      }
+      W._force = null; R.wanted = null;
+      R.forced = R.maps - forcedStart;
       for (let s = 1; s <= 10; s++) checkTown(s * 1337, R);
       R.asserts++;
       if (sig(W.generateTown(5)) !== sig(W.generateTown(5))) { R.failed++; R.failures.push('town not deterministic'); }
@@ -658,6 +745,10 @@ window.G = { manifest: {} };
       lines.push('updateVisibility r=9 on ' + big.w + 'x' + big.h + ': ' + (visMs * 1000).toFixed(1) + ' µs/call   moveWithCollision: ' + moveUs.toFixed(2) + ' µs/call');
       lines.push('lockdown rooms by theme ' + JSON.stringify(R.lockdowns) + '   spawn→stairs paths touching lava: ' + R.lavaOnMainPath + '/' + R.maps);
       lines.push('liquid tiles (theme:tile) ' + JSON.stringify(R.liquid));
+      lines.push('variants ' + JSON.stringify(R.variants));
+      lines.push('layouts ' + JSON.stringify(R.layouts));
+      lines.push('landmarks ' + JSON.stringify(R.landmarks) + '  chained-arena elite ' + R.arenaElite + '/' + R.arenaTotal + '  chest at moat/span ' + R.payoffChest + '/' + R.payoffTotal);
+      lines.push('attempts needed ' + JSON.stringify(R.attempts) + '  fallback layout ' + R.fallbacks + '  forced layout swapped for the plain one ' + R.layoutSwaps + ' of ' + R.forced + '  distinct floor names ' + Object.keys(R.names).length);
       lines.push('rooms ' + JSON.stringify(R.roomTypes));
       lines.push('spawns ' + JSON.stringify(R.spawnKinds));
       lines.push('props ' + JSON.stringify(R.propTypes));

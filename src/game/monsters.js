@@ -163,6 +163,7 @@
     S.map = map;                              // W.* helpers read state.map (scenes sets it before calling us anyway)
     const rng = G.rng.create(((map.seed | 0) ^ 0x5bd1e995) >>> 0);
     const depth = Math.max(1, map.depth | 0);
+    if (game.notePallorFloor) game.notePallorFloor(map);       // R5.2: Pallor rises before this floor's monsters are made
     const pool = game.THEME_POOLS[map.theme] || game.THEME_POOLS[G.C.themeForDepth(depth)] || game.THEME_POOLS.crypt;
     const order = { npc: 0, boss: 1, elite: 2, pack: 3, monster: 4 };
     const spawns = map.spawns.slice().sort(function (a, b) { return (order[a.kind] || 9) - (order[b.kind] || 9); });
@@ -173,6 +174,7 @@
     const has = function (id) { return !!(map.mods && map.mods.indexOf(id) >= 0); };
     // R3.6 legendary monster: about one floor in 2–3 from depth 3, more often deeper; always on a "Hunted" floor
     let legend = map.kind === 'dungeon' && !bossFloor && depth >= 3 && (has('hunted') || rng.chance(Math.min(0.7, 0.33 + depth * 0.012)));
+    if (map.kind === 'dungeon' && !bossFloor && game.pallorHunts && game.pallorHunts()) legend = true;      // Pallor IV: something pale hunts every floor
     const LVL = { champion: 1, rare: 2, legendary: 3 };
     const add = function (id, s, rarity, spread, shared) {
       if (count >= MAX_MONSTERS) return null;
@@ -184,7 +186,7 @@
     };
     // champions come as a small pack sharing one modifier
     const champPack = function (id, s, n) {
-      const mod = rng.pick(game.AFFIX_IDS);
+      const mod = rng.pick(game.affixPool ? game.affixPool(depth) : game.AFFIX_IDS);
       for (let i = 0; i < n; i++) add(id, s, 'champion', i ? 2 : 0, mod);
     };
     const eliteP = has('elite_host') ? 0.45 : 0.12;
@@ -362,6 +364,8 @@
     }
     ai.losT -= dt;
     if (ai.losT <= 0) { ai.losT = 0.25 + U.rng.next() * 0.15; ai.los = W.shotClear(e.x, e.y, t.x, t.y); }
+    // R5.5: a shooter takes careful aim at a target that plants itself far back (melee range never triggers it)
+    if (def.atk === 'shot' && e.faction === 'enemy' && t.type === 'player' && game.aimedShot && game.aimedShot(e, def, t, d, dt)) return;
     if (d <= def.range && ai.los) {
       e.facing = Math.atan2(t.y - e.y, t.x - e.x);
       if (ai.atk <= 0) {
@@ -522,6 +526,7 @@
     return false;
   }
 
+  const MARK_PROJ = { shape: 'orb', color: '#ff5050', speed: 16 };
   // Returns true while the boss is busy with a telegraphed move.
   function bossThink(e, def, t, d, dt) {
     const ai = e.ai;
@@ -537,6 +542,19 @@
       let i = 0;
       for (const mv of ph.moves) ai.mcd[mv.id] = mv.first !== undefined ? mv.first : 1.5 + 2 * i++;
       ai.gcd = Math.min(ai.gcd, 0.6);
+    }
+    // R5.5: a target planted at range gets its spot marked (red ring) and a fast volley fired at it 0.8 s later — casters
+    // must keep moving; melee range never triggers it
+    ai.markCd = (ai.markCd === undefined ? 3 : ai.markCd) - dt;
+    if (ai.mark && (ai.mark.t -= dt) <= 0) {         // the marked spot: a fast, tight volley lands on it
+      const mk = ai.mark;
+      ai.mark = null;
+      bossShots(e, { proj: MARK_PROJ, mult: 1.3, dtype: def.dtype || 'phys' }, Math.atan2(mk.y - e.y, mk.x - e.x), 3, 0.06);
+    }
+    if (ai.markCd <= 0 && !ai.mark && t.type === 'player' && d >= 5 && d < 12 && (game.stillT || 0) >= 0.8) {
+      ai.markCd = 3;
+      ai.mark = { t: 0.8, x: t.x, y: t.y };
+      U.fx('ring', t.x, t.y, { radius: 0.8, color: '#ff5050', duration: 0.8 });
     }
     if (ai.cast) {
       ai.cast.t -= dt;
@@ -563,16 +581,31 @@
     return false;
   }
 
-  function pickEnemyTarget(e, p) {
+  function pickEnemyTarget(e, p, def) {
+    const al = game.live.allies;
+    // R5.5: shooters pick whoever stands furthest back within their reach (a taunting golem close by still wins), so a
+    // summoner hiding behind a wall of skeletons is the one being shot at
+    if (def && def.atk !== 'melee' && e.rarity !== 'boss' && al.length) {
+      const reach = (def.range || 6) + 3;
+      let far = null, fd = -1;
+      if (!p.dead) { const d = Math.hypot(p.x - e.x, p.y - e.y); if (d <= reach) { far = p; fd = d; } }
+      for (let i = 0; i < al.length; i++) {
+        const a = al[i];
+        if (a.dead) continue;
+        const d = Math.hypot(a.x - e.x, a.y - e.y);
+        if (M[a.monsterId].taunt && d < 5) return a;
+        if (d <= reach && d > fd + 0.5) { fd = d; far = a; }
+      }
+      if (far) return far;
+    }
     // nearest of the player and their minions; a taunting golem counts as much closer than it is
     let best = p.dead ? null : p, bd = best ? Math.hypot(p.x - e.x, p.y - e.y) : 1e9;
-    const al = game.live.allies;
     for (let i = 0; i < al.length; i++) {
       const a = al[i];
       if (a.dead) continue;
       let d = Math.hypot(a.x - e.x, a.y - e.y);
       const taunt = M[a.monsterId].taunt;
-      if (e.rarity === 'boss') { if (!taunt && best) continue; }      // bosses hunt the player; only a golem can pull them off
+      if (e.rarity === 'boss' || e.bossAdd) { if (!taunt && best) continue; }      // bosses and their adds hunt the player; only a golem can pull them off
       else if (taunt) d *= 0.4;
       if (d < bd - 0.5) { bd = d; best = a; }
     }
@@ -602,7 +635,7 @@
     let t = ai.tgt ? game.byId(ai.tgt) : p;
     if (ai.tt <= 0 || !t || t.dead) {
       ai.tt = 0.5;
-      t = pickEnemyTarget(e, p);
+      t = pickEnemyTarget(e, p, def);
       ai.tgt = t && t !== p ? t.id : 0;
     }
     if (!t) { ai.st = 'sleep'; ai.wind = 0; ai.cast = null; relax(e, 'idle'); return; }
@@ -627,14 +660,18 @@
         U.fx('ring', e.x, e.y, { radius: e.radius + 0.5, color: '#d8f4ff', duration: 2.5 });
       }
     }
-    if (e.affixes.length) { game.runModifiers(e, t, d, dt); if (e.dead) return; }
+    if (e.affixes.length || e.frenzyAt > 0) { game.runModifiers(e, t, d, dt); if (e.dead) return; }
     if (e.rarity === 'legendary' && !e.seen && W.visible(e.x, e.y)) {      // R3.6: announce a legendary the first time it is seen
       e.seen = true;
       U.toast(e.name + ' — ' + e.affixes.join(', '), '#ff8a2b');
       U.sfx('shrine'); U.shake(3, 0.3);
       U.fx('ring', e.x, e.y, { radius: 2.5, color: '#ff8a2b', duration: 0.8 });
     }
-    if (def.boss && bossThink(e, def, t, d, dt)) return;
+    if (def.boss) {
+      // a golem can hold the boss's swings, never its abilities: those always go for the player when in reach
+      const bt = t !== p && !p.dead && Math.abs(p.x - e.x) < 12 && Math.abs(p.y - e.y) < 12 ? p : t;
+      if (bossThink(e, def, bt, bt === t ? d : Math.hypot(bt.x - e.x, bt.y - e.y), dt)) return;
+    }
     const tm = game.terrain(e, ai, dt);
     if (!e.dead) engage(e, def, t, dt, sm * tm, game.live.foes);
   }

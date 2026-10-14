@@ -26,7 +26,7 @@
       tiles: new Uint8Array(n).fill(fill),
       prot: new Uint8Array(n),      // 1 = never put a solid prop here (corridors, doors, bridges, stairs)
       lock: new Uint8Array(n),      // 1 = connectivity repair may not carve here (boss complex)
-      rooms: [], mx1: w - 2, isBoss: false, exitPos: null, afterConnect: null,
+      rooms: [], landmarks: [], variant: null, mx1: w - 2, isBoss: false, exitPos: null, afterConnect: null,
       spawn: null, exit: null, dist: null,
     };
   };
@@ -290,6 +290,12 @@
       r.x = Math.min(a.x, b.x); r.y = Math.min(a.y, b.y);
       r.w = Math.abs(a.x - b.x) + 1; r.h = Math.abs(a.y - b.y) + 1;
       r.cx = c.x; r.cy = c.y;
+    }
+    for (const lm of ctx.landmarks) {
+      const a = pt(lm.x, lm.y), b = pt(lm.x + lm.w - 1, lm.y + lm.h - 1);
+      lm.x = Math.min(a.x, b.x); lm.y = Math.min(a.y, b.y);
+      lm.w = Math.abs(a.x - b.x) + 1; lm.h = Math.abs(a.y - b.y) + 1;
+      for (const p of lm.pts) { const q = pt(p.x, p.y); p.x = q.x; p.y = q.y; }
     }
     if (ctx.spawn) ctx.spawn = pt(ctx.spawn.x, ctx.spawn.y);
     if (ctx.exit) ctx.exit = pt(ctx.exit.x, ctx.exit.y);

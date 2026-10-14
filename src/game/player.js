@@ -266,8 +266,9 @@
     if (ctl.potCd[kind] > 0) return false;
     if (kind === 'hp') {
       if (p.hp >= p.stats.hpMax) return false;
-      game.heal(p, Math.round(p.stats.hpMax * 0.4), true);
-      game.addEffect(p, { id: 'potion_hp', t: 3, mods: { hpRegen: Math.round(p.stats.hpMax * 0.04) } });
+      const veil = game.floorHas('thin_veil') ? 0.5 : 1;          // deep floor modifier Thin Veil
+      game.heal(p, Math.round(p.stats.hpMax * 0.4 * veil), true);
+      game.addEffect(p, { id: 'potion_hp', t: 3, mods: { hpRegen: Math.round(p.stats.hpMax * 0.04 * veil) } });
       U.fx('heal', p.x, p.y, { color: '#ff5b5b' });
     } else {
       if (p.mp >= p.stats.mpMax) return false;
@@ -358,7 +359,7 @@
   ];
 
   function lootOpts(p, source) {
-    return { source: source, level: Math.max(1, G.state.depth | 0), magicFind: p.stats.magicFind || 0, goldFind: p.stats.goldFind || 0 };
+    return { source: source, level: Math.max(1, G.state.depth | 0), magicFind: p.stats.magicFind || 0, goldFind: p.stats.goldFind || 0, pallor: game.pallorValue ? game.pallorValue() : 0 };
   }
   function dropLoot(x, y, opts) {
     if (!(G.items && G.items.dropLoot)) return;
@@ -429,6 +430,23 @@
       U.fx('spark', p.x, p.y, { color: '#ffd94a' });
     }
     return ok;
+  }
+
+  // R5.6: a tapped ground item may be part of a pile. A pile with one item (gold aside) is simply taken; with several,
+  // the gold is taken and the UI is asked to open the pile popup.
+  function takeGround(p, g) {
+    const I = G.items, pid = g.pileId;
+    let pile = null;
+    if (pid !== undefined && pid !== null && I && I.getPile) {
+      try { pile = I.getPile(pid); } catch (err) { console.error('[game] getPile failed', err); pile = null; }
+    }
+    if (!pile || pile.length <= 1) { pickup(p, g); return; }
+    let items = 0;
+    for (let i = 0; i < pile.length; i++) if (pile[i] && pile[i].item && pile[i].item.type !== 'gold') items++;
+    if (items <= 1) { for (let i = pile.length - 1; i >= 0; i--) if (pile[i]) pickup(p, pile[i]); return; }
+    for (let i = pile.length - 1; i >= 0; i--) if (pile[i] && pile[i].item && pile[i].item.type === 'gold') pickup(p, pile[i]);
+    U.sfx('click');
+    G.emit('pile:open', { pileId: pid });
   }
 
   function groundById(id) {
@@ -557,7 +575,7 @@
         if (!g) { ctl.intent = null; break; }
         if (Math.hypot(g.x - p.x, g.y - p.y) <= 1.0) {
           ctl.intent = null; ctl.path = null;
-          pickup(p, g);
+          takeGround(p, g);
         } else if (!stepToward(p, g.x, g.y, dt, false)) { ctl.intent = null; }
         break;
       }
@@ -576,7 +594,9 @@
         if (Math.hypot(it.x + 0.5 - p.x, it.y + 0.5 - p.y) <= 0.7) {
           ctl.intent = null; ctl.path = null;
           U.sfx('stairs');
+          game.pallorStairs = it.st;            // R5.2: only floors entered by the stairs raise Pallor
           G.emit('object:interact', { type: it.st });
+          game.pallorStairs = null;
         } else if (!stepToward(p, it.x + 0.5, it.y + 0.5, dt, false)) { ctl.intent = null; }
         break;
       default:
@@ -594,7 +614,7 @@
 
     const st = p.stats;
     if (!game.floorHas('no_regen')) {          // floor modifier Withering Air
-      if (p.hp < st.hpMax) p.hp = Math.min(st.hpMax, p.hp + st.hpRegen * dt);
+      if (p.hp < st.hpMax && !game.getEffect(p, 'bleach')) p.hp = Math.min(st.hpMax, p.hp + st.hpRegen * dt);
       if (p.mp < st.mpMax) p.mp = Math.min(st.mpMax, p.mp + st.mpRegen * dt);
     }
     const cds = p.cooldowns;
@@ -696,6 +716,7 @@
   game.update = function (dt) {
     const S = G.state, p = S.player;
     if (!p || !S.map) return;
+    if (game.updateDeep) game.updateDeep(dt);
     game.updateMonsters(dt);
     if (!p.dead) updatePlayer(p, dt);
     else { p.animT += dt; S.targetId = null; }

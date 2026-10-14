@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Emberdeep — items harness</title>
+<title>Sallow — items harness</title>
 <style>
   body { margin: 0; padding: 10px; background: #0b0a0f; color: #d8d8d8; font: 12px/1.35 monospace; }
   h2 { font-size: 13px; color: #ff8a2b; margin: 14px 0 6px; border-bottom: 1px solid #332; padding-bottom: 2px; }
@@ -22,7 +22,7 @@
 </style>
 </head>
 <body>
-<h1 style="font-size:15px;margin:0 0 4px">Emberdeep — Loot &amp; Economy harness</h1>
+<h1 style="font-size:15px;margin:0 0 4px">Sallow — Loot &amp; Economy harness</h1>
 <div id="summary">loading…</div>
 
 <h2>Roll loot</h2>
@@ -465,10 +465,10 @@ function harness() {
     const eqItems = S.groundItems.filter(function (g) { return D.isEquip(g.item); });
     ok(eqItems.length >= 7, 'boss bursts with >= 7 equipment drops', '' + eqItems.length);
     ok(eqItems.every(function (g) { return C.RARITY[g.item.rarity].order >= 1; }) && eqItems.filter(function (g) { return C.RARITY[g.item.rarity].order >= 2; }).length >= 2, 'boss rarity floor: all magic+, at least two rare+');
-    ok(S.groundItems.filter(function (g) { return g.item.type === 'gold'; }).length >= 3, 'boss gold splits into several piles');
+    ok(S.groundItems.filter(function (g) { return g.item.type === 'gold'; }).length === 1, 'R5.6: boss gold is one entry in its pile');
     eq(T.events['loot:dropped'].length, S.groundItems.length, 'loot:dropped per ground item');
     ok(T.events.sfx.some(function (e) { return e.name === 'loot_rare' || e.name === 'loot_legendary'; }), 'rarity sfx emitted');
-    ok(S.groundItems.every(function (g) { return typeof g.id === 'number' && isFinite(g.x) && isFinite(g.y) && Math.abs(g.x - 5) < 3; }), 'ground items scattered near the drop point');
+    ok(S.groundItems.every(function (g) { return typeof g.id === 'number' && g.x === S.groundItems[0].x && g.y === S.groundItems[0].y && g.pileId === loot.pileId; }), 'R5.6: the whole boss drop lands on one pile point');
     ok(JSON.stringify(S.groundItems).length > 10, 'ground items are JSON-able');
     let any = 0, items = 0, gold20 = 0, gold20gf = 0;
     for (let i = 0; i < 20000; i++) {
@@ -1229,6 +1229,315 @@ function harness() {
     eq(D.GAME_NAME, 'Sallow', 'working title is Sallow');
     const all = D.UNIQUE_LIST.map(function (u) { const t = I.getTooltip(I.rollItem({ level: 60, uniqueId: u.id })); return t.name + ' ' + t.lines.map(function (l) { return l.text; }).join(' '); }).join(' ');
     ok(!/Emberdeep/.test(all), 'no player-facing "Emberdeep" left in item text');
+  });
+
+  // =====================================================================================================================
+  // Revision 5
+  // =====================================================================================================================
+  function rord(r) { return C.RARITY[r].order; }
+  function tipText(it) { return I.getTooltip(it).lines.map(function (l) { return l.text; }).join('|'); }
+
+  section('R5.6 loot piles', function () {
+    mkPlayer('warrior', 20);
+    S.map = null;
+    const loot = I.dropLoot(5.2, 5.3, { source: 'chest', level: 20 });
+    const pid = loot.pileId;
+    ok(typeof pid === 'number' && S.groundItems.length >= 3 && S.groundItems.every(function (g) { return g.pileId === pid && g.x === 5.2 && g.y === 5.3; }),
+      'one kill / chest = one pile point; every entry carries pileId', S.groundItems.length + ' entries');
+    eq(T.events['loot:dropped'].length, S.groundItems.length, 'loot:dropped once per ground entry');
+    const pile = I.getPile(pid);
+    eq(pile.length, S.groundItems.length, 'getPile returns the whole pile');
+    let sorted = true;
+    for (let i = 1; i < pile.length; i++) if (D.groundRank(pile[i]) > D.groundRank(pile[i - 1])) sorted = false;
+    ok(sorted && pile[pile.length - 1].item.type === 'gold', 'getPile is best first, gold last');
+    const gold0 = pile.filter(function (g) { return g.item.type === 'gold'; });
+    eq(gold0.length, 1, 'gold in a pile is a single entry');
+    const q0 = gold0[0].item.qty, n0 = S.groundItems.length;
+    const loot2 = I.dropLoot(5.6, 5.7, { source: 'chest', level: 20 });
+    ok(loot2.pileId === pid && S.groundItems.every(function (g) { return g.pileId === pid && g.x === 5.2; }), 'a drop within 0.75 tiles merges into the existing pile');
+    ok(I.getPile(pid).filter(function (g) { return g.item.type === 'gold'; }).length === 1 && gold0[0].item.qty === q0 + loot2.gold, 'merged gold stays one entry and sums', q0 + ' + ' + loot2.gold);
+    ok(S.groundItems.length === n0 + loot2.items.length, 'merged items keep their own entries');
+    const loot3 = I.dropLoot(9, 9, { source: 'champion', level: 20 });
+    ok(loot3.pileId !== pid && I.getPile(loot3.pileId).length >= 1, 'a drop further away starts its own pile');
+    const g1 = I.dropItemAt(5.5, 5.5, I.rollItem({ level: 10, rarity: 'magic', slot: 'ring' }));
+    eq(g1.pileId, pid, 'dropItemAt (e.g. dropping from the bag) joins a nearby pile');
+    ok(JSON.parse(JSON.stringify(S.groundItems)).length === S.groundItems.length, 'piles are plain JSON');
+    // world-aware pile point
+    const saveWorld = G.world;
+    G.world = { findFreeTileNear: function () { return { x: 7, y: 3 }; } };
+    S.map = { w: 10, h: 10 };
+    const gw = I.dropItemAt(6.9, 2.2, I.rollItem({ level: 5, rarity: 'common', slot: 'helm' }));
+    ok(gw.x === 7.5 && gw.y === 3.5, 'pile point = centre of the nearest free tile (G.world.findFreeTileNear)', gw.x + ',' + gw.y);
+    G.world = saveWorld; S.map = null;
+    // pickupPile
+    mkPlayer('warrior', 20);
+    const mix = ['common', 'common', 'magic', 'rare', 'epic'].map(function (r) { return I.rollItem({ level: 20, rarity: r, slot: 'helm' }); });
+    let pp = null;
+    mix.forEach(function (it) { pp = I.dropItemAt(3, 3, it).pileId; });
+    I.dropItemAt(3, 3, D.goldItem(40));
+    I.dropItemAt(3, 3, I.rollItem({ baseId: 'potion_hp', level: 5 }));
+    const g0 = S.player.gold;
+    clearEvents();
+    const r1 = I.pickupPile(pp, { minRarity: 'rare' });
+    ok(r1.taken === 4 && r1.left === 3 && S.player.gold === g0 + 40 && S.player.potions.hp === 1, 'pickupPile minRarity: takes rare+, gold and potions, leaves the rest', JSON.stringify({ taken: r1.taken, left: r1.left }));
+    ok(r1.items.indexOf(mix[3]) >= 0 && r1.items.indexOf(mix[4]) >= 0 && idx(mix[3]) >= 0, 'taken items are in the bag and listed');
+    ok(T.events.sfx.length === 0 && T.events['ui:toast'].length === 0 && T.events['item:picked'].length === 4, 'pickupPile is quiet (the pile popup presents it); item:picked per item', T.events.sfx.map(function (e) { return e.name; }).join());
+    const r2 = I.pickupPile(pp);
+    ok(r2.taken === 3 && r2.left === 0 && I.getPile(pp).length === 0, '"Take all" empties the pile');
+    for (let i = 0; i < C.INV_SIZE; i++) if (!inv()[i]) inv()[i] = I.rollItem({ level: 5, rarity: 'common', slot: 'belt' });
+    I.dropItemAt(8, 8, I.rollItem({ level: 5, rarity: 'rare', slot: 'boots' }));
+    I.dropItemAt(8, 8, I.rollItem({ level: 5, rarity: 'rare', slot: 'boots' }));
+    const fp = I.dropItemAt(8, 8, D.goldItem(7)).pileId;
+    clearEvents();
+    const r3 = I.pickupPile(fp);
+    ok(r3.taken === 1 && r3.left === 2 && r3.full === true && T.events['ui:toast'].length === 0, 'full bag: gold still taken, items stay, full flag set');
+    ok(I.pickupPile(424242).taken === 0, 'unknown pile is a no-op');
+  });
+
+  section('R5.7 sorting', function () {
+    const p = mkPlayer('warrior', 30);
+    const spec = [['magic', 10], ['rare', 25], ['common', 30], ['epic', 5], ['rare', 25], ['magic', 40], ['common', 3]];
+    const slots = ['helm', 'weapon', 'boots', 'ring', 'chest', 'gloves', 'offhand'];
+    const its = spec.map(function (s, i) {
+      const it = I.rollItem({ level: s[1], rarity: s[0], slot: slots[i] });
+      S.time = 100 + i;
+      I.pickup(I.dropItemAt(1, 1, it).id);
+      return it;
+    });
+    its[1].ilvl = its[4].ilvl = 25;
+    ok(its.every(function (it, i) { return it.foundAt === 100 + i; }), 'foundAt = state.time at pickup');
+    S.time = 200;
+    const gem = I.rollItem({ baseId: 'gem_ruby_2' });
+    I.addToInventory(gem);
+    ok(gem.foundAt === 200, 'foundAt also set when an item enters the bag another way');
+    function keys(f) { return inv().filter(Boolean).map(f); }
+    function nonInc(a) { for (let i = 1; i < a.length; i++) if (a[i] > a[i - 1]) return false; return true; }
+    function nonDec(a) { for (let i = 1; i < a.length; i++) if (a[i] < a[i - 1]) return false; return true; }
+    I.sortInventory('rarity');
+    ok(nonInc(keys(function (x) { return rord(x.rarity); })) && count() === 8, 'rarity: best first', keys(function (x) { return x.rarity; }).join());
+    const rares = inv().filter(function (x) { return x && x.rarity === 'rare' && x.ilvl === 25; });
+    ok(rares.length === 2 && idx(rares[0]) < idx(rares[1]) && its.indexOf(rares[0]) < its.indexOf(rares[1]), 'stable: equal keys keep their order');
+    I.sortInventory('level');
+    ok(nonInc(keys(function (x) { return x.ilvl; })), 'level: highest item level first');
+    I.sortInventory('value');
+    ok(nonInc(keys(function (x) { return x.value * (x.qty || 1); })), 'value: most valuable first');
+    I.sortInventory('newest');
+    ok(nonInc(keys(function (x) { return x.foundAt; })) && inv()[0] === gem, 'newest: most recently found first');
+    I.sortInventory('slot');
+    ok(inv()[0].slot === 'weapon' && inv()[count() - 1].type === 'gem', 'slot: weapons first, gems after equipment');
+    p.equipment.helm = I.rollItem({ level: 30, rarity: 'rare', slot: 'helm' });
+    I.sortInventory('upgrades');
+    const VO = { up: 0, same: 1, down: 2 };
+    const vs = keys(function (x) { const v = I.verdict(x); return v in VO ? VO[v] : 3; });
+    ok(nonDec(vs) && vs[0] === 0 && vs[vs.length - 1] === 3, 'upgrades: ▲ first, then same, ▼, then non-gear', vs.join());
+    S.settings.sort = 'rarity';
+    I.sortInventory();
+    ok(nonInc(keys(function (x) { return rord(x.rarity); })), 'no mode = state.settings.sort');
+    delete S.settings.sort;
+    S.stash = [];
+    D.stash()[5] = I.rollItem({ level: 10, rarity: 'common', slot: 'belt' });
+    D.stash()[9] = I.rollItem({ level: 10, rarity: 'epic', slot: 'belt' });
+    I.sortStash('rarity');
+    ok(S.stash[0].rarity === 'epic' && S.stash[1].rarity === 'common' && S.stash.length === C.STASH_SIZE, 'sortStash(mode)');
+    S.time = 0;
+  });
+
+  section('R5.8 mass selling & locking', function () {
+    const p = mkPlayer('warrior', 30);
+    const R = ['common', 'common', 'magic', 'magic', 'rare', 'epic', 'set', 'legendary', 'mythic'];
+    const made = R.map(function (r) { return give({ level: 30, rarity: r }); });
+    const lockedCommon = give({ level: 30, rarity: 'common', slot: 'boots' });
+    ok(I.toggleLock(idx(lockedCommon)) === true && lockedCommon.locked === true, 'toggleLock(bag index) locks');
+    const socketed = give({ level: 30, rarity: 'magic', slot: 'chest' });
+    socketed.sockets = [I.rollItem({ baseId: 'gem_ruby_1' })];
+    give({ baseId: 'gem_ruby_2' }); give({ baseId: 'flask_rejuv', level: 10 });
+    const pv = I.previewSellAtOrBelow('magic');
+    eq(pv.count, 5, 'preview ≤ Blue: whites + blues, minus the locked one');
+    eq(pv.gems, 1, 'preview reports socketed gems that would be ground');
+    const expGold = made.slice(0, 4).reduce(function (s, x) { return s + x.value; }, 0) + socketed.value;
+    eq(pv.gold, expGold, 'preview gold = sum of sell values');
+    const g0 = p.gold, cells0 = count();
+    const res = I.sellAtOrBelow('magic');
+    ok(res.count === 5 && res.gold === expGold && p.gold === g0 + expGold && count() === cells0 - 5, 'sellAtOrBelow sells exactly the preview', JSON.stringify(res));
+    ok(idx(lockedCommon) >= 0 && made.slice(4).every(function (x) { return idx(x) >= 0; }) && inv().some(function (x) { return x && x.type === 'gem'; }) && inv().some(function (x) { return x && x.type === 'consumable'; }),
+      'never sells locked items, rarities above the line, gems or consumables');
+    ok(I.getBuyback().length >= 5, 'sold items go to buyback');
+    const r2 = I.sellAtOrBelow('mythic');
+    ok(r2.count === 2 && idx(made[6]) >= 0 && idx(made[7]) >= 0 && idx(made[8]) >= 0, 'even ≤ Mythic never touches sets or either Legendary sub-tier', JSON.stringify(r2));
+    eq(JSON.stringify(I.previewSellAtOrBelow('nonsense')), JSON.stringify({ count: 0, gold: 0, gems: 0 }), 'unknown rarity is a no-op');
+    clearEvents();
+    eq(I.sell(idx(lockedCommon)), 0, 'sell() refuses a locked item');
+    ok(I.salvage(idx(lockedCommon)) === false && idx(lockedCommon) >= 0, 'salvage() refuses a locked item');
+    S.settings.junk = { maxRarity: 'rare', action: 'sell', auto: false, keepUpgrades: false, keepSocketed: false };
+    ok(!I.isJunk(lockedCommon), 'a locked item is never junk');
+    ok(/Locked/.test(tipText(lockedCommon)) && I.getTooltip(lockedCommon).locked === true, 'tooltip shows the lock (tip.locked)');
+    ok(I.toggleLock(lockedCommon) === false && !lockedCommon.locked && I.isJunk(lockedCommon), 'toggleLock(item) unlocks again');
+    p.equipment.helm = I.rollItem({ level: 30, rarity: 'rare', slot: 'helm' });
+    ok(I.setLocked('helm', true) && p.equipment.helm.locked, 'setLocked(slot name) for worn gear');
+    S.stash = []; D.stash()[3] = I.rollItem({ level: 30, rarity: 'rare', slot: 'boots' });
+    ok(I.toggleLock({ stash: 3 }) && S.stash[3].locked, 'toggleLock({ stash: i })');
+    S.settings.junk = { maxRarity: 'common', action: 'sell', auto: false, keepUpgrades: true, keepSocketed: true };
+  });
+
+  section('R5.9 looks & Matched', function () {
+    mkPlayer('warrior', 40);
+    const bad = [];
+    let nBases = 0;
+    const hex = /^#[0-9a-f]{6}$/i;
+    for (const id in D.BASES) {
+      const def = D.BASES[id];
+      if (def.type !== 'weapon' && def.type !== 'armor') continue;
+      nBases++;
+      const l = def.look;
+      if (!l || !I.LOOKS[l.family] || !hex.test(l.palette.main) || !hex.test(l.palette.trim) || !hex.test(l.palette.accent)) bad.push(id);
+    }
+    ok(bad.length === 0 && nBases > 100, 'every weapon / armour base has look { family, palette: { main, trim, accent } }', nBases + ' bases; bad: ' + bad.slice(0, 5).join());
+    let per = true;
+    ['heavy', 'light', 'cloth'].forEach(function (w) { [0, 1, 2].forEach(function (b) { if ((D.LOOKS_BY[w + ':' + b] || []).length !== 3) per = false; }); });
+    ok(per, '3 families per armour weight per depth band');
+    ok(Object.keys(I.LOOKS).every(function (f) { const L = I.LOOKS[f]; return L.name && L.desc && hex.test(L.palette.main); }), 'every family has a name, palette and description');
+    const hb = I.rollItem({ level: 30, rarity: 'magic', baseId: 'heavy_boots_4' });
+    ok(hb.armorClass === 'heavy' && ['plate', 'mail'].indexOf(hb.look.material) >= 0, 'armour items carry armorClass + look.material for the engine rig', hb.look.family + ' ' + hb.look.material);
+    ok(D.lookOf('ash_plate').palette.glow === I.LOOKS.ash_plate.palette.accent && !D.lookOf('rusted_mail').palette.glow, 'emissive families set palette.glow');
+    ok(Array.isArray(I.AWAKEN_AT) && I.AWAKEN_AT.join() === '250,1000,5000', 'G.items.AWAKEN_AT');
+    const kinds = {}, jew = [];
+    let wrong = 0;
+    for (let i = 0; i < 3000; i++) {
+      const it = I.rollItem({ level: 1 + (i % 60) });
+      if (it.type === 'jewelry') { if (it.look) jew.push(it.name); continue; }
+      const f = I.LOOKS[it.look && it.look.family];
+      const want = D.lookKind(D.BASES[it.baseId]);
+      if (!f || (f.kind !== want && f.kind !== 'unique' && f.kind !== 'set')) wrong++;
+      if (f) kinds[f.id] = 1;
+    }
+    ok(!wrong && jew.length === 0, 'rolled gear gets a family of its own kind; jewellery has none', wrong + ' wrong');
+    ok(Object.keys(kinds).length >= 30, 'drops spread over many families', Object.keys(kinds).length + ' seen');
+    eq(I.rollItem({ level: 50, uniqueId: 'juggernaut' }).look.family, 'juggernaut', 'some uniques have a family of their own');
+    eq(I.rollItem({ level: 50, uniqueId: 'ironbound_helm' }).look.family, 'ironbound', 'set pieces wear their set family');
+    const ok1 = I.rollItem({ level: 50, uniqueId: 'oathkeeper' });
+    ok(ok1.look && I.LOOKS[ok1.look.family].kind === 'weapon' && ok1.look.palette.main === D.UNIQUES.oathkeeper.color, 'other uniques join a line, tinted their own colour');
+    const old = I.rollItem({ level: 20, rarity: 'rare', slot: 'chest' });
+    delete old.look;
+    ok(I.getLook(old) === D.BASES[old.baseId].look, 'getLook falls back to the base default for old items');
+    // Matched
+    const p = mkPlayer('warrior', 40);
+    const fam = 'ash_plate', F = I.LOOKS[fam];
+    function piece(slot) { const it = I.rollItem({ level: 30, rarity: 'common', baseId: 'heavy_' + slot + '_4' }); it.look = D.lookOf(fam); return it; }
+    p.equipment.helm = piece('helm');
+    ok(I.getMatched(p) === null, '1 piece: no Matched');
+    p.equipment.chest = piece('chest');
+    const m2 = I.getEquipmentMods(p), exp2 = F.matched[2][0];
+    const own = p.equipment.helm.mods.concat(p.equipment.chest.mods).filter(function (m) { return m.stat === exp2[0]; }).reduce(function (s, m) { return s + m.value; }, 0);
+    ok(I.getMatched(p).count === 2 && m2[exp2[0]] - own === exp2[1], '2 pieces: the (2) bonus counts in getEquipmentMods', JSON.stringify(I.getMatched(p)));
+    p.equipment.gloves = piece('gloves'); p.equipment.boots = piece('boots');
+    const m4 = I.getEquipmentMods(p), mt = I.getMatched(p);
+    ok(mt.count === 4 && mt.bonuses.length === F.matched[2].length + F.matched[4].length && m4.dmgPct >= F.matched[4][0][1], '4 pieces: (2) + (4) bonuses', JSON.stringify(mt));
+    p.equipment.boots.look = D.lookOf('rusted_mail');
+    eq(I.getMatched(p).count, 3, 'a piece from another family breaks the count');
+    const tip = tipText(p.equipment.helm);
+    ok(/Ash Plate look · Matched 3\/4/.test(tip) && /\(4\)/.test(tip), 'tooltip shows family, Matched n/4 and both bonuses', tip.slice(0, 220));
+    ['helm', 'chest', 'gloves', 'boots'].forEach(function (s) { p.equipment[s].look = D.lookOf('ironbound'); });
+    ok(I.getMatched(p) === null, 'set families never grant Matched (sets have their own bonuses)');
+    const loose = I.rollItem({ level: 30, rarity: 'common', baseId: 'heavy_helm_4' }); loose.look = D.lookOf(fam);
+    p.equipment.chest.look = D.lookOf(fam);
+    ok(/Matched 2\/4/.test(tipText(loose)), 'an unworn piece previews the Matched count it would make');
+  });
+
+  section('R5.3 awakening', function () {
+    const p = mkPlayer('warrior', 40);
+    G.game.MONSTERS = { imp: { theme: 'inferno', dtype: 'fire', sprite: { body: 'flyer' } }, skeleton: { theme: 'crypt', sprite: { body: 'skeleton' } } };
+    const w = give({ level: 40, rarity: 'rare', slot: 'weapon' }); I.equip(idx(w));
+    const h = give({ level: 40, rarity: 'rare', slot: 'helm' }); I.equip(idx(h));
+    const r = give({ level: 40, rarity: 'rare', slot: 'ring' }); I.equip(idx(r));
+    const imp = { monsterId: 'imp', type: 'monster', sprite: { body: 'flyer' } };
+    for (let i = 0; i < 249; i++) G.emit('monster:killed', { monster: imp, x: 0, y: 0 });
+    ok(w.kills === 249 && !w.awakened && w.tally.dtype.fire === 249 && w.tally.theme.inferno === 249 && w.tally.body.flyer === 249, 'kills + per-victim tally on every worn item');
+    ok(/Awakening 1\/3: 249 \/ 250 kills/.test(tipText(w)), 'tooltip shows progress as one short line');
+    clearEvents();
+    const before = I.getEquipmentMods(p);
+    G.emit('monster:killed', { monster: imp, x: 0, y: 0 });
+    ok(w.awakened && w.awakened.length === 1 && h.awakened.length === 1 && r.awakened.length === 1, '250 kills: one dormant affix awakens on each item');
+    ok(w.awakened[0].stat === 'fireDmg' && h.awakened[0].stat === 'resFire' && /fire/i.test(r.awakened[0].stat), 'themed on the victims: fire demons -> fire damage on the weapon, fire resistance on armour',
+      [w.awakened[0].stat, h.awakened[0].stat, r.awakened[0].stat].join());
+    const after = I.getEquipmentMods(p);
+    eq(after.resFire - before.resFire, h.awakened[0].value + (r.awakened[0].stat === 'resFire' ? r.awakened[0].value : 0), 'awakened affixes count in getEquipmentMods');
+    ok(T.events['ui:toast'].length === 3 && T.events.sfx.some(function (e) { return e.name === 'loot_legendary'; }) && T.recomputes >= 1, 'toast + sfx + recomputeStats on awakening');
+    ok(/Emberbane/.test(tipText(w)), 'tooltip lists the awakened affix by name');
+    const skel = { monsterId: 'skeleton', sprite: { body: 'skeleton' } };
+    for (let i = 0; i < 750; i++) G.emit('monster:killed', { monster: skel });
+    ok(w.awakened.length === 2 && w.awakened[1].stat !== w.awakened[0].stat, '1000 kills: a second, different affix', w.awakened.map(function (a) { return a.name + ' ' + a.stat; }).join());
+    for (let i = 0; i < 4000; i++) I.recordKill(skel);
+    ok(w.awakened.length === 3 && new Set(w.awakened.map(function (a) { return a.stat; })).size === 3, '5000 kills: the third and last', w.awakened.map(function (a) { return a.name + ' ' + I.formatStat(a.stat, a.value); }).join(', '));
+    for (let i = 0; i < 100; i++) I.recordKill(skel);
+    ok(w.awakened.length === 3 && /Fully awakened/.test(tipText(w)), 'no awakenings past the last milestone');
+    const unknown = give({ level: 40, rarity: 'magic', slot: 'boots' }); I.equip(idx(unknown));
+    I.recordKill({ sprite: { body: 'blob' } });
+    ok(unknown.kills === 1 && unknown.tally.body.blob === 1, 'monsters missing from the bestiary still count');
+    ok(JSON.stringify(JSON.parse(JSON.stringify(w))) === JSON.stringify(w), 'awakened items stay plain JSON');
+    delete G.game.MONSTERS;
+  });
+
+  section('R5.2 Pallor & bleached drops', function () {
+    const p = mkPlayer('warrior', 40);
+    const c0 = I.rarityChances(0), c4 = I.rarityChances(0, 1, 0, D.pallorBoost(4));
+    ok(c4.legendary === c0.legendary && c4.mythic === c0.mythic && c4.set === c0.set && c4.rare > c0.rare && c4.epic > c0.epic, 'Pallor raises rare/epic odds only; Elite, Mythic and set odds untouched');
+    eq([0, 9, 10, 29, 30, 60, 89, 90, 100].map(D.pallorTier).join(), '0,0,1,1,2,3,3,4,4', 'pallor value -> tier 0..4 on the game thresholds (10 / 30 / 60 / 90)');
+    eq(D.pallorTier({ value: 10, tier: 3 }), 3, 'getPallor() object: its tier wins');
+    function sample(pallor, n) {
+      let items = 0, bleached = 0, eqN = 0, rarePlus = 0, gold = 0;
+      for (let i = 0; i < n; i++) {
+        const l = I.rollLoot({ source: 'monster', level: 40, pallor: pallor });
+        items += l.items.length; gold += l.gold;
+        for (const it of l.items) if (D.isEquip(it)) { eqN++; if (it.bleached) bleached++; if (rord(it.rarity) >= 2) rarePlus++; }
+      }
+      return { itemsPerKill: items / n, bleachPct: eqN ? bleached / eqN * 100 : 0, rarePlusPct: eqN ? rarePlus / eqN * 100 : 0, goldPerKill: gold / n };
+    }
+    const f = T.feel = [0, 10, 30, 60, 90].map(function (v) { return sample(v, 12000); });
+    const fmt = function (s) { return s.itemsPerKill.toFixed(2) + ' items, ' + s.rarePlusPct.toFixed(1) + '% rare+, ' + s.bleachPct.toFixed(1) + '% bleached, ' + s.goldPerKill.toFixed(0) + 'g'; };
+    ok(f[0].bleachPct === 0 && f[1].bleachPct === 0, 'no bleached drops below tier 2');
+    ok(f[2].bleachPct > 6 && f[2].bleachPct < 14 && f[4].bleachPct > 18 && f[4].bleachPct < 30, 'bleached share rises from tier 2', 't2 ' + f[2].bleachPct.toFixed(1) + '%, t4 ' + f[4].bleachPct.toFixed(1) + '%');
+    ok(f[4].itemsPerKill > f[0].itemsPerKill * 1.5 && f[4].rarePlusPct > f[0].rarePlusPct * 1.4 && f[4].goldPerKill > f[0].goldPerKill * 1.3,
+      'quantity, quality and gold rise with tier', 'T0 ' + fmt(f[0]) + ' | T2 ' + fmt(f[2]) + ' | T4 ' + fmt(f[4]));
+    const bl = I.rollItem({ level: 40, rarity: 'rare', slot: 'helm' });
+    ok(D.bleach(bl, G.rng.global) && bl.bleached && bl.hidden.length >= 1 && bl.mods.every(function (m) { return m.stat !== bl.hidden[0].stat; }), 'a bleached item carries one hidden affix on a new stat');
+    const tip = I.getTooltip(bl);
+    ok(/\?\?\?/.test(tipText(bl)) && tip.bleached === true && tipText(bl).indexOf(I.formatStat(bl.hidden[0].stat, bl.hidden[0].value)) < 0, 'tooltip shows ??? and not the stat');
+    S.settings.junk = { maxRarity: 'epic', action: 'sell', auto: false, keepUpgrades: false, keepSocketed: false };
+    ok(!I.isJunk(bl), 'an unrevealed bleached item is never junk');
+    S.settings.junk = { maxRarity: 'common', action: 'sell', auto: false, keepUpgrades: true, keepSocketed: true };
+    I.addToInventory(bl);
+    const worn = I.rollItem({ level: 40, rarity: 'rare', slot: 'chest' }); D.bleach(worn, G.rng.global); p.equipment.chest = worn;
+    const hidStat = worn.hidden[0].stat, hidVal = worn.hidden[0].value;
+    const m0 = I.getEquipmentMods(p)[hidStat];
+    clearEvents();
+    G.emit('scene:changed', { scene: 'town', depth: 0, map: null });
+    ok(!bl.hidden && bl.revealed && bl.mods.some(function (m) { return m.bleached; }) && !worn.hidden && worn.revealed, 'arriving in town reveals every bleached item in bag and equipment');
+    eq(I.getEquipmentMods(p)[hidStat] - m0, hidVal, 'a revealed affix counts');
+    ok(T.events['ui:toast'].length >= 1 && T.recomputes >= 1, 'reveal toast + recomputeStats for worn gear');
+    const a = I.rollItem({ level: 40, rarity: 'rare', slot: 'boots' }); D.bleach(a, G.rng.global); p.equipment.boots = a;
+    const b = I.rollItem({ level: 40, rarity: 'rare', slot: 'gloves' }); D.bleach(b, G.rng.global); I.addToInventory(b);
+    G.emit('player:died', { noRetrieve: false });
+    ok(!a.hidden && a.faded && b.hidden, 'retrievable death: worn bleached secrets fade, the backpack keeps them (corpse rules)');
+    G.emit('player:died', { noRetrieve: true });
+    ok(!b.hidden && b.faded && /faded/.test(tipText(b)), 'death that keeps the backpack: its bleached secrets fade too');
+    const viaDrop = I.dropLoot(2, 2, { source: 'boss', level: 40, pallor: { value: 95, tier: 4 } });
+    ok(viaDrop.items.length >= 7 && viaDrop.pileId, 'dropLoot accepts pallor');
+  });
+
+  section('R5.5 lore safety net', function () {
+    mkPlayer('warrior', 10);
+    S.flags = { maxDepth: 1, waypoints: [1], portalDepth: 0, visits: 0, kills: 0, deaths: 0 };
+    const g = I.dropItemAt(1, 1, D.makeLore(4));
+    ok(I.pickup(g.id) && JSON.stringify(S.flags.loreFound) === '[4]', 'items records state.flags.loreFound on pickup');
+    I.addToInventory(D.makeLore(4));
+    eq(JSON.stringify(S.flags.loreFound), '[4]', 'never adds an index twice');
+    S.flags = { maxDepth: 1, waypoints: [1], portalDepth: 0, visits: 0, kills: 0, deaths: 0 };
+  });
+
+  section('R5 API surface', function () {
+    ['getPile', 'pickupPile', 'sortInventory', 'sortStash', 'sellAtOrBelow', 'previewSellAtOrBelow', 'toggleLock', 'setLocked', 'getLook', 'getMatched',
+      'recordKill', 'revealBleached'].forEach(function (f) { ok(typeof I[f] === 'function', 'G.items.' + f + ' is a function'); });
+    ok(typeof I.LOOKS === 'object' && Object.keys(I.LOOKS).length >= 40, 'G.items.LOOKS', Object.keys(I.LOOKS).length + ' families');
   });
 
   section('Starter gear', function () {

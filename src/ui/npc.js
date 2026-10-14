@@ -105,9 +105,43 @@
     return box;
   }
 
+  // R5.8: "Sell all ≤ White / Blue / Yellow" — one tap, then a confirm that names the count and the gold.
+  // Never touches sets, Legendary, gems, lore or locked items (the items module enforces it; the preview shows it).
+  const MASS = ['common', 'magic', 'rare'];
+  function massPreview(r) {
+    if (G.items && G.items.previewSellAtOrBelow) { try { return G.items.previewSellAtOrBelow(r) || { count: 0, gold: 0 }; } catch (err) { return null; } }
+    return null;
+  }
+  function massSell(r) {
+    const name = (C.RARITY[r] && C.RARITY[r].name) || r;
+    const pv = massPreview(r);
+    if (pv && !(pv.count > 0)) { ui._sfx('error'); ui.toast('Nothing ' + name + ' or below to sell.', '#a89f8f'); return; }
+    const go = function () {
+      let res = null;
+      try { res = G.items.sellAtOrBelow(r); } catch (err) { console.error('[ui sellAtOrBelow]', err); }
+      if (res && res.count > 0) { ui._sfx('sell'); ui.toast('Sold ' + res.count + ' item' + (res.count === 1 ? '' : 's') + ' for ' + fmt(res.gold || 0) + ' gold.', '#dfc06a'); }
+      else ui._sfx('error');
+      ui._refreshNow();
+    };
+    const what = pv ? pv.count + ' item' + (pv.count === 1 ? '' : 's') + ' for ' + fmt(pv.gold || 0) + ' gold' : 'everything ' + name + ' or below';
+    ui._confirm('Sell ' + what + '?', 'Sell', go,
+      { note: (pv && pv.gems > 0 ? pv.gems + ' socketed gems will be ground to dust. ' : '') + 'Locked items, sets and Legendary items are kept. You can buy items back until you next go down.' });
+  }
+  function massRow() {
+    if (!G.items || !G.items.sellAtOrBelow) return null;
+    return h('div', { class: 'ed-mass' }, h('span', { class: 'ed-note', text: 'Sell all' }), MASS.map(function (r) {
+      const rar = C.RARITY[r];
+      const pv = massPreview(r);
+      const b = ui._btn([h('span', { text: '≤ ' + ((rar && rar.name) || r) }), pv ? h('small', { text: (pv.count | 0) + ' · ' + fmt(pv.gold || 0) + 'g' }) : null], function () { massSell(r); });
+      if (pv && !(pv.count > 0)) b.disabled = true;
+      else b.style.color = (rar && rar.color) || '';
+      return b;
+    }));
+  }
+
   function sellTab(role, p) {
-    return h('div', { class: 'ed-body' }, buybackRows(p),
-      h('div', { class: 'ed-note', style: 'margin-bottom:6px', text: 'Tap an item to sell it.' }),
+    return h('div', { class: 'ed-body' }, buybackRows(p), massRow(),
+      h('div', { class: 'ed-note', style: 'margin-bottom:6px', text: 'Tap an item to sell it. Lock an item in its tooltip to keep it safe.' }),
       ui._invGrid(p, 'sell', role));
   }
 
@@ -270,13 +304,7 @@
       h('div', { class: 'ed-h', text: 'Your pack' }), ui._invGrid(p, 'stash'));
   }
 
-  function stashSort() {
-    return [ui._btn('Sort', function () {
-      if (G.items && G.items.sortStash) call('sortStash');
-      call('sortInventory');
-      ui._refreshNow();
-    })];
-  }
+  function stashSort() { return [ui._sortButton('both')]; }
 
   ui._register('stash', {
     render: function () {
@@ -313,7 +341,7 @@
       const foot = view.tab === 'sell' ? [
         ui._junkButton(),
         ui._btn('Junk rules', ui._junkPopup),
-        ui._btn('Sort', function () { call('sortInventory'); ui._refreshNow(); }),
+        ui._sortButton('inv'),
       ] : null;
       return ui._frame(def.title, {
         tabs: def.tabs.length > 1 ? def.tabs.map(function (t) { return { id: t[0], label: t[1] }; }) : null,

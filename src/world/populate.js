@@ -16,7 +16,7 @@
 
   gen.populate = function (ctx) {
     const w = ctx.w, h = ctx.h, n = ctx.n, tiles = ctx.tiles, prot = ctx.prot, rng = ctx.rng, rooms = ctx.rooms;
-    const depth = ctx.depth, dist = ctx.dist, deco = DECOR[ctx.theme] || DECOR.crypt;
+    const depth = ctx.depth, dist = ctx.dist, deco = Object.assign({}, DECOR[ctx.theme] || DECOR.crypt, ctx.variantDef && ctx.variantDef.decor);
     const occ = new Uint8Array(n);            // bit 0: solid prop, bit 1: any prop or spawn
     const props = [], spawns = [], torches = [];
     const startRoom = rooms.find(function (r) { return r.type === 'start'; });
@@ -125,10 +125,15 @@
       for (; count > 0; count--) solidIn(r, deco.glow, { light: GLOW_LIGHT }, true);
     };
 
+    // ---- landmarks first, so their set pieces get the room to themselves ------------------------------------------
+    const H = { rng, add, canSolid, canSoft, solidIn, softIn, centrepiece };
+    for (const lm of ctx.landmarks) gen.dressLandmark(H, lm);
+
     // ---- props, room by room -----------------------------------------------------------------------------
     for (const r of rooms) {
       const area = r.w * r.h;
       const nTorch = Math.max(1, Math.round(Math.min(6, (r.w + r.h) / 5) * deco.torch));
+      if (r.lm) { roomTorches(r, nTorch); continue; }
       switch (r.type) {
         case 'boss': {
           for (let k = 0; k < 4; k++) {
@@ -218,6 +223,7 @@
       const i = y * w + x, t = tiles[i];
       if (t !== T.FLOOR && t !== T.RUBBLE) return false;
       if (occ[i] || dist[i] < 10) return false;
+      for (const lm of ctx.landmarks) if (lm.id === 'hidden_cache' && inRect(lm, x, y, 1)) return false;
       return !inRect(startRoom, x, y, 2) && !inRect(arena, x, y, 1) && !inRect(bossExit, x, y, 1) && !inLockdown(x, y, 1);
     };
     const clearOf = function (x, y, gap) {
@@ -251,9 +257,16 @@
     }
 
     let elites = Math.min(5, 1 + Math.floor(depth / 4));
+    for (const lm of ctx.landmarks) {         // chained arena: a guaranteed elite on the central tile
+      if (!lm.eliteAt) continue;
+      const i = lm.eliteAt.y * w + lm.eliteAt.x;
+      if (occ[i] || (tiles[i] !== T.FLOOR && tiles[i] !== T.RUBBLE) || dist[i] < 10) { lm.eliteAt = null; continue; }
+      put(lm.eliteAt.x, lm.eliteAt.y, 'elite');
+      elites--; left -= 3;
+    }
     const order = rng.shuffle(rooms.slice());
     for (const r of order) {
-      if (r.type !== 'elite' || elites <= 0 || left < 3) continue;
+      if (r.type !== 'elite' || r.lm || elites <= 0 || left < 3) continue;
       const p = spotIn(r, 3);
       if (!p) continue;
       put(p.x, p.y, 'elite');
