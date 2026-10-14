@@ -135,6 +135,9 @@
     const ctx = gen.makeCtx(w, h, rng, depth, theme);
     ctx.isBoss = isBoss;
     ctx.variantDef = def;
+    ctx.corruption = W.corruptionForDepth(depth);
+    ctx.crng = G.rng.create(((seed ^ 0xC0DE1F7) >>> 0) || 1);      // corruption has its own stream: lower floors keep their layouts
+    ctx.isCore = isBoss && depth === W.CORE_DEPTH && theme === 'abyss';
     if (isBoss) ctx.mx1 = w - gen.BOSS_STRIP - 1;
 
     gen.layouts[layoutName](ctx);
@@ -207,6 +210,7 @@
 
     const tiles = ctx.tiles, tw = ctx.w, th = ctx.h;
     ctx.n = tw * th;
+    gen.corruptTerrain(ctx);
     const si = ctx.spawn.y * tw + ctx.spawn.x, ei = ctx.exit.y * tw + ctx.exit.x;
     tiles[si] = T.STAIRS_UP;
     tiles[ei] = T.STAIRS_DOWN;
@@ -251,6 +255,20 @@
 
     const filled = gen.populate(ctx);
     const n = ctx.w * ctx.h;
+    const corruption = ctx.corruption, rift = W.riftInfo(corruption);
+    W.corruptVariant(variant, corruption, rift);
+    let core = null;
+    if (ctx.isCore) {
+      const arena = ctx.rooms.find(function (r) { return r.type === 'boss'; }), exitR = ctx.rooms.find(function (r) { return r.type === 'exit'; });
+      const boss = filled.spawns.find(function (s) { return s.kind === 'boss'; }), heart = filled.props.find(function (p) { return p.look === 'rift_core'; });
+      core = {
+        final: true,
+        arena: { x: arena.x, y: arena.y, w: arena.w, h: arena.h, cx: arena.x + (arena.w >> 1), cy: arena.y + (arena.h >> 1) },
+        boss: boss ? { x: boss.x, y: boss.y } : null,
+        heart: heart ? { x: heart.x, y: heart.y } : null,
+        stairs: { x: ctx.exit.x, y: ctx.exit.y },
+      };
+    }
     const map = {
       w: ctx.w, h: ctx.h, kind: 'dungeon', depth, theme, seed,
       tiles: ctx.tiles,
@@ -267,6 +285,11 @@
       variant,
       floorName: pick.floorName,
       landmarks: ctx.landmarks.map(function (l) { return { id: l.id, name: l.name, x: l.x, y: l.y, w: l.w, h: l.h }; }),
+      corruption,
+      rift,
+      fissures: ctx.fissures,
+      taint: W._paintTaint(ctx.tiles, ctx.w, ctx.h, seed, corruption, gen.taintSources(ctx, filled.props)),
+      core,
     };
     W.updateVisibility(map, map.spawn.x + 0.5, map.spawn.y + 0.5);
     return map;

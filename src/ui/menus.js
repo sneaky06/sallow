@@ -19,7 +19,7 @@
         const near = way.filter(function (d) { return d <= corpse.depth; }).pop() || 1;
         list.appendChild(h('div', { class: 'ed-box', style: 'color:#ff6a5a' }, '☠ Your corpse lies on depth ' + corpse.depth + '.',
           h('div', { class: 'ed-note', text: (corpse.gold | 0) + ' gold and ' + corpse.items.length + ' item' + (corpse.items.length === 1 ? '' : 's') + ' wait there. ' +
-            (near === corpse.depth ? '' : 'Nearest waypoint: depth ' + near + '. ') + 'Die again first and they are lost.' })));
+            (near === corpse.depth ? '' : 'Nearest waypoint: depth ' + near + '. ') + (ui._echoText ? ui._echoText('corpseNote') : 'Die again first and they are lost.') })));
       }
       way.forEach(function (d) {
         const theme = C.themeForDepth(d);
@@ -55,13 +55,14 @@
       if (!pen) pen = { retrievable: false, gold: (arg && arg.lost) | 0, items: 0 };
       const old = S.flags.corpse;
       const msg = pen.retrievable
-        ? 'Your gold (' + (pen.gold | 0) + ') and backpack (' + (pen.items | 0) + ' item' + (pen.items === 1 ? '' : 's') + ') lie where you fell — Depth' + S.depth + '. Die again and they are lost.'
+        ? 'Your gold (' + (pen.gold | 0) + ') and backpack (' + (pen.items | 0) + ' item' + (pen.items === 1 ? '' : 's') + ') lie where you fell on depth ' + S.depth + '. ' + (ui._echoText ? ui._echoText('corpseNote') : 'Die again and they are lost.')
         : 'You lose ' + (pen.gold | 0) + ' gold.';
       return [
         h('h1', { text: 'You have died' }),
         h('div', { class: 'ed-dim', text: S.depth > 0 ? 'Slain on depth ' + S.depth + ' of ' + ui._themeName(S.depth) + '.' : 'Slain.' }),
         h('div', { style: 'max-width:300px;line-height:18px', class: pen.retrievable ? null : 'ed-gold', text: msg }),
-        old && pen.retrievable ? h('div', { style: 'max-width:300px;color:#ff6a5a', text: 'What you left on depth ' + old.depth + ' is gone for good.' }) : null,
+        // R6.2: any death while a corpse exists abandons it, and the abandoned remains rise as the Echo
+        old && old.depth ? h('div', { style: 'max-width:300px;color:#bfe6ff', text: ui._echoText && !S.flags.echo ? ui._echoText('deathScreen', old.depth) : 'What you left on depth ' + old.depth + ' is gone for good.' }) : null,
         ui._btn('Rise in Emberfall', function () {
           try { G.scenes.respawn(); } catch (err) { console.error('[ui respawn]', err); ui.close(); }
         }, 'big gold'),
@@ -90,6 +91,32 @@
     return h('button', { type: 'button', class: 'ed-btn', 'aria-pressed': value === true ? 'true' : (value === false ? 'false' : null), onclick: function () { ui._sfx('click'); fn(); if (G.meta && G.meta.save) G.meta.save(); ui._refreshNow(); } },
       h('span', null, label, note ? h('div', { class: 'ed-note', style: 'text-transform:none', text: note }) : null),
       typeof value === 'boolean' ? h('span', { class: value ? 'ed-good' : 'ed-bad', text: value ? 'On' : 'Off' }) : value);
+  }
+
+  // R6.4 volume sliders: state.settings.sfxVolume / musicVolume / ambienceVolume, 0..1 (missing = 1, the old loudness).
+  // The engine reads them live; 'settings:changed' { key } is a courtesy for anything that caches. Sound off mutes all.
+  const VOLUMES = [['sfxVolume', 'Effects', 'loot'], ['musicVolume', 'Music', null], ['ambienceVolume', 'Ambience', null]];
+  function volRows() {
+    const st = S.settings;
+    return VOLUMES.map(function (row) {
+      const key = row[0];
+      const cur = typeof st[key] === 'number' && isFinite(st[key]) ? Math.max(0, Math.min(1, st[key])) : 1;
+      const pct = Math.round(cur * 100);
+      const out = h('b', { text: pct + '%' });
+      const input = h('input', { type: 'range', min: '0', max: '100', step: '5', value: String(pct), 'aria-label': row[1] + ' volume', style: '--v:' + pct + '%' });
+      input.addEventListener('input', function () {
+        const v = Math.max(0, Math.min(100, +input.value || 0));
+        st[key] = v / 100;
+        out.textContent = v + '%';
+        input.style.setProperty('--v', v + '%');
+        G.emit('settings:changed', { key: key });
+      });
+      input.addEventListener('change', function () {
+        if (row[2]) ui._sfx(row[2]);         // a sample at the new level
+        if (G.meta && G.meta.save) G.meta.save();
+      });
+      return h('label', { class: 'ed-vol' + (st.sfx === false ? ' off' : '') }, h('span', { text: row[1] }), input, out);
+    });
   }
 
   function quitToTitle(save) {
@@ -141,7 +168,8 @@
       const list = h('div', { class: 'ed-list' },
         ui._btn('Resume', function () { ui.close(); }, 'big gold'),
         h('div', { class: 'ed-h', text: 'Settings' }),
-        toggleRow('Sound', null, !!st.sfx, function () { st.sfx = !st.sfx; }),
+        toggleRow('Sound', null, !!st.sfx, function () { st.sfx = !st.sfx; G.emit('settings:changed', { key: 'sfx' }); }),
+        volRows(),
         toggleRow('Loot labels', 'Hide ground loot below this quality', h('span', { style: 'color:' + rar.color, text: filterLabel }),
           function () { st.lootFilter = FILTERS[(FILTERS.indexOf(cur) + 1) % FILTERS.length]; }),
         toggleRow('Auto-pickup gold', null, !!st.autoPickupGold, function () { st.autoPickupGold = !st.autoPickupGold; }),

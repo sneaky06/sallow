@@ -364,6 +364,8 @@
       floors: ['rare', 'rare'], rest: 'magic', lvl: 1 },
     chest:    { n: [[2, 30], [3, 45], [4, 25]], goldP: 1, goldM: 5, potP: 0.5, gemP: 0.15, miscP: 0.08, matP: 0.15, loreP: 0.04, boost: 2, floors: ['magic'] },
     barrel:   { n: [[0, 86], [1, 14]], goldP: 0.35, goldM: 0.6, potP: 0.08, gemP: 0.004, miscP: 0, matP: 0, boost: 0.8, floors: [] },
+    // R6.2: the reward for killing your own Echo — a few good drops, the first guaranteed rare-or-better (opts.floor can raise it)
+    echo:     { n: [[2, 45], [3, 40], [4, 15]], goldP: 1, goldM: 8, potP: 0.5, gemP: 0.3, miscP: 0.1, matP: 0.5, loreP: 0.1, boost: 2.5, floors: ['rare', 'magic'] },
     quest:    { n: [[1, 70], [2, 30]], goldP: 1, goldM: 8, potP: 0, gemP: 0.1, miscP: 0, matP: 0, boost: 3, floors: ['rare'] },
   };
   D.SOURCES = SOURCES;
@@ -378,7 +380,7 @@
     const L = G.meta && G.meta.LORE;
     const page = Array.isArray(L) && L[index];
     return { id: G.newId(), baseId: 'lore', type: 'lore', slot: null, loreIndex: index,
-      name: (page && page.title) || 'Torn Page', rarity: 'rare', ilvl: 1, reqLevel: 1,
+      name: (page && page.title) || D.MISC_NAMES.lorePage, rarity: 'rare', ilvl: 1, reqLevel: 1,
       icon: { shape: 'scroll', color: '#d8c8a0', accent: '#8a5a2a' }, base: {}, mods: [], value: 0 };
   };
   // A page the player has not found yet and that is not already lying on the floor; null once all are found.
@@ -443,7 +445,10 @@
       const it = I.rollItem({ level: level + (src.lvl || 0), magicFind: mf, rng: rng, _boost: src.boost, _elite: src.elite,
         _pallor: pt ? D.pallorBoost(pt) : 0,
         _floor: i === 0 ? higher(src.floors[0], opts.floor) : (src.floors[i] || src.rest) });
-      if (pt >= 2 && D.bleach && rng.chance(D.PALLOR_BLEACH_P[pt])) D.bleach(it, rng);
+      // R6.5 corruption deepens with depth (opts.corruption overrides the depth curve with a 0..1 chance)
+      let tainted = false;
+      if (D.corrupt && D.isEquip(it) && rng.chance(D.corruptChance(level, opts.source, opts.corruption))) tainted = D.corrupt(it, rng);
+      if (!tainted && pt >= 2 && D.bleach && rng.chance(D.PALLOR_BLEACH_P[pt])) D.bleach(it, rng);
       items.push(it);
     }
 
@@ -487,7 +492,7 @@
   // entry of a pile sits on the same x, y and shares `pileId`; a drop within PILE_MERGE tiles of an existing pile joins it.
   // A pile holds at most one gold entry.
   function goldItem(qty) {
-    return { type: 'gold', qty: qty, name: 'Gold', rarity: 'common', icon: { shape: 'gold', color: '#ffd94a' } };
+    return { type: 'gold', qty: qty, name: D.MISC_NAMES.gold, rarity: 'common', icon: { shape: 'gold', color: '#ffd94a' } };
   }
   D.goldItem = goldItem;
   const PILE_MERGE = 0.75;

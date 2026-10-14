@@ -669,3 +669,83 @@ ending in a final boss at its core.
   corruption shows in layouts, tiles, light and sound as depth increases (world + engine), corrupted monster variants,
   mid-bosses and the final boss fight (combat), corrupted/cleansed items and how cleansing could be a loot mechanic (loot).
   How Pallor ties in (is Pallor the rift's corruption seeping into you?). Pitch first in the report; build what is cheap.
+
+---
+
+# Revision 7 — the lead dev's design document (2026-10-14). Overrides anything above that conflicts.
+
+## R7.1 Rarity ladder (most common → least common)
+| Key | Name | Colour | Glow |
+|---|---|---|---|
+| `common` | Common | grey | none |
+| `uncommon` | Uncommon | green | none |
+| `rare` | Rare | blue | none |
+| `magic` | Magic | purple | slight glow on ground and in inventory |
+| `legendary` | Legendary Elite | yellow | a little bigger |
+| `mythic` | Legendary Mythic | orange | slightly bigger, not by much |
+| `unique` | Unique / Corrupted | red | bigger |
+| `rift` | Rift | reddish pink | biggest, slowly pulsing |
+- Core changes `C.RARITY`; items migrate old saves (old magic → uncommon, old rare → rare, old epic → magic, old legendary →
+  legendary, old mythic → mythic). Set items keep their set bonus as a flag (`setId`) on top of their rarity tier instead of being a tier
+  (lead default; set pieces drop as Legendary Elite with a green "Set" tag). Corrupted items from R6 become the `unique` tier.
+  `rift` items are new: the rarest drops in the game, from deep in the rift, extremely powerful.
+- Inventory cells and ground items both show the glow at the listed strength.
+
+## R7.2 Item power level
+Every equippable item shows one **Power** number for the current class, so better/worse is readable at a glance. Proposed formula (items
+team refines): base power from item level × slot weight + for each affix (roll quality = where the roll sits in its min–max range,
+0–1) × the affix's value to the current class (class stat weights) + sockets/gems + unique/mythic effect value. A high-level Rare can
+outscore a low-level Magic item. The ▲/▼ verdict uses Power. Tooltip headline becomes "Power 412 ▲ +37".
+
+## R7.3 Sockets
+Items can drop with 2+ sockets at small and falling chances (max by slot and item level); an even smaller chance drops them with
+sockets pre-filled with gems. The item icon shows small socket pips (filled or empty) in inventory, stash, vendor and ground label.
+
+## R7.4 New drops
+- **Class crafting materials:** one per class, used to upgrade weapons (and the class's armour) at the blacksmith. Dropped by enemies,
+  biased to the current class. Plus shared materials as now.
+- **Tome of Insight (skill point):** very rare drop; also a guaranteed reward from some bosses and the corrupted-adventurer fights.
+- **Team decides other drops** that add variety: e.g. rift shards (currency for rift-only crafting), maps/keys that open special floors,
+  trophies from champions, consumable elixirs, relic charms. Keep each one simple and useful.
+
+## R7.5 Skill and speed matter
+- Movement and precise tapping should pay off: faster movement and dashes, precise tap targeting, attack-move, and enemy patterns that
+  reward dodging (Close Call exists).
+- **Explored %:** a rough exploration percentage for the current floor in the HUD (from `map.explored` over walkable tiles).
+- **Speed-clear reward:** on reaching the stairs, a clear grade from time weighted by explored % (fast + thorough = best); the grade
+  gives bonus loot/XP/materials and a small chest by the stairs.
+- **Timed events** (keep players on their toes): *Run the Gauntlet* — reach a marked point before the timer while enemies spawn;
+  *Key Hunt* — break crates to find a key before a door locks; team adds more (escort, hold the line, chase a fleeing treasure goblin-
+  like thief, collapse — outrun a crumbling floor, etc.).
+
+## R7.6 Corrupted former adventurers
+Optional, formidable named foes on deeper floors: adventurers who went down before and were corrupted. Each is tied to a class and a
+short story. Defeating one grants a permanent buff or a special class-related skill. Rare, announced, skippable.
+
+## R7.7 Campaign structure and story (story team expands)
+- **Premise (the lead dev's):** you're an adventurer whose home was pillaged while you were away. With nothing left, you look for work.
+  A mysterious figure hands you a note: go to **Emberdeep** — there is something only you can fix, and you'll be greatly rewarded. The
+  town of Emberdeep is cold and desolate; the few frightened townsfolk are delighted to see you. The Elder explains: the town drew heat
+  and energy from a rift beneath it. Recently the heat began to fade. Adventurers who went down never came back, or refused to go back.
+  The rift runs thousands of miles down and is more corrupted the deeper it goes. The town is resource-barren; the Elder hopes you can
+  cleanse the rift once and for all. *(The town is now called **Emberdeep**; the game is still **Sallow**.)*
+- **Three acts:** **The Shallows** (first third), **The Deep** (second third), **Hellscape** (last third). At the bottom: the **world boss**
+  (story team designs his character and story) — an extremely hard fight; after it, the endgame begins (Pallor etc.).
+  Lead default for length: campaign depths 1–30 (Shallows 1–10, Deep 11–20, Hellscape 21–30), world boss at 30, endless below.
+- **The world changes as you win:** as each milestone pushes the corruption down, the town warms and comes alive (more NPCs, lights,
+  market stalls, new services and mechanics unlock), and the rift's earlier floors become less hostile — fewer enemies, friendly NPCs
+  (refugees, a camp, a merchant) appear. The player must *see* their impact.
+- **Environment by depth:** gets more gruesome with depth, ending almost abstract — horror, barely comprehensible, nothing like the
+  world above, full of corruption.
+- **Story team adds:** smaller details, side quest lines, named characters, the mysterious figure's identity, the corrupted adventurers'
+  stories, lore — all grim and brutal. Keep text in data tables.
+
+## R7.8 Art transition
+Make the procedural art match the new high-res format exactly (same sheet sizes, directions, frames), and export every procedural
+sprite as a PNG **template** in the final format to `assets_templates/` so the lead dev can paint over each one and drop it into
+`assets/` as a direct replacement.
+
+## R7.9 Model use (lead decision, to save usage)
+Design-heavy work (story/narrative, combat balance and boss design, engine pipeline) runs on the strongest model; well-specified
+implementation (loot mechanics, UI controls, events, world generation changes) on a mid model; mechanical work (asset list
+regeneration, renames, harness upkeep) on the smallest model. Rounds are split across plan windows: at most 2–3 sessions at a time.

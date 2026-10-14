@@ -146,6 +146,20 @@
       palette: pal('#e8e8f0', 0.45, 0.2, 1.1, '#ffffff', '#c8d0e8'), light: lit('#ffffff', 0.75, '#e0e8ff', 1.0, 0.2),
       ambient: amb(0.45, 0.5, '#c8ccd8', P('snow', '#ffffff', 0.6), 'silence'),
       lm: { chained_arena: 3, collapsed_bridge: 3 } },
+    // ---- the rift (R6.5): the last floors are the wound itself --------------------------------------------------
+    { id: 'the_wound', name: 'The Wound', theme: 'abyss', min: 46, max: 999, w: 6, blend: { theme: 'inferno', amount: 0.4 },
+      layouts: [['shattered_spire', 1], ['cinder_isles', 1], ['fallen_cathedral', 1], ['scattered_isles', 1]],
+      names: ['The Wound', 'Where the Rift Bleeds', 'The Throat of the Deep'],
+      palette: pal('#a02a8a', 0.42, 1.15, 0.8, '#ff60e0', '#8a1a7a'), light: lit('#ffc8f0', 0.8, '#ff50d0', 1.1, 0.9),
+      ambient: amb(0.45, 0.4, '#2a0824', P('rune', '#ff70e0', 0.6), 'rumble'),
+      lm: { chained_arena: 3, collapsed_bridge: 2, pyre_court: 2 } },
+    // Only ever at W.CORE_DEPTH (see pickVariant): the final floor, with the core arena behind a ring of satellites.
+    { id: 'rift_core', name: 'The Rift Core', theme: 'abyss', min: 50, max: 50, w: 1, blend: { theme: 'inferno', amount: 0.7 },
+      layouts: [['shattered_spire', 1], ['scattered_isles', 1]],
+      names: ['The Heart of the Rift', 'Where the Heat Began', 'The Core'],
+      palette: pal('#c030b0', 0.5, 1.2, 0.85, '#ff80f0', '#b01a9a'), light: lit('#ffd0f8', 0.8, '#ff60e0', 1.2, 1.0),
+      ambient: amb(0.4, 0.45, '#30082c', P('ember', '#ff80f0', 0.8), 'rumble'),
+      lm: { chained_arena: 2, pyre_court: 2 } },
   ];
 
   W.VARIANTS = V;
@@ -162,6 +176,8 @@
     const theme = G.C.themeForDepth(depth);
     let pool = V.filter(function (v) { return v.theme === theme && depth >= v.min && depth <= v.max; });
     if (!pool.length) pool = V.filter(function (v) { return v.theme === theme; });
+    pool = pool.filter(function (v) { return v.id !== 'rift_core' || depth === W.CORE_DEPTH; });
+    if (depth === W.CORE_DEPTH) pool = V.filter(function (v) { return v.id === 'rift_core'; });
     if (W._force && W._force.variant) pool = V.filter(function (v) { return v.id === W._force.variant; });     // test hook
     const def = rng.weighted(pool);
     const layout = (W._force && W._force.layout) || rng.weighted(def.layouts.map(function (l) { return { w: l[1], id: l[0] }; })).id;

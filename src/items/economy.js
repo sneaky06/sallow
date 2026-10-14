@@ -338,7 +338,7 @@
   function rerollable(item, modIndex) {
     if (!D.isEquip(item) || rord(item.rarity) < rord('rare')) return false;
     const m = item.mods[modIndex];
-    if (!m || m.implicit) return false;
+    if (!m || m.implicit || m.corrupt === 'up' || m.corrupt === 'down') return false;      // R6.5: corruption is undone only by cleansing
     if (item.uniqueId && D.UNIQUES[item.uniqueId]) {
       let fixed = D.UNIQUES[item.uniqueId].mods.length, seen = 0;
       for (let i = 0; i <= modIndex; i++) {

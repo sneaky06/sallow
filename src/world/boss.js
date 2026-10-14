@@ -11,11 +11,12 @@
   gen.stampBoss = function (ctx) {
     const rng = ctx.rng, w = ctx.w, h = ctx.h, tiles = ctx.tiles, th = ctx.theme;
     const bx0 = ctx.mx1 + 1;
-    const aw = 15, ah = rng.int(13, 15);
-    const ax = bx0 + 3, ay = rng.int(3, h - 3 - ah);
-    const acx = ax + 7, acy = ay + (ah >> 1);
-    const ex = ax + aw + 2, ey = acy - 2;
-    const organic = th === 'caves' || th === 'abyss';
+    const core = !!ctx.isCore;                 // the rift core: a big round platform ringed by pits (abyss floors only)
+    const aw = core ? 17 : 15, ah = core ? 17 : rng.int(13, 15);
+    const ax = bx0 + (core ? 1 : 3), ay = rng.int(3, h - 3 - ah);
+    const acx = ax + (aw >> 1), acy = ay + (ah >> 1);
+    const ex = ax + aw + (core ? 3 : 2), ey = acy - 2;
+    const organic = core || th === 'caves' || th === 'abyss';
 
     for (let y = 0; y < h; y++) for (let x = bx0; x < w; x++) ctx.lock[y * w + x] = 1;
 
@@ -28,7 +29,7 @@
     };
 
     if (organic) {
-      const rx = 7.4, ry = ah / 2 - 0.1;
+      const rx = core ? 8.4 : 7.4, ry = ah / 2 - 0.1;
       for (let y = ay; y < ay + ah; y++) {
         for (let x = ax; x < ax + aw; x++) {
           const nx = (x - acx) / rx, ny = (y - acy) / ry;
@@ -38,6 +39,12 @@
       for (let y = ey; y < ey + 5; y++) {
         for (let x = ex; x < ex + 5; x++) {
           if ((x - ex - 2) * (x - ex - 2) + (y - acy) * (y - acy) <= 5.5) tiles[y * w + x] = T.FLOOR;
+        }
+      }
+      if (core) {         // six 2x2 rift pits on a ring, offset so the entrance and exit rows stay open
+        for (let k = 0; k < 6; k++) {
+          const a = (30 + k * 60) * Math.PI / 180, px = Math.round(acx + Math.cos(a) * 4.8 - 0.5), py = Math.round(acy + Math.sin(a) * 4.8 - 0.5);
+          for (let j = 0; j < 2; j++) for (let i = 0; i < 2; i++) tiles[(py + j) * w + px + i] = T.CHASM;
         }
       }
       const link = th === 'abyss' ? T.BRIDGE : T.FLOOR;

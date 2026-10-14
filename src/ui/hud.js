@@ -16,6 +16,10 @@
     legendary: { label: 'Legendary', color: rc('legendary', '#ff8a2b'), mods: true },
     boss: { label: 'Boss', color: function () { return '#ff6a5a'; }, mods: true },
   };
+  // R6.2 the Echo: a boss-style bar whatever rarity the game gives it
+  const ECHO_TIER = { label: 'Your Echo', color: function () { return '#bfe6ff'; }, mods: false };
+  const isEcho = function (e) { return !!(ui._isEcho && ui._isEcho(e)); };
+  const tierOf = function (e) { return isEcho(e) ? ECHO_TIER : TIER[e.rarity]; };
 
   let hud = null, visible = false;
   const el = { skills: [], cds: [], cdTxt: [], skIco: [] };
@@ -124,7 +128,8 @@
     el.dashIco = h('i', { class: 'ed-ico' });
     el.dashCd = h('div', { class: 'ed-cd' });
     el.dashName = h('span', { text: 'Dash' });
-    el.dash = h('button', { type: 'button', class: 'ed-dash ed-mv', 'aria-label': 'Dash' }, el.dashCd, el.dashIco, el.dashName);
+    el.dashPips = h('div', { class: 'ed-pips' });
+    el.dash = h('button', { type: 'button', class: 'ed-dash ed-mv', 'aria-label': 'Dash' }, el.dashCd, el.dashPips, el.dashIco, el.dashName);
     press(el.dash, function () { G.emit('input:classaction', {}); dash.poll = 0; });
 
     // the portal button left the top row so it can be placed on its own; by default it sits where it always did
@@ -205,6 +210,9 @@
       else if (q.status === 'active') rows.push(h('div', { text: '- ' + q.name + ' ' + q.progress + '/' + q.goal }));
       else if (q.status === 'available' && q.main) mainOffer = true;
     }
+    // R6.2: an abandoned corpse waits as an Echo (game state; the field name is guarded)
+    const echo = S.flags.echo, ed = echo && typeof echo === 'object' ? echo.depth | 0 : 0;
+    if (ed > 0 && ui._echoText) rows.push(h('div', { style: 'color:#bfe6ff', text: S.scene === 'dungeon' && S.depth === ed ? ui._echoText('trackerHere') : ui._echoText('tracker', ed) }));
     if (mainOffer && !rows.length) rows.push(h('div', { style: 'color:#ff8a2b', text: '! The Elder has work for you' }));
     el.tracker.replaceChildren.apply(el.tracker, rows.slice(0, 4));
   }
@@ -256,12 +264,12 @@
     const ents = S.entities;
     if (S.targetId != null) {
       for (let i = 0; i < ents.length; i++) { const e = ents[i]; if (e.id === S.targetId) { tgt = e; break; } }
-      if (tgt && (tgt.dead || !TIER[tgt.rarity] || (tgt.faction && tgt.faction !== 'enemy'))) tgt = null;
+      if (tgt && (tgt.dead || !tierOf(tgt) || (tgt.faction && tgt.faction !== 'enemy'))) tgt = null;
     }
     if (!tgt) {
       for (let i = 0; i < ents.length; i++) {
         const e = ents[i];
-        if (e.type === 'monster' && e.rarity === 'boss' && !e.dead && (!e.faction || e.faction === 'enemy')) {
+        if ((e.rarity === 'boss' || isEcho(e)) && e.type !== 'npc' && !e.dead && (!e.faction || e.faction === 'enemy')) {
           const max = (e.stats && e.stats.hpMax) || e.hp || 1, dx = e.x - p.x, dy = e.y - p.y;
           if (e.hp < max || dx * dx + dy * dy < 196) tgt = e;
           break;
@@ -282,8 +290,9 @@
       const key = tgt.id + '|' + tgt.name + '|' + (tgt.affixes || []).join(',');
       if (key !== last.bossName) {
         last.bossName = key;
-        const tier = TIER[tgt.rarity];
-        el.bossName.textContent = tgt.name || tier.label;
+        const tier = tierOf(tgt), echo = tier === ECHO_TIER;
+        el.boss.classList.toggle('echo', echo);
+        el.bossName.textContent = echo && ui._echoName ? ui._echoName(tgt) : (tgt.name || tier.label);
         el.bossName.style.color = tier.color();
         const mods = tier.mods && Array.isArray(tgt.affixes) ? tgt.affixes : [];
         const shown = mods.slice(0, 3).join(' · ') + (mods.length > 3 ? ' +' + (mods.length - 3) : '');
@@ -293,7 +302,8 @@
     }
 
     // corpse marker + sealed portal
-    const cd = S.flags.corpse ? S.flags.corpse.depth * 1000 + S.depth : -1;
+    const ec = S.flags.echo && typeof S.flags.echo === 'object' ? S.flags.echo.depth | 0 : 0;
+    const cd = (S.flags.corpse ? S.flags.corpse.depth * 1000 + S.depth : -1) + ec * 1e6;
     if (cd !== last.corpse) { last.corpse = cd; questDirty = true; }
     const sealed = !!S.flags.sealed;
     if (sealed !== last.sealed) { last.sealed = sealed; el.bTp.style.opacity = sealed ? '.35' : ''; el.bTp.setAttribute('aria-disabled', sealed ? 'true' : 'false'); }
@@ -310,8 +320,9 @@
     if (questDirty) refreshTracker();
   }
 
-  // Class action button: visibility/icon checked 4x/s, the cooldown sweep every frame only while cooling.
-  const dash = { shown: false, id: null, step: 0, poll: 0 };
+  // Class action (R4.4, every class since R6.3): visibility/icon checked 4x/s, the recharge sweep every frame only while
+  // cooling. Charges (R6.3) show as pips; while some charges are left the sweep is faint because the dash still works.
+  const dash = { shown: false, id: null, step: 0, poll: 0, pips: '', partial: null };
   function classAction() {
     const fn = G.game && G.game.getClassAction;
     dash.poll -= 1;
@@ -335,6 +346,18 @@
       el.dashIco.style.backgroundImage = url ? 'url("' + url + '")' : '';
     }
     const rem = +a.cdRemaining || 0, total = Math.max(+a.cooldown || 0, rem);
+    const max = Math.max(0, +(a.maxCharges != null ? a.maxCharges : a.chargesMax != null ? a.chargesMax : 0) | 0);
+    const ch = a.charges != null ? Math.max(0, a.charges | 0) : (rem > 0 ? 0 : 1);
+    const pips = max > 1 ? ch + '/' + max : '';
+    if (pips !== dash.pips) {
+      dash.pips = pips;
+      const row = [];
+      for (let i = 0; i < max && max > 1; i++) row.push(h('b', { class: i < ch ? null : 'off' }));
+      el.dashPips.replaceChildren.apply(el.dashPips, row);
+      el.dash.classList.toggle('empty', max > 1 && ch === 0);
+    }
+    const partial = ch > 0 && rem > 0;
+    if (partial !== dash.partial) { dash.partial = partial; el.dash.classList.toggle('partial', partial); }
     const step = rem > 0 && total > 0 ? Math.max(1, Math.ceil(rem / total * 36)) : 0;
     if (step !== dash.step) {
       if ((step > 0) !== (dash.step > 0)) el.dash.classList.toggle('cooling', step > 0);

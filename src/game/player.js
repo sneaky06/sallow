@@ -7,7 +7,7 @@
   const game = G.game;
   const U = game.U, W = game.W, COL = game.COLORS, K = game.K;
 
-  const BASE_SPEED = 4.2;
+  const BASE_SPEED = game.BASE_SPEED = 5.0;          // R6.3: +19% (was 4.2); monsters move game.SPEED_SCALE faster to match
   const POTION_CD = 3;
   const SELF_HANDLED = { chest: 1, barrel: 1, shrine: 1 };
 
@@ -16,7 +16,7 @@
     intent: null,           // { type: 'move'|'attack'|'skill'|'npc'|'item'|'prop'|'stairs', id?, slot?, x?, y?, once?, st? }
     path: null, pi: 0, repath: 0, targetId: 0,
     gcd: 0, atkT: 0, lock: 0, animLock: 0, queued: -1, queuedT: 0,
-    tm: 1, lavaT: 0, basicN: 0, tgtT: 0, dashCd: 0, dbl: null, wakeX: 0, wakeY: 0,      // terrain multiplier; mythic-effect bookkeeping
+    tm: 1, lavaT: 0, basicN: 0, tgtT: 0, dashCd: 0, dashN: -1, dbl: null, wakeX: 0, wakeY: 0,      // terrain multiplier; dash charges (-1 = full); mythic-effect bookkeeping
     potCd: { hp: 0, mp: 0 }, visTile: -1, visDirty: true, visT: 0, goldT: 0, warnT: 0,
   };
 
@@ -281,24 +281,52 @@
     return true;
   };
 
-  // ---- R4.4 innate class action (Ranger: Dash). Improved by the Acrobatics passive (player.bonus.dash*). ----
+  // ---- R4.4 / R6.3 innate class action: every class dashes. Charges recharge one at a time; passives improve it
+  // through player.bonus.dash* (Acrobatics, Ground Slam, Tumble Shot, Rime Step, Grave Swap). ----
+  const CA = { a: null, cd: 0, d: 0, inv: 0, max: 1 };      // reused: the charge tick reads this every frame
   function classAction(p) {
     const a = p && game.CLASSES[p.classId] && game.CLASSES[p.classId].action;
     if (!a) return null;
     const b = p.bonus || {};
-    return { a: a, cd: Math.max(1, a.cd - (b.dashCd || 0)), d: a.d + (b.dashD || 0), inv: a.inv + (b.dashInv || 0) };
+    CA.a = a; CA.cd = Math.max(1, a.cd - (b.dashCd || 0)); CA.d = a.d + (b.dashD || 0); CA.inv = a.inv + (b.dashInv || 0);
+    CA.max = Math.max(1, (a.charges || 1) + (b.dashCharges || 0));
+    return CA;
+  }
+  function tickDash(p, dt) {
+    const c = classAction(p);
+    if (!c) return;
+    if (ctl.dashN < 0 || ctl.dashN > c.max) { ctl.dashN = c.max; ctl.dashCd = 0; }
+    if (ctl.dashN >= c.max) { ctl.dashCd = 0; return; }
+    ctl.dashCd -= dt;
+    if (ctl.dashCd <= 0) { ctl.dashN++; ctl.dashCd = ctl.dashN < c.max ? ctl.dashCd + c.cd : 0; }
   }
 
+  // cdRemaining stays "seconds until you can dash" (0 while a charge is left); recharge = seconds until the next charge.
   game.getClassAction = function () {
-    const c = classAction(G.state.player);
+    const p = G.state.player, c = classAction(p);
     if (!c) return null;
-    return { id: c.a.id, name: c.a.name, desc: c.a.desc, icon: Object.assign({}, c.a.icon), cooldown: Math.round(c.cd * 100) / 100, cdRemaining: Math.max(0, ctl.dashCd || 0) };
+    const n = ctl.dashN < 0 ? c.max : Math.min(ctl.dashN, c.max), rech = n >= c.max ? 0 : Math.max(0, ctl.dashCd || 0);
+    return { id: c.a.id, kind: c.a.kind || 'roll', name: c.a.name, desc: c.a.desc, icon: Object.assign({}, c.a.icon), cooldown: Math.round(c.cd * 100) / 100,
+      cdRemaining: n > 0 ? 0 : rech, recharge: rech, charges: n, maxCharges: c.max };
   };
+
+  // Living hostile monsters whose body comes within `pad` of the segment a→b.
+  function foesOnSegment(ax, ay, bx, by, pad) {
+    const out = [], foes = game.live.foes, vx = bx - ax, vy = by - ay, L = vx * vx + vy * vy || 1;
+    for (let i = 0; i < foes.length; i++) {
+      const e = foes[i];
+      if (e.dead) continue;
+      const k = U.clamp(((e.x - ax) * vx + (e.y - ay) * vy) / L, 0, 1);
+      if (Math.hypot(e.x - ax - vx * k, e.y - ay - vy * k) <= pad + e.radius) out.push(e);
+    }
+    return out;
+  }
 
   game.useClassAction = function () {
     const S = G.state, p = S.player, c = classAction(p);
     if (!c || p.dead || !S.map || S.scene === 'menu' || game.isStunned(p)) return false;
-    if ((ctl.dashCd || 0) > 0) { U.sfx('error'); return false; }
+    if (ctl.dashN < 0 || ctl.dashN > c.max) ctl.dashN = c.max;
+    if (ctl.dashN <= 0) { U.sfx('error'); return false; }
     const m = G.input.move;
     let ang;
     if (Math.hypot(m.x, m.y) > 0.2) ang = Math.atan2(m.y, m.x);
@@ -307,16 +335,95 @@
       for (const e of game.live.foes) { if (e.dead) continue; const d = Math.hypot(e.x - p.x, e.y - p.y); if (d < nd) { nd = d; near = e; } }
       ang = near && nd < 12 ? Math.atan2(p.y - near.y, p.x - near.x) : p.facing + Math.PI;
     }
-    ctl.dashCd = c.cd;
+    ctl.dashN--;
+    if (ctl.dashCd <= 0) ctl.dashCd = c.cd;
     ctl.intent = null; ctl.path = null; ctl.lock = 0;
     game.addEffect(p, { id: 'invuln', t: c.inv });
-    U.fx('smoke', p.x, p.y, {});
-    U.sfx('swing');
-    K.dashTo(p, p.x + Math.cos(ang) * c.d, p.y + Math.sin(ang) * c.d, 0);
-    U.fx('smoke', p.x, p.y, {});
+    const a = c.a, b = p.bonus, x0 = p.x, y0 = p.y, tx = p.x + Math.cos(ang) * c.d, ty = p.y + Math.sin(ang) * c.d;
+    let swapped = false;
+    if (b.dashSwap) swapped = graveSwap(p, tx, ty, b.dashSwap);
+    if (swapped) {
+      // Grave Swap: the minion took our place
+    } else if (a.kind === 'blink') {
+      let done = false;
+      for (let d = c.d; d >= 1 && !done; d -= 0.5) {
+        const x = x0 + Math.cos(ang) * d, y = y0 + Math.sin(ang) * d;
+        if (W.canStand(x, y, p.radius) && W.shotClear(x0, y0, x, y)) done = K.blink(p, x, y, 'teleport');
+      }
+      if (!done) U.fx('teleport', p.x, p.y, {});
+      U.sfx('cast');
+    } else {
+      U.fx(a.fx || 'smoke', p.x, p.y, {});
+      U.sfx('swing');
+      K.dashTo(p, tx, ty, 0);
+      U.fx(a.fx || 'smoke', p.x, p.y, {});
+    }
+    p.facing = ang;
+    if (a.kind === 'charge' && !swapped) {           // Shoulder Charge: what stood in the way is struck and shoved aside
+      const hit = foesOnSegment(x0, y0, p.x, p.y, 0.55);
+      for (const e of hit) {
+        game.playerHit(e, { pct: 60, type: 'phys', skill: false, melee: true });
+        if (e.dead || e.rarity === 'boss') continue;
+        const k = U.clamp(((e.x - x0) * Math.cos(ang) + (e.y - y0) * Math.sin(ang)), 0, c.d);
+        let nx = e.x - (x0 + Math.cos(ang) * k), ny = e.y - (y0 + Math.sin(ang) * k);
+        const nl = Math.hypot(nx, ny);
+        if (nl < 0.05) { nx = -Math.sin(ang); ny = Math.cos(ang); } else { nx /= nl; ny /= nl; }
+        for (let s = 0; s < 6; s++) if (!W.move(e, nx * 0.2, ny * 0.2)) break;
+        game.applyStatus(e, 'stun', 0.4);
+        if (e.ai) e.ai.path = null;
+      }
+      if (hit.length) { U.shake(3, 0.15); U.sfx('hit'); }
+    }
+    if (b.dashSlam) {                                // Ground Slam
+      U.shake(4, 0.2);
+      K.zone({ x: p.x, y: p.y, r: 2.2, delay: 0.05, pct: b.dashSlam, dtype: 'phys', st: [['slow', 100, 2, 0.4]], fx: 'explosion', color: '#c08a4a' });
+    }
+    if (b.dashFrost) {                               // Rime Step: a frost trail along the path
+      const len = Math.hypot(p.x - x0, p.y - y0), n = Math.max(1, Math.min(4, Math.round(len)));
+      for (let i = 0; i < n; i++) {
+        const k = (i + 0.5) / n;
+        K.zone({ x: x0 + (p.x - x0) * k, y: y0 + (p.y - y0) * k, r: 0.95, t: 3, every: 0.5, pct: b.dashFrost, dtype: 'cold', st: [['chill', 100, 2]], fx: 'frost', color: COL.cold });
+      }
+    }
+    if (b.dashShot) {                                // Tumble Shot: a free Multishot at the nearest foe
+      const t = game.pickTarget(9);
+      if (t) {
+        const sa = Math.atan2(t.y - p.y, t.x - p.x), n = b.dashShotN || 3, bow = p.bonus.w.type === 'bow';
+        for (let i = 0; i < n; i++) K.shoot(p, sa + (i - (n - 1) / 2) * 0.17, { pct: b.dashShot, type: 'phys', shape: bow ? 'arrow' : 'shard', color: '#e8dcb0', speed: 15 });
+        U.sfx('arrow');
+        p.facing = sa;
+      }
+    }
     setAnim(p, 'walk', 0.2);
+    if (game.noteStyle) game.noteStyle('dash');
     return true;
   };
+
+  // Grave Swap: trade places with the minion nearest the dash's landing spot; it is shielded and taunts for 2 s.
+  function graveSwap(p, tx, ty, absPct) {
+    const al = game.live.allies;
+    let best = null, bd = 1e9;
+    for (let i = 0; i < al.length; i++) {
+      const e = al[i];
+      if (e.dead || !e.summon || Math.hypot(e.x - p.x, e.y - p.y) > 8) continue;
+      if (game.inSealedRoom && !game.inSealedRoom(e.x, e.y)) continue;
+      const d = Math.hypot(e.x - tx, e.y - ty);
+      if (d < bd) { bd = d; best = e; }
+    }
+    if (!best) return false;
+    const ox = p.x, oy = p.y;
+    U.fx('teleport', p.x, p.y, { color: COL.shadow }); U.fx('teleport', best.x, best.y, { color: COL.shadow });
+    p.x = best.x; p.y = best.y;
+    best.x = ox; best.y = oy;
+    if (best.ai) { best.ai.path = null; best.ai.tgt = 0; }
+    best.tauntT = G.state.time + 2;
+    best.effects = best.effects.filter(function (f) { return f.id !== 'bone_swap'; });
+    best.effects.push({ id: 'bone_swap', t: 4, absorb: Math.round(best.stats.hpMax * absPct / 100) });
+    U.fx('ring', ox, oy, { radius: 1.2, color: '#e8e0d0', duration: 0.5 });
+    U.sfx('cast');
+    if (game.onPlayerMoved) game.onPlayerMoved(true);
+    return true;
+  }
   G.on('input:classaction', function () { if (canAct()) game.useClassAction(); });
 
   game.revivePlayer = function () {
@@ -626,7 +733,7 @@
     if (ctl.warnT > 0) ctl.warnT -= dt;
     if (ctl.potCd.hp > 0) ctl.potCd.hp -= dt;
     if (ctl.potCd.mp > 0) ctl.potCd.mp -= dt;
-    if (ctl.dashCd > 0) ctl.dashCd -= dt;
+    tickDash(p, dt);
 
     ctl.tm = game.terrain(p, ctl, dt);          // shallow water / lava (R2.1)
     if (p.dead) return;

@@ -9,7 +9,7 @@
 
   const UNARMED = { dmgMin: 1, dmgMax: 3, attackSpeed: 1.2, weaponType: 'none', twoHanded: false };
   const COL = { grey: '#8a8a92', white: '#e8e8e8', mod: '#8fb4ff', imp: '#c0c8d8', set: '#3ddc6a', red: '#ff5b5b', gold: '#ffd94a', flavor: '#b89b6a', gem: '#e0b0ff',
-    pale: '#e8e2cc', awake: '#e8d8a0', match: '#7fd4c8' };
+    pale: '#e8e2cc', awake: '#e8d8a0', match: '#7fd4c8', rift: '#c58cff' };
 
   function isEquip(item) { return !!item && (item.type === 'weapon' || item.type === 'armor' || item.type === 'jewelry') && !!item.slot; }
   D.isEquip = isEquip;
@@ -300,7 +300,7 @@
     const r = C.RARITY[item.rarity] || C.RARITY.common;
     const lines = [];
     const tip = { name: item.name + (item.qty > 1 ? ' ×' + item.qty : ''), color: r.color, lines: lines, headline: null };
-    if (item.type === 'gold') { tip.name = item.qty + ' Gold'; tip.color = COL.gold; return tip; }
+    if (item.type === 'gold') { tip.name = item.qty + ' ' + D.MISC_NAMES.gold; tip.color = COL.gold; return tip; }
     const p = G.state.player;
     let worn = false;
     if (p && p.equipment) for (const s of C.EQUIP_SLOTS) if (p.equipment[s] === item) worn = true;
@@ -347,8 +347,13 @@
       if (b.block) lines.push({ text: b.block + '% Block', color: COL.white });
       for (const m of item.mods || []) if (m.implicit) lines.push({ text: I.formatStat(m.stat, m.value), color: COL.imp });
       for (const m of item.mods || []) {
-        if (!m.implicit) lines.push({ text: I.formatStat(m.stat, m.value) + (m.bleached ? '  (bleached)' : ''), color: m.bleached ? COL.pale : COL.mod });
+        if (m.implicit) continue;
+        const CT = D.CORRUPT || {};
+        const tag = m.bleached ? '  (bleached)' : m.corrupt === 'up' ? CT.upsideTag : m.corrupt === 'down' ? CT.drawbackTag : m.cleansed ? CT.latentTag : '';
+        lines.push({ text: I.formatStat(m.stat, m.value) + (tag || ''), color: m.bleached ? COL.pale : m.corrupt === 'down' ? COL.red : (m.corrupt === 'up' || m.cleansed) ? COL.rift : COL.mod });
       }
+      if (item.latent && item.latent.length) lines.push({ text: D.CORRUPT.latentLine, color: COL.rift });
+      tip.corrupted = D.isCorrupt && D.isCorrupt(item);      // R6.5: the UI offers Cleanse at the blacksmith
       // R5.2 bleached: one hidden affix until the item reaches town
       if (item.bleached && item.hidden) lines.push({ text: '??? — bleached; revealed when you bring it to town alive', color: COL.pale });
       else if (item.faded) lines.push({ text: 'Bleached — its secret faded when you fell', color: COL.grey });

@@ -50,7 +50,12 @@
     prop('sign', 22, 6, true);
 
     // Plaza: fountain in the middle, waypoint beside it, lamps in the corners, a campfire to sit by.
-    prop('fountain', 20, 20, true);
+    // The old well, where the town's heat came from: now a glowing rift fissure in the middle of the plaza, ringed by shards.
+    const fissure = [[19, 19], [20, 19], [19, 20], [20, 20], [21, 20]];
+    for (const c of fissure) tiles[c[1] * w + c[0]] = T.CHASM;
+    for (const c of [[18, 18], [20, 18], [21, 19], [22, 19], [18, 20], [22, 18]]) if (tiles[c[1] * w + c[0]] === T.PATH) tiles[c[1] * w + c[0]] = T.RUBBLE;
+    for (const c of fissure) occ[c[1] * w + c[0]] |= 3;
+    for (const c of [[18, 19], [22, 20], [21, 18], [19, 18]]) prop('crystal', c[0], c[1], true, { light: 4, look: 'rift_shard', corrupt: 0.4, tint: W.riftInfo(0.08).glow });
     prop('waypoint', 23, 17, false, { interact: 'waypoint', light: 3 });
     for (const c of [[15, 15], [25, 15], [15, 25], [25, 25]]) prop('torch', c[0], c[1], false, { light: LAMP });
     prop('campfire', 16, 23, true, { light: LAMP });
@@ -88,7 +93,7 @@
     rect(7, 25, 6, 4, T.WALL);
     rect(9, 22, 5, 3, T.PATH);
     npc('healer', 10, 23);
-    prop('well', 12, 23, true);
+    prop('well', 12, 23, true, { look: 'capped', corrupt: 0.3 });     // the healer's well, sealed with stone since the rift opened
 
     // Stashkeeper (south-east): the stash chest right beside them.
     rect(28, 25, 6, 4, T.WALL);
@@ -142,8 +147,14 @@
       k--;
     }
 
+    const corruption = W.corruptionForDepth(0), rift = W.riftInfo(corruption);
+    const sources = fissure.map(function (c) { return { x: c[0], y: c[1], r: 5, s: 0.7 }; });
+    const taint = W._paintTaint(tiles, w, h, seed, 0, sources);
     return {
       w, h, kind: 'town', depth: 0, theme: 'town', seed,
+      corruption, rift, taint,
+      fissures: [{ x: 19, y: 19, w: 3, h: 2, kind: 'rift', cells: [19, 19, 20, 19, 19, 20, 20, 20, 21, 20] }],
+      core: null,
       tiles,
       explored: new Uint8Array(n).fill(1),
       visible: new Uint8Array(n).fill(1),

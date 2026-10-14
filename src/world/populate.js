@@ -214,6 +214,22 @@
       k--;
     }
 
+    // ---- the rift core (final floor): a ring of rift crystals round the arena, the heart behind it ----------------
+    if (ctx.isCore && arena && bossExit) {
+      for (let k = 0; k < 8; k++) {
+        const a = k * Math.PI / 4 + Math.PI / 8;
+        const x = Math.round(arena.cx + Math.cos(a) * 6.6), y = Math.round(arena.cy + Math.sin(a) * 6.6);
+        if (canSolid(x, y)) add('crystal', x, y, true, { light: 4, look: 'rift_crystal', corrupt: 1, tint: '#ff70f0' });
+      }
+      let best = null, bd = -1;
+      for (const o of [[2, 0], [-2, 0], [0, 2], [0, -2]]) {
+        const x = bossExit.cx + o[0], y = bossExit.cy + o[1], d = Math.hypot(x - arena.cx, y - arena.cy);
+        if (canSolid(x, y) && d > bd) { bd = d; best = { x, y }; }
+      }
+      if (best) add('crystal', best.x, best.y, true, { interact: 'rift_core', used: false, light: 6, look: 'rift_core', corrupt: 1, tint: '#ff70f0' });
+    }
+    gen.corruptDress(ctx, { rng, add, canSolid, canSoft, solidIn, softIn, centrepiece }, props);
+
     // ---- monsters ----------------------------------------------------------------------------------------
     // Budget counts every pack member; an elite is costed at 3 (leader + whatever retinue the game adds).
     let left = Math.round(Math.min(68, 26 + depth * 2) * (ctx.isBoss ? 0.85 : 1));

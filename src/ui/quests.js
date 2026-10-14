@@ -9,28 +9,28 @@
   // {boss} in name/desc is replaced by G.game.getMonsterInfo(boss).name at display time. The Elder's lines live in story.js.
   const MAIN = [
     { id: 'main_1', name: 'The Cold Stair', kind: 'depth', goal: 3,
-      desc: 'The crypt under the well has started to breathe out. Go down to depth 3 and see what is breathing.',
+      desc: '{Rift} under the well breathes cold now. Go down to depth 3 and see what is breathing.',
       rewards: { gold: 120, xp: 150, item: 'magic' } },
     { id: 'main_2', name: 'The Crowned Dead', kind: 'boss', boss: 'boss_gravelord', depth: 5,
-      desc: '{boss} keeps court on depth 5 and counts the names it has taken. Break the count.',
+      desc: 'The rot has crowned {boss}. It keeps court on depth 5 and counts our dead. Break the count.',
       rewards: { gold: 400, xp: 600, item: 'rare' } },
     { id: 'main_3', name: 'Where the Water Remembers', kind: 'depth', goal: 8,
-      desc: 'Below the crypt the stone turns wet. Reach depth 8 of the caves.',
+      desc: 'Below the crypt {rift} opens into wet caves, and the rot runs thicker. Reach depth 8.',
       rewards: { gold: 600, xp: 1200, item: 'magic' } },
     { id: 'main_4', name: 'The Nest', kind: 'boss', boss: 'boss_broodmother', depth: 10,
-      desc: '{boss} is fat on the warmth of Emberfall. Find her on depth 10 and empty her.',
+      desc: '{boss} nests where the warm air used to rise. Find her on depth 10 and empty her.',
       rewards: { gold: 1200, xp: 3000, item: 'rare' } },
     { id: 'main_5', name: 'The Old Fire', kind: 'depth', goal: 13,
-      desc: 'The deep roads glow, but the glow gives no heat. Walk them to depth 13.',
+      desc: 'Deeper, {rift} still burns, but the fire gives no heat. Walk it to depth 13.',
       rewards: { gold: 1800, xp: 5500, item: 'rare' } },
     { id: 'main_6', name: 'The Keeper of Embers', kind: 'boss', boss: 'boss_tyrant', depth: 15,
-      desc: '{boss} hoards what is left of the fire on depth 15. Take it back.',
+      desc: '{boss} hoards the last clean fire on depth 15. Take it back.',
       rewards: { gold: 3200, xp: 11000, item: 'epic' } },
     { id: 'main_7', name: 'The Quiet', kind: 'depth', goal: 18,
-      desc: 'Past the fire there is only the abyss, and it is listening. Reach depth 18.',
+      desc: 'Past the fire, {rift} is only a quiet that listens. Reach depth 18.',
       rewards: { gold: 4500, xp: 18000, item: 'rare' } },
-    { id: 'main_8', name: 'The Thing at the Bottom', kind: 'boss', boss: 'boss_hollow', depth: 20,
-      desc: '{boss} waits on depth 20, where the well ends. It has been drinking for a long time. Make it stop.',
+    { id: 'main_8', name: 'The Root of the Rift', kind: 'boss', boss: 'boss_hollow', depth: 20,
+      desc: 'At the core, on depth 20, {pale} has hollowed out {star}: {boss}. Cleanse it, or tear it out by the root.',
       rewards: { gold: 10000, xp: 40000, item: 'legendary' } },
   ];
   function bossName(id) {
@@ -39,7 +39,10 @@
     return (info && info.name) || 'the guardian';
   }
   meta._bossName = bossName;
-  function fill(text, m) { return String(text).replace('{boss}', bossName(m.boss)); }
+  function fill(text, m) {
+    const t = String(text).replace('{boss}', bossName(m.boss));
+    return meta._fillNames ? meta._fillNames(t) : t;     // {rift}, {town}… live in story.js NAMES
+  }
 
   const BOUNTIES = {
     kill:   { name: 'Cull the Horde',    desc: n => 'Slay ' + n + ' monsters in the deep.',                       goal: (r, L) => 15 + r.int(0, 3) * 5 + Math.min(20, L), w: 1.0 },

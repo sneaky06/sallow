@@ -27,7 +27,7 @@
       if (has) ui._confirm('Start anew? Your current hero will be overwritten once the new one reaches town.', 'New Hero', showClasses, { danger: true });
       else showClasses();
     }, 'big'));
-    box.replaceChildren(logo(), h('div', { class: 'ed-tag', text: 'The dark below Emberfall is awake.' }), menu, h('div', { class: 'ed-ver', text: 'v' + (ui._VERSION || '') }));
+    box.replaceChildren(logo(), h('div', { class: 'ed-tag', text: ui._tagline ? ui._tagline() : 'The rift below Emberfall has turned.' }), menu, h('div', { class: 'ed-ver', text: 'v' + (ui._VERSION || '') }));
   }
 
   function showClasses() {

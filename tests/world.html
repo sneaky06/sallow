@@ -279,6 +279,67 @@ window.G = { manifest: {} };
       }
     }
 
+    // ---- R6.5 corruption: level by depth, fissures, taint mask, props, core arena ----
+    const LOOKS = ['growth', 'vein', 'rift_shrine', 'rift_crystal', 'rift_core', 'rift_shard', 'capped'];
+    function checkCorruption(map, depth, R, ok) {
+      const w = map.w, h = map.h, n = w * h, c = map.corruption;
+      ok(typeof c === 'number' && c >= 0 && c <= 1 && c === W.corruptionForDepth(depth), 'map.corruption ' + c);
+      ok(depth === 1 || c >= W.corruptionForDepth(depth - 1), 'corruption not monotonic');
+      ok((depth >= W.CORE_DEPTH) === (c === 1), 'corruption reaches 1 exactly at the core depth');
+      const rf = map.rift;
+      ok(rf && Number.isInteger(rf.tier) && rf.tier >= 0 && rf.tier <= 4 && HEX.test(rf.glow) && HEX.test(rf.vein) && rf.pulse >= 0 && rf.pulse <= 1, 'rift fields');
+      ok(map.variant.corruption === c, 'variant.corruption');
+      ok(map.taint instanceof Uint8Array && map.taint.length === n, 'taint array');
+      let tainted = 0, walkTiles = 0, bad = 0;
+      for (let i = 0; i < n; i++) {
+        if (map.taint[i] > 3) bad++;
+        if (map.tiles[i] === T.VOID && map.taint[i]) bad++;
+        if (C.WALKABLE[map.tiles[i]]) { walkTiles++; if (map.taint[i]) tainted++; }
+      }
+      ok(bad === 0, 'taint values out of range (' + bad + ')');
+      const share = tainted / Math.max(1, walkTiles);
+      (R.taintByBand[Math.min(5, Math.floor((depth - 1) / 10))] = R.taintByBand[Math.min(5, Math.floor((depth - 1) / 10))] || []).push(share);
+      ok(Array.isArray(map.fissures), 'fissures array');
+      if (depth <= 9) ok(map.fissures.length === 0, 'fissure above the first threshold');
+      for (const f of map.fissures) {
+        ok(['chasm', 'lava'].indexOf(f.kind) >= 0 && f.cells.length >= 10 && f.cells.length % 2 === 0, 'fissure fields');
+        ok(f.x >= 1 && f.y >= 1 && f.x + f.w <= w - 1 && f.y + f.h <= h - 1, 'fissure rect');
+        let onTile = 0;
+        for (let k = 0; k < f.cells.length; k += 2) { const t = map.tiles[f.cells[k + 1] * w + f.cells[k]]; if (t === T.CHASM || t === T.LAVA || t === T.DEEP_LAVA) onTile++; }
+        ok(onTile === f.cells.length / 2, 'fissure cells not on rift tiles');
+      }
+      R.fissures += map.fissures.length;
+      (R.fissureByBand[Math.min(5, Math.floor((depth - 1) / 10))] = R.fissureByBand[Math.min(5, Math.floor((depth - 1) / 10))] || []).push(map.fissures.length);
+      let growths = 0, veins = 0, riftShrines = 0;
+      for (const p of map.props) {
+        if (p.corrupt !== undefined) ok(typeof p.corrupt === 'number' && p.corrupt >= 0 && p.corrupt <= 1, 'prop.corrupt');
+        if (p.look !== undefined) ok(LOOKS.indexOf(p.look) >= 0, 'prop.look ' + p.look);
+        if (p.tint !== undefined) ok(HEX.test(p.tint), 'prop.tint');
+        if (p.look === 'growth') { growths++; ok(p.type === 'crystal' && p.solid, 'growth is a solid crystal'); }
+        if (p.look === 'vein') { veins++; ok(p.type === 'bones' && !p.solid, 'vein is soft bones'); }
+        if (p.look === 'rift_shrine') { riftShrines++; ok(p.type === 'shrine' && p.shrineKind === 'corrupt' && p.interact === 'shrine', 'rift shrine fields'); }
+      }
+      (R.growthByBand[Math.min(5, Math.floor((depth - 1) / 10))] = R.growthByBand[Math.min(5, Math.floor((depth - 1) / 10))] || []).push(growths + veins);
+      R.riftShrines += riftShrines;
+      if (depth <= 2) ok(growths === 0 && riftShrines === 0, 'growths/rift shrines on depth 1-2');
+      if (depth === W.CORE_DEPTH) {
+        const k = map.core, arena = map.rooms.find(function (r) { return r.type === 'boss'; }), exitR = map.rooms.find(function (r) { return r.type === 'exit'; });
+        if (ok(k && k.final === true && map.theme === 'abyss', 'core descriptor missing at depth ' + depth)) {
+          ok(k.arena.w === 17 && k.arena.h === 17 && k.arena.x === arena.x && k.arena.y === arena.y, 'core arena size');
+          const boss = map.spawns.find(function (s) { return s.kind === 'boss'; });
+          ok(boss && k.boss && boss.x === k.boss.x && boss.y === k.boss.y && Math.hypot(boss.x - k.arena.cx, boss.y - k.arena.cy) <= 3, 'core boss spawn');
+          const heart = map.props.find(function (p) { return p.look === 'rift_core'; });
+          ok(heart && heart.solid && heart.interact === 'rift_core' && k.heart && k.heart.x === heart.x && k.heart.y === heart.y, 'rift heart prop');
+          if (heart) ok(heart.x >= exitR.x && heart.y >= exitR.y && heart.x < exitR.x + exitR.w && heart.y < exitR.y + exitR.h, 'heart is outside the exit room');
+          ok(map.props.filter(function (p) { return p.look === 'rift_crystal'; }).length >= 4, 'core ring crystals');
+          let pits = 0;
+          for (let y = arena.y; y < arena.y + arena.h; y++) for (let x = arena.x; x < arena.x + arena.w; x++) if (map.tiles[y * w + x] === T.CHASM) pits++;
+          ok(pits >= 24, 'core arena pits ' + pits);
+        }
+        R.coreMaps++;
+      } else ok(map.core === null, 'core descriptor on a normal floor');
+    }
+
     function checkDungeon(depth, seed, R) {
       const fail = function (msg) { R.failures.push('d' + depth + ' s' + seed + ': ' + msg); R.failed++; };
       const ok = function (cond, msg) { R.asserts++; if (!cond) fail(msg); return cond; };
@@ -293,6 +354,7 @@ window.G = { manifest: {} };
       ok(map.kind === 'dungeon' && map.depth === depth && map.seed === seed && map.theme === C.themeForDepth(depth), 'header fields');
       ok(w >= 48 && w <= 80 && h >= 48 && h <= 80, 'size ' + w + 'x' + h);
       checkVariant(map, depth, R, ok);
+      checkCorruption(map, depth, R, ok);
       ok(tiles instanceof Uint8Array && tiles.length === n && map.explored.length === n && map.visible.length === n, 'array sizes');
       ok(tiles[map.spawn.y * w + map.spawn.x] === T.STAIRS_UP, 'STAIRS_UP at spawn');
       let down = -1, downs = 0, ups = 0, walkable = 0, dryTiles = 0, borderWalk = 0, naked = 0, badDeep = 0, chasm = 0;
@@ -318,7 +380,7 @@ window.G = { manifest: {} };
       ok(borderWalk === 0, 'walkable tile on map border');
       ok(naked === 0, 'walkable tile next to VOID (' + naked + ')');
       ok(badDeep === 0, 'deep liquid without a shallow rim (' + badDeep + ')');
-      ok(map.theme === 'abyss' ? chasm > 200 : chasm === 0, 'CHASM count ' + chasm + ' in ' + map.theme);
+      ok(map.theme === 'abyss' ? chasm > 200 : (chasm === 0 || (map.fissures || []).length > 0 || map.corruption >= 0.2), 'CHASM count ' + chasm + ' in ' + map.theme);
       ok(!(liq[T.WATER] || liq[T.DEEP_WATER]) || !(liq[T.LAVA] || liq[T.DEEP_LAVA]), 'water and lava on one floor');
       for (const k in liq) R.liquid[map.theme + ':' + k] = (R.liquid[map.theme + ':' + k] || 0) + liq[k];
       if (down < 0) return;
@@ -388,7 +450,7 @@ window.G = { manifest: {} };
         ok(W.propAt(map, p.x, p.y) === p, 'propAt mismatch');
         if (p.solid) ok(!W.isWalkable(map, p.x, p.y), 'solid prop tile reported walkable');
         if (p.interact) {
-          ok(['chest', 'shrine', 'barrel'].indexOf(p.interact) >= 0 && p.used === false, 'interact fields');
+          ok(['chest', 'shrine', 'barrel', 'rift_core'].indexOf(p.interact) >= 0 && p.used === false, 'interact fields');
           let reachAdj = false;
           for (const j of [i - 1, i + 1, i - w, i + w]) if (dry.dist[j] >= 0) reachAdj = true;
           ok(reachAdj, p.type + ' cannot be reached to use');
@@ -485,7 +547,7 @@ window.G = { manifest: {} };
     function sig(map) {
       let hsh = 0;
       for (let i = 0; i < map.tiles.length; i++) hsh = (Math.imul(hsh, 31) + map.tiles[i]) | 0;
-      return hsh + '|' + JSON.stringify(map.rooms) + JSON.stringify(map.spawns) + JSON.stringify(map.props) + JSON.stringify(map.variant) + map.floorName + JSON.stringify(map.landmarks);
+      return hsh + '|' + JSON.stringify(map.rooms) + JSON.stringify(map.spawns) + JSON.stringify(map.props) + JSON.stringify(map.variant) + map.floorName + JSON.stringify(map.landmarks) + JSON.stringify(map.fissures) + JSON.stringify(map.core) + JSON.stringify(map.rift) + map.corruption + Array.prototype.join.call(map.taint, '');
     }
 
     function checkTown(seed, R) {
@@ -515,7 +577,11 @@ window.G = { manifest: {} };
         }
         return list[0];
       };
-      one('fountain'); one('well'); one('sign'); one('campfire'); one('stall'); one('tree'); one('bush');
+      ok(map.corruption > 0 && map.corruption < 0.2 && map.rift && map.taint instanceof Uint8Array && map.taint.length === n && map.fissures.length === 1 && map.core === null, 'town rift fields');
+      for (let k = 0; k < 10; k += 2) ok(map.tiles[map.fissures[0].cells[k + 1] * w + map.fissures[0].cells[k]] === T.CHASM, 'town fissure tile');
+      ok(map.props.filter(function (p) { return p.look === 'rift_shard' && p.solid; }).length >= 3 && !map.props.some(function (p) { return p.type === 'fountain'; }), 'rift shards / fountain gone');
+      ok(map.taint[20 * w + 18] > 0 && map.taint[20 * w + 22] > 0, 'taint around the fissure');
+      one('well'); one('sign'); one('campfire'); one('stall'); one('tree'); one('bush');
       const wp = one('waypoint', 'waypoint'), de = one('dungeon_entrance', 'dungeon_entrance'), st = one('stash', 'stash');
       const sk = map.spawns.find(function (s) { return s.role === 'stashkeeper'; });
       if (st && sk) ok(Math.abs(st.x - sk.x) + Math.abs(st.y - sk.y) === 1, 'stash not next to stashkeeper');
@@ -559,11 +625,11 @@ window.G = { manifest: {} };
       perDepth = perDepth || 10;
       const R = { asserts: 0, failed: 0, failures: [], genMs: [], byTheme: {}, monsters: [], props: [], chests: [], exitDist: [], longPathMs: [],
         roomTypes: {}, spawnKinds: {}, propTypes: {}, liquid: {}, lockdowns: {}, lavaOnMainPath: 0, maps: 0,
-        variants: {}, layouts: {}, landmarks: {}, attempts: {}, names: {}, fallbacks: 0, layoutSwaps: 0, arenaTotal: 0, arenaElite: 0, payoffTotal: 0, payoffChest: 0 };
+        taintByBand: {}, fissureByBand: {}, growthByBand: {}, fissures: 0, riftShrines: 0, coreMaps: 0, variants: {}, layouts: {}, landmarks: {}, attempts: {}, names: {}, fallbacks: 0, layoutSwaps: 0, arenaTotal: 0, arenaElite: 0, payoffTotal: 0, payoffChest: 0 };
       // warm up the JIT so timings are representative
       for (let d = 1; d <= 20; d += 5) W.generateDungeon(d, 99);
       const keep = [];
-      for (let d = 1; d <= 40; d++) {
+      for (let d = 1; d <= 60; d++) {
         for (let k = 0; k < perDepth; k++) {
           const seed = (d * 7919 + k * 104729 + 17) >>> 0;
           const m = checkDungeon(d, seed, R);
@@ -732,9 +798,27 @@ window.G = { manifest: {} };
         if (W.propAt(big, solid.x, solid.y) !== null) { R.failed++; R.failures.push('removed prop still returned by propAt'); }
       }
 
+      // ---- R6.5 trends: the deeper, the worse ----
+      {
+        const avg = function (a) { let s = 0; for (const v of a || []) s += v; return a && a.length ? s / a.length : 0; };
+        const tb = [], fb = [], gb = [];
+        for (let b = 0; b < 6; b++) { tb.push(avg(R.taintByBand[b])); fb.push(avg(R.fissureByBand[b])); gb.push(avg(R.growthByBand[b])); }
+        R.trend = { taintShare: tb.map(function (v) { return +v.toFixed(3); }), fissures: fb.map(function (v) { return +v.toFixed(2); }), growthsAndVeins: gb.map(function (v) { return +v.toFixed(1); }) };
+        R.asserts += 8;
+        const need = function (cond, msg) { if (!cond) { R.failed++; R.failures.push('trend: ' + msg); } };
+        need(tb[4] > tb[0] + 0.15 && tb[5] > tb[2], 'taint share does not rise with depth ' + JSON.stringify(R.trend.taintShare));
+        need(fb[0] === 0 && fb[2] > 0.5 && fb[5] > fb[2], 'fissures do not rise with depth ' + JSON.stringify(R.trend.fissures));
+        need(gb[0] < gb[2] && gb[2] < gb[5] && gb[5] > 10, 'growths/veins do not rise with depth ' + JSON.stringify(R.trend.growthsAndVeins));
+        need(R.riftShrines > 20, 'too few rift shrines (' + R.riftShrines + ')');
+        need(R.coreMaps >= 10, 'core floors checked ' + R.coreMaps);
+        const c1 = W.generateDungeon(60, 4242), c2 = W.generateDungeon(51, 4242);
+        need(c1.corruption === 1 && c2.corruption === 1 && c1.core === null && c2.core === null, 'depth 51+ should be plain deep floors at corruption 1');
+        need(W.generateDungeon(50, 4242).core && W.generateDungeon(50, 4242).variant.id === 'rift_core', 'depth 50 is the core floor');
+        need(W.corruptionForDepth(1) > 0 && W.corruptionForDepth(1) < 0.05, 'depth 1 corruption');
+      }
       R.genStats = stats(R.genMs);
       const lines = [];
-      lines.push((R.failed ? 'FAIL' : 'PASS') + ' — ' + R.maps + ' dungeons + 10 towns, ' + R.asserts + ' assertions, ' + R.failed + ' failed, ' + window.__errors.length + ' script errors');
+      lines.push((R.failed ? 'FAIL' : 'PASS') + ' — ' + R.maps + ' dungeons (depth 1–60) + 10 towns, ' + R.asserts + ' assertions, ' + R.failed + ' failed, ' + window.__errors.length + ' script errors');
       lines.push('generation ms/map: ' + R.genStats);
       for (const th in R.byTheme) lines.push('  ' + th + ': ' + stats(R.byTheme[th]));
       lines.push('monsters/map: ' + stats(R.monsters) + '   props/map: ' + stats(R.props) + '   chests/map: ' + stats(R.chests));
@@ -749,6 +833,7 @@ window.G = { manifest: {} };
       lines.push('layouts ' + JSON.stringify(R.layouts));
       lines.push('landmarks ' + JSON.stringify(R.landmarks) + '  chained-arena elite ' + R.arenaElite + '/' + R.arenaTotal + '  chest at moat/span ' + R.payoffChest + '/' + R.payoffTotal);
       lines.push('attempts needed ' + JSON.stringify(R.attempts) + '  fallback layout ' + R.fallbacks + '  forced layout swapped for the plain one ' + R.layoutSwaps + ' of ' + R.forced + '  distinct floor names ' + Object.keys(R.names).length);
+      lines.push('corruption trend by 10-depth band: taint share ' + JSON.stringify(R.trend.taintShare) + '  fissures/map ' + JSON.stringify(R.trend.fissures) + '  growths+veins/map ' + JSON.stringify(R.trend.growthsAndVeins) + '  rift shrines ' + R.riftShrines + '  core floors ' + R.coreMaps);
       lines.push('rooms ' + JSON.stringify(R.roomTypes));
       lines.push('spawns ' + JSON.stringify(R.spawnKinds));
       lines.push('props ' + JSON.stringify(R.propTypes));

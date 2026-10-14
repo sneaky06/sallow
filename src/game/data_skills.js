@@ -14,10 +14,13 @@
       sprite: { body: 'humanoid', color: '#9a3b2e', accent: '#c9c2b0', scale: 1, weapon: 'sword' },
       icon: { shape: 'sword', color: '#d8d2c4', accent: '#9a3b2e' },
       baseAttrs: { str: 10, dex: 5, int: 3, vit: 8 }, primaryStat: 'str', weaponTypes: ['sword', 'axe', 'mace'],
+      // R6.3 class action: one charge, but it hits — foes in the path are knocked aside and struck
+      action: { id: 'dash', kind: 'charge', name: 'Shoulder Charge', desc: 'Barge about 3.5 tiles toward your stick, knocking foes in your path aside for 60% weapon damage. Untouchable for a moment.',
+        icon: { shape: 'shield', color: '#c9c2b0', accent: '#9a3b2e' }, cd: 4.5, d: 3.5, inv: 0.3, charges: 1 },
       hp: 60, hpLvl: 12, hpVit: 11, dr: 15, mp: 26, mpLvl: 1.5, mpRegen: 1.2, mpOnHit: 2, starter: { dmgMin: 2, dmgMax: 4, attackSpeed: 1.4, weaponType: 'sword' },
       trees: [
         { id: 'arms', name: 'Arms', desc: 'Precise, crushing blows against one foe.', skills: ['bash', 'weapon_mastery', 'charge', 'rend', 'execute', 'deadly_precision'] },
-        { id: 'berserker', name: 'Berserker', desc: 'Wide swings and reckless momentum.', skills: ['cleave', 'frenzy', 'whirlwind', 'leap', 'bloodthirst', 'earthquake'] },
+        { id: 'berserker', name: 'Berserker', desc: 'Wide swings and reckless momentum.', skills: ['cleave', 'frenzy', 'whirlwind', 'leap', 'bloodthirst', 'earthquake', 'ground_slam'] },
         { id: 'guardian', name: 'Guardian', desc: 'Armour, shouts and stubbornness.', skills: ['iron_skin', 'battle_shout', 'toughness', 'shield_wall', 'war_cry', 'thorns_aura'] },
       ],
     },
@@ -26,12 +29,12 @@
       sprite: { body: 'humanoid', color: '#3f6b3a', accent: '#b89a5a', scale: 1, weapon: 'bow' },
       icon: { shape: 'bow', color: '#b89a5a', accent: '#3f6b3a' },
       baseAttrs: { str: 5, dex: 10, int: 4, vit: 7 }, primaryStat: 'dex', weaponTypes: ['bow', 'dagger'],
-      action: { id: 'dash', name: 'Dash', desc: 'Dash about 3 tiles toward your stick (or away from the nearest enemy), untouchable for a moment.',
-        icon: { shape: 'leap', color: '#b89a5a' }, cd: 3, d: 3, inv: 0.35 },
+      action: { id: 'dash', kind: 'roll', name: 'Dash', desc: 'Dash about 3 tiles toward your stick (or away from the nearest enemy), untouchable for a moment. 2 charges.',
+        icon: { shape: 'leap', color: '#b89a5a' }, cd: 3, d: 3, inv: 0.35, charges: 2 },
       hp: 42, hpLvl: 7, mp: 30, mpLvl: 2, mpRegen: 1.5, mpOnHit: 1, starter: { dmgMin: 3, dmgMax: 6, attackSpeed: 1.3, weaponType: 'bow' },
       trees: [
         { id: 'marksman', name: 'Marksman', desc: 'One arrow, one corpse.', skills: ['aimed_shot', 'eagle_eye', 'piercing_shot', 'poison_arrow', 'lethal_focus', 'snipe'] },
-        { id: 'barrage', name: 'Barrage', desc: 'Fill the air with arrows.', skills: ['multishot', 'rapid_fire', 'rain_of_arrows', 'explosive_arrow', 'ricochet', 'arrow_storm'] },
+        { id: 'barrage', name: 'Barrage', desc: 'Fill the air with arrows.', skills: ['multishot', 'rapid_fire', 'rain_of_arrows', 'explosive_arrow', 'ricochet', 'arrow_storm', 'tumble_shot'] },
         { id: 'survival', name: 'Survival', desc: 'Traps, rolls and staying alive.', skills: ['dodge_roll', 'spike_trap', 'evasion', 'frost_trap', 'vigor', 'camouflage'] },
       ],
     },
@@ -40,10 +43,12 @@
       sprite: { body: 'caster', color: '#3a4f9a', accent: '#ffb347', scale: 1, weapon: 'staff' },
       icon: { shape: 'staff', color: '#ffb347', accent: '#3a4f9a' },
       baseAttrs: { str: 3, dex: 4, int: 11, vit: 6 }, primaryStat: 'int', weaponTypes: ['staff', 'wand'],
+      action: { id: 'dash', kind: 'blink', name: 'Blink', desc: 'Vanish and reappear about 3.5 tiles toward your stick (or away from the nearest enemy). 2 charges.',
+        icon: { shape: 'star', color: '#b98cff', accent: '#3a4f9a' }, cd: 3.5, d: 3.5, inv: 0.25, charges: 2 },
       hp: 36, hpLvl: 6, mp: 40, mpLvl: 4, mpRegen: 2.6, starter: { dmgMin: 3, dmgMax: 6, attackSpeed: 1.0, weaponType: 'staff' },
       trees: [
         { id: 'fire', name: 'Fire', desc: 'Burn it. Burn all of it.', skills: ['fire_bolt', 'fireball', 'fire_mastery', 'incinerate', 'combustion', 'meteor'] },
-        { id: 'frost', name: 'Frost', desc: 'Slow them, freeze them, shatter them.', skills: ['ice_shard', 'frost_nova', 'frost_armor', 'blizzard', 'shatter', 'glacial_spike'] },
+        { id: 'frost', name: 'Frost', desc: 'Slow them, freeze them, shatter them.', skills: ['ice_shard', 'frost_nova', 'frost_armor', 'blizzard', 'shatter', 'glacial_spike', 'rime_step'] },
         { id: 'storm', name: 'Storm', desc: 'Lightning, raw mana and tricks of space.', skills: ['arcane_mind', 'chain_lightning', 'teleport', 'mana_shield', 'overcharge', 'thunderstorm'] },
       ],
     },
@@ -52,9 +57,11 @@
       sprite: { body: 'caster', color: '#3b2a4a', accent: '#8ee06a', scale: 1, weapon: 'wand' },
       icon: { shape: 'skull', color: '#d9d4c0', accent: '#8ee06a' },
       baseAttrs: { str: 3, dex: 4, int: 10, vit: 7 }, primaryStat: 'int', weaponTypes: ['wand', 'staff', 'dagger'],
+      action: { id: 'dash', kind: 'roll', name: 'Grave Step', desc: 'Slip about 3 tiles through the dark toward your stick (or away from the nearest enemy), untouchable for a moment. 2 charges.',
+        icon: { shape: 'skull', color: '#b98cff', accent: '#3b2a4a' }, cd: 3.5, d: 3, inv: 0.3, charges: 2, fx: 'teleport' },
       hp: 38, hpLvl: 6, mp: 40, mpLvl: 4, mpRegen: 2.3, starter: { dmgMin: 1, dmgMax: 3, attackSpeed: 1.5, weaponType: 'wand' },
       trees: [
-        { id: 'summoning', name: 'Summoning', desc: 'An army that never tires.', skills: ['raise_skeleton', 'skeleton_mastery', 'corpse_explosion', 'skeletal_mage', 'golem', 'unholy_might'] },
+        { id: 'summoning', name: 'Summoning', desc: 'An army that never tires.', skills: ['raise_skeleton', 'skeleton_mastery', 'corpse_explosion', 'skeletal_mage', 'golem', 'unholy_might', 'grave_swap'] },
         { id: 'bone', name: 'Bone & Blood', desc: 'Spears of bone, stolen life.', skills: ['bone_spear', 'bone_armor', 'bone_nova', 'life_drain', 'soul_harvest', 'bone_spirit'] },
         { id: 'curses', name: 'Curses', desc: 'Weaken, wither, rot.', skills: ['dark_knowledge', 'amplify_damage', 'withering', 'decrepify', 'poison_nova', 'lich_form'] },
       ],
@@ -122,6 +129,10 @@
       U().shake(6, 0.5);
       K().zone({ x: p.x, y: p.y, r: 3.8, t: 1.3, every: 0.5, pct: V.dmg, dtype: 'phys', st: [['slow', 100, 2, 0.4]], fx: 'explosion', color: '#c08a4a' });
     } });
+  // R6.3 dash augments (one per class): passives read by the class action in player.js through player.bonus.dash*
+  def('ground_slam', { n: 'Ground Slam', c: 'warrior', tr: 'berserker', row: 0, col: 2, k: 'passive', tags: ['mobility', 'aoe'], ic: ['leap', '#c08a4a'], lvl: 3,
+    v: { dmg: [120, 30], cd: [0.2, 0.2] }, text: 'Passive. Your Shoulder Charge ends in a ground slam: {dmg}% weapon damage around you, slowing foes. Its cooldown is {cd}s shorter.',
+    bonus: V => ({ dashSlam: V.dmg, dashCd: V.cd }) });
 
   def('iron_skin', { n: 'Iron Skin', c: 'warrior', tr: 'guardian', row: 0, col: 0, k: 'passive', tags: ['defense'], ic: ['armor', '#9aa0aa'], lvl: 1,
     v: { ar: [8, 8], pct: [10, 10] }, text: 'Passive. +{ar} armour and +{pct}% total armour.',
@@ -207,6 +218,9 @@
       }
       if (!n) for (let i = 0; i < 12; i++) K().shoot(p, i / 12 * TAU, arrow({ pct: V.dmg, speed: 18 }));
     } });
+  def('tumble_shot', { n: 'Tumble Shot', c: 'ranger', tr: 'barrage', row: 0, col: 2, k: 'passive', tags: ['mobility', 'aoe'], ic: ['multishot', '#b89a5a'], lvl: 3,
+    v: { dmg: [70, 12], n: [3, 0.5] }, text: 'Passive. Every Dash looses a free Multishot of {n} arrows at the nearest foe, each for {dmg}% weapon damage.',
+    bonus: V => ({ dashShot: V.dmg, dashShotN: Math.floor(V.n) }) });
 
   // R4.4: the roll itself is the Ranger's innate class action (Dash); this passive makes it better.
   def('dodge_roll', { n: 'Acrobatics', c: 'ranger', tr: 'survival', row: 0, col: 0, k: 'passive', tags: ['mobility', 'defense'], ic: ['leap', '#b89a5a'], lvl: 1,
@@ -278,6 +292,9 @@
     mp: [14, 1], cd: [6, -0.5], tg: 'aim', range: 10, v: { dmg: [360, 55] },
     text: 'A massive spike of ice for {dmg}% weapon damage as cold. Freezes for 1.5s.',
     cast(p, t, V, aim) { U().sfx('ice'); K().shoot(p, aim.ang, { pct: V.dmg, type: 'cold', shape: 'shard', color: '#d8f4ff', speed: 16, radius: 0.35, st: [['freeze', 100, 1.5]] }); } });
+  def('rime_step', { n: 'Rime Step', c: 'sorcerer', tr: 'frost', row: 0, col: 2, k: 'passive', tags: ['mobility', 'defense'], ic: ['ice', '#b0e8ff'], lvl: 3,
+    v: { dmg: [30, 8], d: [0.2, 0.2] }, text: 'Passive. Blink leaves a frost trail for 3s that chills foes and deals {dmg}% weapon damage as cold twice a second. Blink reaches {d} tiles further.',
+    bonus: V => ({ dashFrost: V.dmg, dashD: V.d }) });
 
   def('arcane_mind', { n: 'Arcane Mind', c: 'sorcerer', tr: 'storm', row: 0, col: 0, k: 'passive', tags: ['buff'], ic: ['tome', '#6aa8ff'], lvl: 1,
     v: { mp: [8, 8], reg: [0.6, 0.6] }, text: 'Passive. +{mp}% maximum mana and +{reg} mana per second.',
@@ -336,6 +353,9 @@
   def('unholy_might', { n: 'Unholy Might', c: 'necromancer', tr: 'summoning', row: 3, col: 0, k: 'passive', tags: ['summon'], ic: ['buff', '#8ee06a'], lvl: 18, req: 'skeleton_mastery',
     v: { as: [8, 8], le: [2, 1] }, text: 'Passive. Minions attack {as}% faster and heal {le}% of their life on each hit.',
     bonus: V => ({ minionAS: V.as, minionLeech: V.le }) });
+  def('grave_swap', { n: 'Grave Swap', c: 'necromancer', tr: 'summoning', row: 0, col: 2, k: 'passive', tags: ['mobility', 'summon', 'defense'], ic: ['summon', '#b98cff'], lvl: 3,
+    v: { abs: [20, 8] }, text: 'Passive. Grave Step swaps you with your minion nearest its landing spot (within 8 tiles). The minion is wrapped in bone worth {abs}% of its life and taunts foes for 2s.',
+    bonus: V => ({ dashSwap: V.abs }) });
 
   def('bone_spear', { n: 'Bone Spear', c: 'necromancer', tr: 'bone', row: 0, col: 1, k: 'active', tags: ['single'], ic: ['dagger', '#e8e0d0'], lvl: 1,
     mp: [5, 0.5], tg: 'aim', range: 9, v: { dmg: [150, 22] },
@@ -511,35 +531,35 @@
   game.BUILDS = {
     warrior: {
       single: { bar: ['bash', 'charge', 'execute', 'battle_shout'],
-        order: [['bash', 1], ['iron_skin', 1], ['weapon_mastery', 1], ['bash', 3], ['charge', 1], ['toughness', 1], ['battle_shout', 1], ['weapon_mastery', 3], ['rend', 1], ['execute', 1], ['bash', 5], ['weapon_mastery', 5], ['execute', 5], ['deadly_precision', 5], ['frenzy', 5], ['toughness', 5], ['iron_skin', 5], ['charge', 5], ['bloodthirst', 5], ['battle_shout', 5], ['thorns_aura', 5], ['shield_wall', 5]] },
+        order: [['bash', 1], ['iron_skin', 1], ['weapon_mastery', 1], ['bash', 3], ['charge', 1], ['toughness', 1], ['ground_slam', 1], ['battle_shout', 1], ['weapon_mastery', 3], ['rend', 1], ['execute', 1], ['bash', 5], ['weapon_mastery', 5], ['execute', 5], ['deadly_precision', 5], ['frenzy', 5], ['toughness', 5], ['iron_skin', 5], ['charge', 5], ['bloodthirst', 5], ['battle_shout', 5], ['thorns_aura', 5], ['ground_slam', 5], ['shield_wall', 5]] },
       aoe: { bar: ['cleave', 'whirlwind', 'leap', 'earthquake'],
-        order: [['cleave', 1], ['iron_skin', 1], ['cleave', 2], ['frenzy', 1], ['battle_shout', 1], ['cleave', 3], ['whirlwind', 1], ['toughness', 1], ['whirlwind', 3], ['rend', 1], ['leap', 1], ['bloodthirst', 1], ['cleave', 5], ['earthquake', 1], ['whirlwind', 5], ['frenzy', 5], ['earthquake', 5], ['bloodthirst', 5], ['weapon_mastery', 5], ['toughness', 5], ['iron_skin', 5], ['leap', 5], ['deadly_precision', 5], ['thorns_aura', 5]] },
+        order: [['cleave', 1], ['iron_skin', 1], ['cleave', 2], ['frenzy', 1], ['battle_shout', 1], ['cleave', 3], ['whirlwind', 1], ['toughness', 1], ['ground_slam', 1], ['whirlwind', 3], ['rend', 1], ['leap', 1], ['bloodthirst', 1], ['cleave', 5], ['earthquake', 1], ['whirlwind', 5], ['frenzy', 5], ['earthquake', 5], ['bloodthirst', 5], ['weapon_mastery', 5], ['toughness', 5], ['iron_skin', 5], ['leap', 5], ['deadly_precision', 5], ['thorns_aura', 5], ['ground_slam', 5]] },
       balanced: { bar: ['bash', 'whirlwind', 'charge', 'battle_shout'],
-        order: [['bash', 1], ['cleave', 1], ['iron_skin', 1], ['weapon_mastery', 1], ['bash', 3], ['whirlwind', 1], ['toughness', 1], ['charge', 1], ['battle_shout', 1], ['whirlwind', 3], ['rend', 1], ['bash', 5], ['weapon_mastery', 5], ['whirlwind', 5], ['frenzy', 5], ['toughness', 5], ['iron_skin', 5], ['bloodthirst', 5], ['battle_shout', 5], ['charge', 5], ['deadly_precision', 5], ['thorns_aura', 5], ['cleave', 5]] },
+        order: [['bash', 1], ['cleave', 1], ['iron_skin', 1], ['weapon_mastery', 1], ['bash', 3], ['whirlwind', 1], ['toughness', 1], ['ground_slam', 1], ['charge', 1], ['battle_shout', 1], ['whirlwind', 3], ['rend', 1], ['bash', 5], ['weapon_mastery', 5], ['whirlwind', 5], ['frenzy', 5], ['toughness', 5], ['iron_skin', 5], ['bloodthirst', 5], ['battle_shout', 5], ['charge', 5], ['deadly_precision', 5], ['thorns_aura', 5], ['ground_slam', 5], ['cleave', 5]] },
     },
     ranger: {
       single: { bar: ['aimed_shot', 'poison_arrow', 'snipe', 'piercing_shot'],
-        order: [['aimed_shot', 1], ['dodge_roll', 1], ['eagle_eye', 1], ['aimed_shot', 3], ['evasion', 1], ['spike_trap', 1], ['piercing_shot', 1], ['eagle_eye', 3], ['poison_arrow', 1], ['aimed_shot', 5], ['vigor', 1], ['lethal_focus', 1], ['eagle_eye', 5], ['snipe', 1], ['poison_arrow', 5], ['snipe', 5], ['lethal_focus', 5], ['rapid_fire', 5], ['evasion', 5], ['vigor', 5], ['dodge_roll', 3], ['camouflage', 5], ['ricochet', 5], ['dodge_roll', 5]] },
+        order: [['aimed_shot', 1], ['dodge_roll', 1], ['eagle_eye', 1], ['aimed_shot', 3], ['evasion', 1], ['spike_trap', 1], ['piercing_shot', 1], ['eagle_eye', 3], ['poison_arrow', 1], ['aimed_shot', 5], ['vigor', 1], ['lethal_focus', 1], ['eagle_eye', 5], ['snipe', 1], ['poison_arrow', 5], ['snipe', 5], ['lethal_focus', 5], ['rapid_fire', 5], ['evasion', 5], ['vigor', 5], ['dodge_roll', 3], ['camouflage', 5], ['ricochet', 5], ['tumble_shot', 5], ['dodge_roll', 5]] },
       aoe: { bar: ['multishot', 'rain_of_arrows', 'explosive_arrow', 'arrow_storm'],
-        order: [['multishot', 1], ['dodge_roll', 1], ['multishot', 3], ['rapid_fire', 1], ['evasion', 1], ['rain_of_arrows', 1], ['multishot', 5], ['explosive_arrow', 1], ['poison_arrow', 1], ['vigor', 1], ['rain_of_arrows', 3], ['rapid_fire', 5], ['explosive_arrow', 5], ['arrow_storm', 1], ['rain_of_arrows', 5], ['arrow_storm', 5], ['eagle_eye', 5], ['ricochet', 5], ['evasion', 5], ['vigor', 5], ['lethal_focus', 5], ['dodge_roll', 5]] },
+        order: [['multishot', 1], ['dodge_roll', 1], ['multishot', 3], ['rapid_fire', 1], ['tumble_shot', 1], ['evasion', 1], ['rain_of_arrows', 1], ['multishot', 5], ['explosive_arrow', 1], ['poison_arrow', 1], ['vigor', 1], ['rain_of_arrows', 3], ['rapid_fire', 5], ['explosive_arrow', 5], ['arrow_storm', 1], ['rain_of_arrows', 5], ['arrow_storm', 5], ['eagle_eye', 5], ['ricochet', 5], ['tumble_shot', 5], ['evasion', 5], ['vigor', 5], ['lethal_focus', 5], ['dodge_roll', 5]] },
       balanced: { bar: ['aimed_shot', 'multishot', 'rain_of_arrows', 'explosive_arrow'],
-        order: [['aimed_shot', 1], ['multishot', 1], ['dodge_roll', 1], ['eagle_eye', 1], ['aimed_shot', 3], ['multishot', 3], ['rapid_fire', 1], ['evasion', 1], ['rain_of_arrows', 1], ['poison_arrow', 1], ['aimed_shot', 5], ['multishot', 5], ['vigor', 1], ['rain_of_arrows', 5], ['eagle_eye', 5], ['rapid_fire', 5], ['lethal_focus', 5], ['evasion', 5], ['vigor', 5], ['ricochet', 5], ['dodge_roll', 5], ['poison_arrow', 5], ['explosive_arrow', 5]] },
+        order: [['aimed_shot', 1], ['multishot', 1], ['dodge_roll', 1], ['eagle_eye', 1], ['aimed_shot', 3], ['multishot', 3], ['rapid_fire', 1], ['tumble_shot', 1], ['evasion', 1], ['rain_of_arrows', 1], ['poison_arrow', 1], ['aimed_shot', 5], ['multishot', 5], ['vigor', 1], ['rain_of_arrows', 5], ['eagle_eye', 5], ['rapid_fire', 5], ['lethal_focus', 5], ['evasion', 5], ['vigor', 5], ['ricochet', 5], ['tumble_shot', 5], ['dodge_roll', 5], ['poison_arrow', 5], ['explosive_arrow', 5]] },
     },
     sorcerer: {
       single: { bar: ['fire_bolt', 'incinerate', 'glacial_spike', 'mana_shield'],
-        order: [['fire_bolt', 1], ['arcane_mind', 1], ['ice_shard', 1], ['fire_bolt', 3], ['fire_mastery', 1], ['frost_armor', 1], ['mana_shield', 1], ['frost_nova', 1], ['incinerate', 1], ['fire_bolt', 5], ['fire_mastery', 3], ['incinerate', 3], ['combustion', 1], ['glacial_spike', 1], ['fire_mastery', 5], ['incinerate', 5], ['glacial_spike', 5], ['combustion', 5], ['overcharge', 5], ['arcane_mind', 5], ['mana_shield', 5], ['frost_armor', 5], ['shatter', 5], ['teleport', 5]] },
+        order: [['fire_bolt', 1], ['arcane_mind', 1], ['rime_step', 1], ['ice_shard', 1], ['fire_bolt', 3], ['fire_mastery', 1], ['frost_armor', 1], ['mana_shield', 1], ['frost_nova', 1], ['incinerate', 1], ['fire_bolt', 5], ['fire_mastery', 3], ['incinerate', 3], ['combustion', 1], ['glacial_spike', 1], ['fire_mastery', 5], ['incinerate', 5], ['glacial_spike', 5], ['combustion', 5], ['overcharge', 5], ['arcane_mind', 5], ['rime_step', 3], ['mana_shield', 5], ['frost_armor', 5], ['shatter', 5], ['teleport', 5]] },
       aoe: { bar: ['fireball', 'chain_lightning', 'frost_nova', 'meteor'],
-        order: [['fire_bolt', 1], ['arcane_mind', 1], ['fire_bolt', 2], ['fireball', 1], ['chain_lightning', 1], ['frost_nova', 1], ['fireball', 3], ['frost_armor', 1], ['fire_mastery', 1], ['fireball', 5], ['chain_lightning', 5], ['fire_mastery', 5], ['meteor', 1], ['meteor', 5], ['overcharge', 5], ['combustion', 5], ['frost_nova', 5], ['arcane_mind', 5], ['frost_armor', 5], ['blizzard', 5], ['shatter', 5], ['thunderstorm', 5]] },
+        order: [['fire_bolt', 1], ['arcane_mind', 1], ['rime_step', 1], ['fire_bolt', 2], ['fireball', 1], ['chain_lightning', 1], ['frost_nova', 1], ['fireball', 3], ['frost_armor', 1], ['fire_mastery', 1], ['fireball', 5], ['chain_lightning', 5], ['fire_mastery', 5], ['meteor', 1], ['meteor', 5], ['overcharge', 5], ['combustion', 5], ['frost_nova', 5], ['arcane_mind', 5], ['rime_step', 3], ['frost_armor', 5], ['blizzard', 5], ['shatter', 5], ['thunderstorm', 5]] },
       balanced: { bar: ['fire_bolt', 'fireball', 'chain_lightning', 'frost_nova'],
-        order: [['fire_bolt', 1], ['arcane_mind', 1], ['fire_bolt', 2], ['fireball', 1], ['chain_lightning', 1], ['frost_nova', 1], ['fire_bolt', 3], ['fireball', 3], ['fire_mastery', 1], ['frost_armor', 1], ['fire_bolt', 5], ['fireball', 5], ['fire_mastery', 5], ['chain_lightning', 5], ['overcharge', 5], ['combustion', 5], ['frost_nova', 5], ['arcane_mind', 5], ['frost_armor', 5], ['shatter', 5], ['meteor', 5], ['mana_shield', 5]] },
+        order: [['fire_bolt', 1], ['arcane_mind', 1], ['rime_step', 1], ['fire_bolt', 2], ['fireball', 1], ['chain_lightning', 1], ['frost_nova', 1], ['fire_bolt', 3], ['fireball', 3], ['fire_mastery', 1], ['frost_armor', 1], ['fire_bolt', 5], ['fireball', 5], ['fire_mastery', 5], ['chain_lightning', 5], ['overcharge', 5], ['combustion', 5], ['frost_nova', 5], ['arcane_mind', 5], ['rime_step', 3], ['frost_armor', 5], ['shatter', 5], ['meteor', 5], ['mana_shield', 5]] },
     },
     necromancer: {
       single: { bar: ['bone_spear', 'raise_skeleton', 'life_drain', 'bone_spirit'],
-        order: [['bone_spear', 1], ['raise_skeleton', 1], ['dark_knowledge', 1], ['bone_spear', 3], ['skeleton_mastery', 1], ['bone_armor', 1], ['raise_skeleton', 2], ['life_drain', 1], ['bone_spear', 5], ['soul_harvest', 1], ['raise_skeleton', 3], ['bone_spirit', 1], ['life_drain', 3], ['bone_spirit', 5], ['life_drain', 5], ['dark_knowledge', 5], ['skeleton_mastery', 5], ['soul_harvest', 5], ['raise_skeleton', 5], ['withering', 5], ['unholy_might', 5], ['amplify_damage', 5]] },
+        order: [['bone_spear', 1], ['raise_skeleton', 1], ['dark_knowledge', 1], ['grave_swap', 1], ['bone_spear', 3], ['skeleton_mastery', 1], ['bone_armor', 1], ['raise_skeleton', 2], ['life_drain', 1], ['bone_spear', 5], ['soul_harvest', 1], ['raise_skeleton', 3], ['bone_spirit', 1], ['life_drain', 3], ['bone_spirit', 5], ['life_drain', 5], ['dark_knowledge', 5], ['grave_swap', 3], ['skeleton_mastery', 5], ['soul_harvest', 5], ['raise_skeleton', 5], ['withering', 5], ['unholy_might', 5], ['amplify_damage', 5]] },
       aoe: { bar: ['bone_nova', 'corpse_explosion', 'raise_skeleton', 'poison_nova'],
-        order: [['bone_spear', 1], ['raise_skeleton', 1], ['dark_knowledge', 1], ['raise_skeleton', 2], ['bone_spear', 2], ['bone_nova', 1], ['corpse_explosion', 1], ['amplify_damage', 1], ['skeleton_mastery', 1], ['soul_harvest', 1], ['bone_nova', 3], ['corpse_explosion', 3], ['poison_nova', 1], ['bone_nova', 5], ['poison_nova', 5], ['withering', 5], ['corpse_explosion', 5], ['dark_knowledge', 5], ['skeleton_mastery', 5], ['raise_skeleton', 5], ['soul_harvest', 5], ['unholy_might', 5], ['skeletal_mage', 5]] },
+        order: [['bone_spear', 1], ['raise_skeleton', 1], ['dark_knowledge', 1], ['grave_swap', 1], ['raise_skeleton', 2], ['bone_spear', 2], ['bone_nova', 1], ['corpse_explosion', 1], ['amplify_damage', 1], ['skeleton_mastery', 1], ['soul_harvest', 1], ['bone_nova', 3], ['corpse_explosion', 3], ['poison_nova', 1], ['bone_nova', 5], ['poison_nova', 5], ['withering', 5], ['corpse_explosion', 5], ['dark_knowledge', 5], ['grave_swap', 3], ['skeleton_mastery', 5], ['raise_skeleton', 5], ['soul_harvest', 5], ['unholy_might', 5], ['skeletal_mage', 5]] },
       balanced: { bar: ['bone_spear', 'bone_nova', 'raise_skeleton', 'skeletal_mage'],
-        order: [['bone_spear', 1], ['raise_skeleton', 1], ['dark_knowledge', 1], ['bone_spear', 3], ['skeleton_mastery', 1], ['bone_nova', 1], ['raise_skeleton', 2], ['soul_harvest', 1], ['skeletal_mage', 1], ['bone_nova', 3], ['raise_skeleton', 3], ['bone_spear', 5], ['bone_nova', 5], ['skeleton_mastery', 5], ['skeletal_mage', 3], ['raise_skeleton', 5], ['dark_knowledge', 5], ['soul_harvest', 5], ['skeletal_mage', 5], ['unholy_might', 5], ['golem', 5], ['withering', 5]] },
+        order: [['bone_spear', 1], ['raise_skeleton', 1], ['dark_knowledge', 1], ['grave_swap', 1], ['bone_spear', 3], ['skeleton_mastery', 1], ['bone_nova', 1], ['raise_skeleton', 2], ['soul_harvest', 1], ['skeletal_mage', 1], ['bone_nova', 3], ['raise_skeleton', 3], ['bone_spear', 5], ['bone_nova', 5], ['skeleton_mastery', 5], ['skeletal_mage', 3], ['raise_skeleton', 5], ['dark_knowledge', 5], ['grave_swap', 3], ['soul_harvest', 5], ['skeletal_mage', 5], ['unholy_might', 5], ['golem', 5], ['withering', 5]] },
     },
   };
 })();

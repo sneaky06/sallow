@@ -1540,6 +1540,97 @@ function harness() {
     ok(typeof I.LOOKS === 'object' && Object.keys(I.LOOKS).length >= 40, 'G.items.LOOKS', Object.keys(I.LOOKS).length + ' families');
   });
 
+  section('R6.2 Echo reward & corpse save round trip', function () {
+    const p = mkPlayer('ranger', 30);
+    ok(D.SOURCES.echo, 'an echo loot source exists');
+    let bad = 0, none = 0;
+    for (let i = 0; i < 400; i++) {
+      const loot = I.rollLoot({ source: 'echo', level: 25 });
+      const gear = loot.items.filter(function (it) { return D.isEquip(it); });
+      if (!gear.length) none++;
+      else if (!gear.some(function (it) { return C.RARITY[it.rarity].order >= C.RARITY.rare.order; })) bad++;
+    }
+    eq(bad + none, 0, 'every Echo drop holds at least one rare-or-better item', bad + ' weak, ' + none + ' without gear');
+    let epicUp = 0;
+    for (let i = 0; i < 300; i++) {
+      const loot = I.rollLoot({ source: 'monster', level: 20, floor: 'epic' });
+      if (!loot.items.some(function (it) { return C.RARITY[it.rarity].order >= C.RARITY.epic.order; })) epicUp++;
+    }
+    eq(epicUp, 0, 'opts.floor guarantees the rarity even from a trash source');
+    S.groundItems = [];
+    const loot = I.dropLoot(p.x, p.y, { source: 'echo', level: 25, floor: 'rare' });
+    ok(loot.items.length >= 2 && S.groundItems.length >= loot.items.length, 'dropLoot(source echo) puts the reward on the ground in one pile');
+    // a corpse holding bleached + corrupted gear survives JSON (save) and can be re-added
+    const a = I.rollItem({ level: 30, rarity: 'rare', slot: 'weapon' }); D.bleach(a);
+    const b = I.rollItem({ level: 30, rarity: 'epic', slot: 'chest' }); D.corrupt(b);
+    const corpse = JSON.parse(JSON.stringify({ gold: 250, items: [a, b, I.rollItem({ baseId: 'mat_dust', qty: 4 })] }));
+    ok(corpse.items.every(function (it) { return I.addToInventory(it); }), 'corpse items return to the bag after a save/load');
+    const back = inv().filter(function (it) { return it && it.corrupted; })[0];
+    ok(back && back.latent && back.mods.some(function (m) { return m.corrupt === 'down'; }) && I.cleanseCost(back), 'a revived corrupted item keeps drawback + latent affix and can still be cleansed');
+    const ba = inv().filter(function (it) { return it && it.bleached; })[0];
+    ok(ba && ba.hidden, 'a revived bleached item keeps its hidden affix');
+  });
+
+  section('R6.5 corruption & cleansing', function () {
+    const p = mkPlayer('warrior', 40);
+    eq(D.corruptChance(5, 'monster'), 0, 'nothing corrupts on the first floors');
+    ok(D.corruptChance(30, 'monster') > D.corruptChance(15, 'monster') && D.corruptChance(99, 'boss') <= D.CORRUPT.maxChance * 1.5 + 1e-9, 'corruption deepens with depth');
+    let made = 0, uniq = 0;
+    for (let i = 0; i < 300; i++) {
+      const it = I.rollItem({ level: 30, rarity: i % 2 ? 'rare' : 'epic' });
+      if (D.corrupt(it)) made++;
+      const u = I.rollItem({ level: 30, rarity: 'legendary' });
+      if (D.corrupt(u)) uniq++;
+    }
+    ok(made > 280 && uniq === 0, 'rare / epic gear corrupts, uniques and sets never do', made + ' made, ' + uniq + ' uniques');
+    const it = I.rollItem({ level: 40, rarity: 'rare', slot: 'ring' });
+    const plainMods = it.mods.length;
+    ok(D.corrupt(it), 'corrupt() succeeds on a rare ring');
+    const up = it.mods.filter(function (m) { return m.corrupt === 'up'; })[0], down = it.mods.filter(function (m) { return m.corrupt === 'down'; })[0];
+    ok(up && down && down.value < 0 && up.value > 0 && up.value >= up.pure && it.latent.length === 1 && it.mods.length === plainMods + 2, 'upside, drawback and latent affix', JSON.stringify(it.mods.slice(plainMods)));
+    ok(new Set(it.mods.map(function (m) { return m.stat; })).size === it.mods.length, 'no stat appears twice');
+    ok(/^Corrupted /.test(it.name) && I.getTooltip(it).corrupted === true, 'named and flagged in the tooltip');
+    const txt = I.getTooltip(it).lines.map(function (l) { return l.text; }).join('|');
+    ok(txt.indexOf(D.CORRUPT.latentLine) >= 0 && txt.indexOf(D.CORRUPT.drawbackTag) >= 0, 'tooltip shows the drawback and a ??? hidden strength');
+    I.addToInventory(it);
+    const i0 = idx(it);
+    ok(I.rerollCost(i0, it.mods.indexOf(up)) === null && I.rerollCost(i0, it.mods.indexOf(down)) === null, 'corrupted mods cannot be rerolled away');
+    const cost = I.cleanseCost(i0);
+    ok(cost && cost.gemdust > 0 && cost.shard > 0 && cost.gold > 0, 'cleanse cost', JSON.stringify(cost));
+    p.gold = 0; p.materials = { dust: 0, shard: 0, essence: 0, gemdust: 0 };
+    clearEvents();
+    ok(I.cleanse(i0) === false && it.corrupted && !it.cleansed, 'cannot cleanse without materials');
+    p.gold = cost.gold; p.materials = { dust: 0, shard: cost.shard, essence: 0, gemdust: cost.gemdust };
+    const lat = it.latent[0], pureV = up.pure;
+    ok(I.cleanse(i0) === true && it.cleansed && !it.latent && p.gold === 0 && p.materials.gemdust === 0 && p.materials.shard === 0, 'cleansing pays gold, dust and shards');
+    ok(!it.mods.some(function (m) { return m.corrupt === 'down'; }) && it.mods.some(function (m) { return m.stat === lat.stat && m.value === lat.value && m.cleansed; }), 'drawback gone, latent affix revealed');
+    const up2 = it.mods.filter(function (m) { return m.corrupt === 'pure'; })[0];
+    ok(up2 && up2.value === pureV && /^Cleansed /.test(it.name) && I.cleanseCost(it) === null, 'upside settles to normal strength; renamed; cannot be cleansed twice');
+    ok(I.cleanse(i0) === false, 'second cleanse is refused');
+    // equipped: the drawback counts until cleansed
+    const w = I.rollItem({ level: 40, rarity: 'rare', slot: 'amulet' });
+    D.corrupt(w);
+    p.equipment.amulet = w;
+    const dn = w.mods.filter(function (m) { return m.corrupt === 'down'; })[0];
+    const total = I.getEquipmentMods(p);
+    ok(typeof total[dn.stat] === 'number', 'a worn drawback is counted in getEquipmentMods', dn.stat + ' ' + total[dn.stat]);
+    T.recomputes = 0;
+    p.gold = 1e6; p.materials = { dust: 0, shard: 99, essence: 0, gemdust: 999 };
+    ok(I.cleanse('amulet') && T.recomputes >= 1, 'cleansing a worn item recomputes stats');
+    // drop pipeline
+    let corr = 0, gear = 0, shallow = 0;
+    for (let i = 0; i < 3000; i++) {
+      I.rollLoot({ source: 'boss', level: 30 }).items.forEach(function (x) { if (D.isEquip(x)) { gear++; if (x.corrupted) corr++; } });
+      I.rollLoot({ source: 'boss', level: 3 }).items.forEach(function (x) { if (x.corrupted) shallow++; });
+    }
+    ok(corr > 0 && corr / gear < 0.5 && shallow === 0, 'deep drops come corrupted sometimes, shallow ones never', corr + '/' + gear + ' gear corrupted at depth 30');
+    let forced = 0, n = 0;
+    for (let i = 0; i < 200; i++) I.rollLoot({ source: 'chest', level: 3, corruption: 1 }).items.forEach(function (x) { if (x.rarity === 'rare' || x.rarity === 'epic') { n++; if (x.corrupted) forced++; } });
+    ok(n > 0 && forced > n * 0.85, 'opts.corruption forces the chance for the game (rift floors)', forced + '/' + n);
+    ok(JSON.stringify(JSON.parse(JSON.stringify(it))) === JSON.stringify(it), 'a cleansed item is plain JSON');
+    ok(D.CORRUPT.prefix && D.CORRUPT_DRAWBACKS.every(function (d) { return D.STAT_INFO[d.stat] && d.range[1] < 0; }), 'every drawback is a known stat with negative values');
+  });
+
   section('Starter gear', function () {
     const want = { warrior: ['sword', 'axe', 'mace'], ranger: ['bow'], sorcerer: ['staff', 'wand'], necromancer: ['wand', 'dagger'] };
     Object.keys(want).forEach(function (c) {

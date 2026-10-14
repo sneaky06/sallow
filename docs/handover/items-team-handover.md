@@ -184,3 +184,36 @@ Palette = main / trim / accent (✦ = the accent glows).
 
 Weapons and off-hands (shields, orbs, tomes) use the weapon lines; belts use the light lines (not drawn, never matched). Uniques
 without a family of their own join a line of their band (picked by id hash) with `palette.main/accent` = the unique's own colours.
+
+## Revision 6 (Loot & Economy)
+
+- **Echo reward (R6.2).** New loot source `echo` in `D.SOURCES` (generate.js): 2-4 items, first one guaranteed rare-or-better, 2.5x boost,
+  gold x8, a few gems/materials. Game calls `G.items.dropLoot(x, y, { source: 'echo', level: depth, magicFind, pallor })`; `opts.floor`
+  (e.g. 'epic') still raises the guaranteed rarity for any source. Legendary Elite / Mythic / set odds are untouched (boost ignored by mythic,
+  no `elite` on echo). Corpse items are plain JSON: a corpse holding bleached and corrupted gear round-trips through save/load and back
+  into `addToInventory` (test: "R6.2 Echo reward & corpse save round trip").
+- **Corrupted items and cleansing (R6.5)** — new `src/items/corrupt.js`, loaded after pallor.js.
+  - Chance per equipment drop (rare/epic only, never uniques/sets): 0 below item level 8, then +1.2% per level up to 35% (`D.CORRUPT`),
+    times a per-source factor (boss/legendary/echo 1.5, rare 1.2, barrel 0.2). `opts.corruption` (0..1) on `dropLoot`/`rollLoot` replaces
+    the depth curve — the game can use it for rift floors or world-gen "corrupted" modifiers. Corruption wins over bleaching on the same drop.
+  - A corrupted item gets: an **upside** affix (`mod.corrupt='up'`, top-quality roll x1.5, `mod.pure` keeps the normal value), a
+    **drawback** (`mod.corrupt='down'`, negative: all res, life, armor, move speed, mana, gold find, magic find, life regen) and a hidden
+    **latent** affix in `item.latent` (not counted; tooltip shows `???`). Name gets a "Corrupted" prefix, `item.corrupted = true`.
+    All mods are normal `item.mods` entries, so stats, DPS, verdict and saves need no changes. Sell value +25%. Corrupted mods cannot be rerolled at the mystic.
+  - **Cleansing:** `G.items.cleanseCost(target)` -> `{ gemdust, shard, gold }` (target = item, bag index or equipment slot; null if not corrupted),
+    `G.items.cleanse(target)` -> bool. Removes the drawback, reveals the latent affix (`mod.cleansed`), settles the upside to normal strength
+    (`corrupt='pure'`), renames "Cleansed ...", `item.cleansed = true`, recomputes stats if worn. Uncleansed = raw power with a cost;
+    cleansed = safe and a bit more varied. **UI needs a Cleanse button at the blacksmith** (tooltip has `tip.corrupted`; lines are purple
+    for corrupted power, red for the drawback).
+  - Not done / ideas: corrupted uniques ("Rift-touched" variants with an extra effect), a dedicated rift material from corrupted monsters
+    (cleanse currently uses gem dust + Ember Shards so it works with today's economy), Pallor as the rift seeping in (corruption chance
+    could scale with Pallor tier — one line in `D.corruptChance`), corrupted gems.
+- **Where player-facing names live (for the one-pass rename).**
+  - Base item names + tier names: `bases.js` (`family(...)` calls, `D.TYPE_NAME` for family labels, `D.GEM_TIERS` / `D.GEM_KINDS`,
+    `D.BLOOD_TIERS` / `D.BLOOD_KINDS`, `D.CONSUMABLES`, `D.MATERIALS`, `D.GAME_NAME`, new `D.MISC_NAMES` = Gold / Torn Page fallback).
+  - Affix names (prefix/suffix, three tiers each) and rare-name words: `affixes.js` (`A(...)` rows, `D.RARE_FIRST`, `D.RARE_SECOND`).
+  - Uniques, Legendary Elite, Mythic, set names, flavor text, set definitions, mythic effect names: `uniques.js` (`U(...)`, `D.SETS`, `EFFECTS`).
+  - Look families (Rusted Mail, Ash Plate ...) names/descriptions: `looks.js` (`I.LOOKS`).
+  - Awakening affix names (Emberbane ...): `awaken.js` top table. Corruption words and drawback list: `corrupt.js` `D.CORRUPT`, `D.CORRUPT_DRAWBACKS`.
+  - Rarity names/colours belong to core (`G.C.RARITY`). Remaining literals in logic are toasts/UI sentences only (Sold / Salvaged / Gambled ...
+    in economy.js, tooltip sentences in info.js), not names of things.
