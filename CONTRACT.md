@@ -554,3 +554,63 @@ themed on its victims (killed mostly fire demons → fire resistance or fire dam
 - Casters should feel danger on normal floors too: ranged monsters that target whoever is furthest back, modifiers that punish standing still. Per-mode spread of about 2–6 potions per boss is acceptable while each class averages 3–6.
 - Items also records `state.flags.loreFound` as a safety net (never adding an index twice). Acrobatics (`dodge_roll`) is passive: UI must not offer it on the skill bar.
 - Team handover notes now live in `docs/handover/` inside the repo; keep them updated there.
+
+---
+
+# Revision 5 — assigned (lead dev playtest feedback, 2026-10-14). Overrides anything above that conflicts.
+
+Revision 5 consists of R5.0–R5.5 above (now assigned, no longer backlog; R5.4 stays backlog) plus R5.6–R5.10 below.
+Already done by the lead: on-screen walking speed is now equal in every direction (`screenSpeedScale` in `src/game/player.js`).
+
+## R5.2 Pallor — interface details
+- Locked until the story ending: `state.flags.pallorUnlocked = true` is set by the UI when the ending scene finishes.
+- `state.flags.pallor` 0–100. **Game** owns it: +10 per new floor entered by stairs without visiting town (more past depth 30),
+  reset to 0 on `scene:changed` to town. `G.game.getPallor() → { value, tier: 0..4, effects: [text] }`. Tiers add monster
+  modifiers/stats and raise item quantity/rarity (pass `pallor` in `dropLoot` opts).
+- **Items:** at Pallor tier ≥ 2 some drops are `bleached: true` with one hidden extra affix in `item.hidden`; tooltip shows "???"
+  until revealed; on `scene:changed` to town every bleached item in the bag/equipment reveals (toast). A death abandons them with the corpse as usual.
+- **Engine:** desaturate the world by `pallor` (tier steps, cheap: a cached colour matrix/overlay, never per-pixel per frame on phones);
+  loot colours stay saturated. **UI:** a small Pallor meter under the depth label when unlocked.
+
+## R5.3 Awakening — interface details
+**Items** owns it: listens to `monster:killed`, increments `item.kills` and a small per-victim tally (theme / damage type / body)
+on every equipped item; milestones 250 / 1000 / 5000 awaken one themed affix into `item.awakened` (toast + sfx). Tooltip shows
+progress to the next awakening as one short line.
+
+## R5.6 Loot piles instead of scatter
+- **Items:** all items and gold from one kill / chest land on one pile point (nearest free tile to the kill). Ground items keep
+  their shape plus `pileId`; piles within 0.75 tiles merge. Gold in a pile is a single entry. `G.items.getPile(pileId) → [ground]`,
+  `G.items.pickupPile(pileId, { minRarity? }) → { taken, left }`.
+- **Engine:** draw a pile as a small heap: the best item's icon on top, a count badge, the best item's rarity glow/beam,
+  and one label "Best Item Name +N". Single-item piles look like today.
+- **Game:** tapping a pile walks to it; one item → pick up; several → emit `pile:open { pileId }`.
+- **UI:** a compact pile popup listing the items (icon, name in rarity colour, ▲/▼ verdict) with tap-to-take and "Take all".
+
+## R5.7 Sorting
+`G.items.sortInventory(mode)` and `G.items.sortStash(mode)`, mode ∈ `'rarity' | 'level' | 'slot' | 'value' | 'upgrades' | 'newest'`
+(stable; equal keys fall back to rarity then level). Item gains `foundAt` (`state.time` at pickup) for `'newest'`.
+**UI:** a sort button with these options; the last choice is remembered in `state.settings.sort`.
+
+## R5.8 Mass selling and locking
+`G.items.sellAtOrBelow(rarityKey) → { count, gold }` and `G.items.previewSellAtOrBelow(rarityKey)`. Never sells sets, either
+Legendary sub-tier, gems, lore or **locked** items (`item.locked`, toggled from the tooltip). Sold items go to buyback.
+**UI:** on every vendor's Sell tab, one-tap buttons "Sell all ≤ White / ≤ Blue / ≤ Yellow" (rarity names from C.RARITY) with a
+confirm showing count and gold; a lock toggle in the tooltip and a small lock mark on cells.
+
+## R5.9 Visible gear and matching looks
+- Equipped weapon, off-hand, helm, chest, gloves and boots appear on the player character.
+- **Items:** every armour/weapon base gets `look: { family, palette }`. Families are appearance lines (about 3 per armour weight
+  per depth band, e.g. `rusted_mail`, `grave_wrap`, `ash_plate`, …) shared across tiers so players can build a look. Wearing
+  helm + chest + gloves + boots of one family grants a small **Matched** bonus (2 and 4 pieces), separate from named sets and
+  visible in the tooltip. Unique items may have their own family.
+- **Engine:** procedural gear overlays per family × slot layered on the player sheet (cached per equipment combo), visible in
+  the paper doll via `G.engine.getPlayerPreview(player, size) → canvas`. Propose the hand-drawn overlay format (same 640×80 grid
+  as character sheets, one file per `<family>_<slot>.png`) and document it in your report so the lead can add it to ART_SPEC.md.
+
+## R5.10 More variance with depth
+- **World:** every floor gets `map.variant = { id, name, palette, light, ambient, layout }` chosen from the theme's pool by depth
+  band, plus a floor name ("The Drowned Ossuary"). Each theme has at least 3 layout styles and 3 variants; past depth 20 themes
+  start blending and corrupting (variants unique to deep floors). Rare special rooms (flooded crypt, bone garden, chained arena,
+  collapsed bridge…) give floors landmarks.
+- **Engine:** render `map.variant` (palette shift, light colour/radius, fog density, ambient particles, sound bed). Keep it cheap.
+- **UI:** show the floor name on arrival and under the depth label.
