@@ -5,8 +5,8 @@
   const ui = G.ui;
   const h = ui._h;
 
-  const THEME_NAMES = { town: 'Emberfall', crypt: 'The Crypt', caves: 'Drowned Caves', inferno: 'The Inferno', abyss: 'The Abyss' };
-  ui._themeName = function (depth) { return depth > 0 ? (THEME_NAMES[C.themeForDepth(depth)] || 'Dungeon') : THEME_NAMES.town; };
+  const THEME_NAMES = { town: 'Emberdeep', crypt: 'The Crypt', caves: 'Drowned Caves', inferno: 'The Inferno', abyss: 'The Abyss' };
+  ui._themeName = function (depth) { return depth > 0 ? (THEME_NAMES[C.themeForDepth(depth)] || 'Dungeon') : (ui._townName ? ui._townName() : THEME_NAMES.town); };
 
   // Monster tiers the target bar shows (R3.6). Colours come from the rarity table so Legendary matches the loot colour.
   const rc = function (k, fb) { return function () { return (C.RARITY[k] && C.RARITY[k].color) || fb; }; };
@@ -66,7 +66,7 @@
     el.bTp = topBtn('Town', { shape: 'rune', color: '#7fd4ff', accent: '#2a56c6' }, function () {
       if (S.scene !== 'dungeon') return;
       if (S.flags.sealed) { ui._sfx('error'); ui.toast('The seal holds. No portal will open here.', '#ff5a50'); return; }
-      ui._confirm('Open a portal to Emberfall?', 'Open Portal', function () { G.scenes.townPortal(); },
+      ui._confirm('Open a portal to ' + ui._townName() + '?', 'Open Portal', function () { G.scenes.townPortal(); },
         { pause: true, note: 'The portal in town leads back to depth ' + S.depth + ' once.' });
     });
     el.bMenu = topBtn('Menu', { shape: 'key', color: '#c8c8c8', accent: '#6b6278' }, function () { ui.open('menu'); });

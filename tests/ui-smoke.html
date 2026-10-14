@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>UI smoke (real game)</title>
+<style>html,body{margin:0;height:100%;background:#0b0a0f;overflow:hidden}#game{position:fixed;inset:0;width:100%;height:100%}#ui{position:fixed;inset:0;pointer-events:none}
+#out{position:fixed;left:0;top:0;z-index:99999;color:#0f0;font:10px monospace;white-space:pre-wrap;display:none}</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<div id="ui"></div>
+<pre id="out"></pre>
+<script>
+// UI team smoke test: loads the REAL game (all teams) like index.html, then drives the R6/R7 UI flows and writes a report
+// into #out. Run headless:  chrome --headless --allow-file-access-from-files --window-size=375,667 --dump-dom tests/ui-smoke.html
+window.G = { manifest: {} };
+var LOG = [], ERR = [];
+window.addEventListener('error', function (e) { ERR.push((e.message || 'error') + ' @ ' + (e.filename || '').split('/').slice(-2).join('/') + ':' + e.lineno); });
+(function () {
+  var ce = console.error.bind(console);
+  console.error = function () { ERR.push('console.error: ' + [].map.call(arguments, function (a) { return a && a.stack ? a.stack.split('\n').slice(0, 2).join(' ') : String(a); }).join(' ')); ce.apply(null, arguments); };
+  var TEAMS = ['engine', 'world', 'items', 'game', 'ui'];
+  var CORE = ['constants.js', 'events.js', 'rng.js', 'state.js', 'scenes.js'];
+  function load(src) { return new Promise(function (r) { var s = document.createElement('script'); s.src = src; s.async = false; s.onload = r; s.onerror = function () { ERR.push('missing ' + src); r(); }; document.body.appendChild(s); }); }
+  function seq(l) { return l.reduce(function (p, s) { return p.then(function () { return load(s); }); }, Promise.resolve()); }
+  seq(CORE.map(function (f) { return '../src/core/' + f; }))
+    .then(function () { return seq(TEAMS.map(function (t) { return '../src/' + t + '/manifest.js'; })); })
+    .then(function () { var f = []; TEAMS.forEach(function (t) { (G.manifest[t] || []).forEach(function (x) { f.push('../src/' + t + '/' + x); }); }); return seq(f); })
+    .then(function () { return load('../src/core/main.js'); })
+    .then(function () { setTimeout(run, 600); });
+})();
+function wait(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+function log(s) { LOG.push(s); }
+function q(sel) { return document.querySelector(sel); }
+function small(root) {
+  var bad = [];
+  (root || document).querySelectorAll('#ui button, #ui input').forEach(function (b) {
+    var r = b.getBoundingClientRect();
+    if (r.width && r.height && (r.width < 43.5 || r.height < 43.5) && getComputedStyle(b).display !== 'none') bad.push((b.className || b.tagName) + ' ' + Math.round(r.width) + 'x' + Math.round(r.height) + ' "' + (b.textContent || '').slice(0, 14) + '"');
+  });
+  return bad;
+}
+function tapTalk(n) { for (var i = 0; i < n; i++) { var t = q('.ed-talk'); if (!t) return i; t.click(); } return n; }
+async function run() {
+  var S = G.state, ui = G.ui;
+  try {
+    localStorage.clear();
+    var cls = Object.keys(G.game.CLASSES)[0];
+    G.scenes.startNewGame(cls, 'Tester');
+    await wait(900);
+    // opening: home narration -> note page -> arrival -> elder
+    log('opening first line: ' + (q('.ed-talk-text') || {}).textContent);
+    log('taps home: ' + tapTalk(4));
+    log('note page: ' + ((q('.ed-dialog.tip .ed-tipname') || {}).textContent));
+    var close = [].find.call(document.querySelectorAll('.ed-dialog.tip .ed-btn'), function (b) { return b.textContent === 'Close'; }); if (close) close.click();
+    log('arrival: ' + (q('.ed-talk-text') || {}).textContent);
+    tapTalk(2);
+    log('elder: ' + ((q('.ed-talk b') || {}).textContent) + ' / ' + (q('.ed-talk-text') || {}).textContent);
+    tapTalk(9);
+    log('talk left open: ' + !!q('.ed-talk') + ', act=' + S.flags.act + ' warmth=' + S.flags.warmth);
+    // quests: 12 main steps, side lines for act 1
+    var qs = G.meta.getQuests();
+    log('quests: ' + qs.map(function (x) { return x.id + ':' + x.status; }).join(' '));
+    log('main count: ' + G.meta._MAIN.length + ', last desc: ' + qs.filter(function (x) { return x.main; }).length);
+    G.meta.acceptQuest('side_marta'); tapTalk(3);
+    log('marta active: ' + G.meta.getQuests().filter(function (x) { return x.id === 'side_marta'; })[0].status);
+    // NPC panel with town line + Reroll gated in act 1
+    G.emit('npc:interact', { role: 'mystic', entity: null }); await wait(50);
+    log('mystic tabs act1: ' + [].map.call(document.querySelectorAll('.ed-tab'), function (t) { return t.textContent; }).join(',') + ' line: ' + (q('.ed-npc p') || {}).textContent);
+    ui.close();
+    // walk the main chain to the end of Act I and check revival
+    for (var i = 0; i < 4; i++) { S.quests.main.status = 'ready'; G.meta.turnInQuest(G.meta._MAIN[i].id); tapTalk(10); G.meta.acceptQuest(G.meta._MAIN[i + 1].id); tapTalk(10); }
+    log('after act I: act=' + S.flags.act + ' cleansed=' + S.flags.cleansed.join(','));
+    G.emit('npc:interact', { role: 'mystic', entity: null }); await wait(50);
+    log('mystic tabs act2: ' + [].map.call(document.querySelectorAll('.ed-tab'), function (t) { return t.textContent; }).join(','));
+    ui.close();
+    // dungeon: act intro, dash, echo bar, go deeper
+    G.scenes.enterDungeon(1); await wait(2000);
+    log('act intro: ' + (q('.ed-talk-text') || {}).textContent); tapTalk(4);
+    G.state.paused = false;
+    var a = G.game.getClassAction && G.game.getClassAction();
+    log('classAction: ' + JSON.stringify(a && { c: a.charges, m: a.maxCharges, r: a.ready }));
+    G.game.getClassAction = (function (o) { return function () { var x = o(); if (x) { x.charges = 1; x.maxCharges = 2; x.cdRemaining = 1.5; x.cooldown = 3; } return x; }; })(G.game.getClassAction); for (var k = 0; k < 20; k++) G.ui.update(0.016);
+    await wait(300);
+    log('dash pips: ' + document.querySelectorAll('.ed-dash .ed-pips b').length + ' off=' + document.querySelectorAll('.ed-dash .ed-pips b.off').length + ' cls=' + q('.ed-dash').className + ' display=' + getComputedStyle(q('.ed-dash')).display);
+    var p = S.player;
+    var echo = { id: 999999, type: 'monster', name: 'Echo of Tester', echo: true, rarity: 'legendary', monsterId: 'echo', x: p.x + 1, y: p.y, hp: 50, stats: { hpMax: 100 }, affixes: [], dead: false, sprite: p.sprite, effects: [] };
+    S.entities.push(echo); S.targetId = null; G.ui.update(0.3); G.ui.update(0.3); S.entities.splice(S.entities.indexOf(echo), 1);   // gone before the game AI ticks
+    await wait(600);
+    log('echo bar: ' + (q('.ed-boss b') || {}).textContent + ' cls=' + q('.ed-boss').className + ' disp=' + q('.ed-boss').style.display);
+    log('banner: ' + [].map.call(document.querySelectorAll('.ed-banner b'), function (b) { return b.textContent; }).join(' | '));
+    S.flags.pallorUnlocked = true; S.flags.pallor = 25;
+    G.emit('stairs:confirm', { depth: S.depth + 1, nextValue: null }); await wait(50);
+    log('deeper: ' + ((q('.ed-dptitle') || {}).textContent) + ' | ' + (q('.ed-dpdepth') || {}).textContent + ' | ' + [].map.call(document.querySelectorAll('.ed-dpfx,.ed-deeper .ed-note'), function (x) { return x.textContent; }).join(' / '));
+    log('small controls (deeper): ' + small(q('.ed-deeper')).join('; '));
+    document.body.dataset.shot = 'deeper';
+    if (location.search.indexOf('shot') >= 0) return;
+    var stay = [].find.call(document.querySelectorAll('.ed-deeper .ed-btn'), function (b) { return b.textContent === 'Stay'; }); stay.click();
+    log('deeper closed: ' + !q('.ed-deeper'));
+    // menu sliders
+    ui.open('menu'); await wait(50);
+    var vols = document.querySelectorAll('.ed-vol input');
+    log('volume sliders: ' + vols.length);
+    vols[1].value = '40'; vols[1].dispatchEvent(new Event('input')); vols[1].dispatchEvent(new Event('change'));
+    log('musicVolume=' + S.settings.musicVolume);
+    log('small controls (menu): ' + small(q('.ed-panel')).join('; '));
+    ui.close();
+    G.ui.open('journal'); await wait(50); log('journal ok: ' + !!q('.ed-panel .ed-page')); ui.close();
+    log('small controls (hud): ' + small(q('.ed-hud')).join('; '));
+  } catch (err) { ERR.push('TEST: ' + err.stack); }
+  var out = document.getElementById('out');
+  out.textContent = 'RESULT\n' + LOG.join('\n') + '\nERRORS (' + ERR.length + ')\n' + ERR.join('\n') + '\nEND';
+}
+</script>
+</body>
+</html>

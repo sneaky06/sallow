@@ -41,7 +41,7 @@
     const inside = function (x, y, pad) { return x >= r.x - pad && y >= r.y - pad && x < r.x + r.w + pad && y < r.y + r.h + pad; };
     if (inside(ctx.spawn.x, ctx.spawn.y, 2) || inside(ctx.exit.x, ctx.exit.y, 2)) return false;
     for (const o of ctx.rooms) if (o !== r && inside(o.cx, o.cy, 1)) return false;
-    if (!DRY[tiles[r.cy * w + r.cx]]) return false;
+    if (!DRY[tiles[r.cy * w + r.cx]] || Math.abs(r.cx - (r.x + (r.w >> 1))) > 1 || Math.abs(r.cy - (r.y + (r.h >> 1))) > 1) return false;
 
     // The four sides of the ring just outside the rect (corners cannot be entered without cutting a corner).
     const sides = [[], [], [], []];
@@ -135,7 +135,9 @@
     const ctx = gen.makeCtx(w, h, rng, depth, theme);
     ctx.isBoss = isBoss;
     ctx.variantDef = def;
-    ctx.corruption = W.corruptionForDepth(depth);
+    ctx.act = W.actForDepth(depth);
+    ctx.cleansed = !isBoss && W.isCleansed(ctx.act, activeCleansed);
+    ctx.corruption = Math.round(W.corruptionForDepth(depth) * (ctx.cleansed ? 0.5 : 1) * 1000) / 1000;
     ctx.crng = G.rng.create(((seed ^ 0xC0DE1F7) >>> 0) || 1);      // corruption has its own stream: lower floors keep their layouts
     ctx.isCore = isBoss && depth === W.CORE_DEPTH && theme === 'abyss';
     if (isBoss) ctx.mx1 = w - gen.BOSS_STRIP - 1;
@@ -237,7 +239,10 @@
     return (Math.imul(seed ^ (attempt * 0x9E3779B1), 0x85EBCA6B) + attempt * 0x27D4EB2F) >>> 0;
   }
 
-  W.generateDungeon = function (depth, seed) {
+  let activeCleansed = null;
+  // opts.cleansed overrides state.flags.cleansed (array of act ids / act boss ids): cleansed act floors are quieter and hold camps.
+  W.generateDungeon = function (depth, seed, opts) {
+    activeCleansed = (opts && opts.cleansed) || (G.state && G.state.flags && G.state.flags.cleansed) || null;
     depth = Math.max(1, depth | 0);
     seed = (seed >>> 0) || 1;
     const theme = C.themeForDepth(depth);
@@ -285,6 +290,7 @@
       variant,
       floorName: pick.floorName,
       landmarks: ctx.landmarks.map(function (l) { return { id: l.id, name: l.name, x: l.x, y: l.y, w: l.w, h: l.h }; }),
+      act: ctx.act, cleansed: ctx.cleansed, camps: filled.camps || [],
       corruption,
       rift,
       fissures: ctx.fissures,

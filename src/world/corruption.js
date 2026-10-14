@@ -11,12 +11,30 @@
   const gen = W._gen, DRY = gen.DRY;
 
   // The floor where the rift's core sits (a boss floor: multiple of C.BOSS_EVERY). corruption reaches 1 here.
-  W.CORE_DEPTH = 50;
+  W.CORE_DEPTH = 30;
+
+  // R7.7 campaign acts. `bosses` = ids that count as the act's boss in state.flags.cleansed (the act id itself also works).
+  W.ACTS = [
+    { id: 'shallows',  name: 'The Shallows', from: 1,  to: 10, bosses: ['boss_broodmother'] },
+    { id: 'deep',      name: 'The Deep',     from: 11, to: 20, bosses: ['boss_hollow'] },
+    { id: 'hellscape', name: 'Hellscape',    from: 21, to: 30, bosses: ['boss_world', 'world_boss'] },
+    { id: 'endless',   name: 'The Endless',  from: 31, to: 9999, bosses: [] },
+  ];
+  W.actForDepth = function (depth) {
+    for (const a of W.ACTS) if (depth <= a.to) return a.id;
+    return 'endless';
+  };
+  // cleansed = state.flags.cleansed (array of act ids and/or act boss monster ids)
+  W.isCleansed = function (act, cleansed) {
+    if (!Array.isArray(cleansed)) return false;
+    const a = W.ACTS.find(function (x) { return x.id === act; });
+    return !!a && (cleansed.indexOf(act) >= 0 || a.bosses.some(function (b) { return cleansed.indexOf(b) >= 0; }));
+  };
 
   // 0..1. Depth 1 is a faint 0.03, the core is 1; linear in between, 1 beyond.
   W.corruptionForDepth = function (depth) {
     if (depth <= 0) return 0.08;
-    const t = Math.min(1, (depth - 1) / (W.CORE_DEPTH - 1));
+    const t = Math.min(1, (depth - 1) / (W.CORE_DEPTH - 1));      // acts: 1-10 Shallows, 11-20 Deep, 21-30 Hellscape
     return Math.round((0.03 + 0.97 * t) * 1000) / 1000;
   };
 
@@ -118,6 +136,7 @@
     ctx.fissures = [];
     const c = ctx.corruption;
     if (c < 0.1) return;
+    const hell = ctx.act === 'hellscape' || ctx.act === 'endless', mul = hell ? 1.6 : 1;
     const rng = ctx.crng, w = ctx.w, h = ctx.h, n = ctx.n, tiles = ctx.tiles;
 
     const nogo = new Uint8Array(n);
@@ -167,8 +186,8 @@
     };
 
     // 3. bites: ragged pits chewed out of rooms — the layout stops being rectangular.
-    if (c >= 0.2) {
-      for (let k = Math.round(c * c * 26) + 1, guard = 60; k > 0 && guard > 0; guard--) {
+    if (c >= 0.25) {
+      for (let k = Math.round(c * c * 26 * mul) + 1, guard = 60; k > 0 && guard > 0; guard--) {
         const s = floorCells[(rng.next() * floorCells.length) | 0];
         if (!free(s % w, (s / w) | 0)) continue;
         const cells = [s], seen = new Set(cells), size = rng.int(1, 2 + Math.floor(c * 6));
@@ -183,10 +202,10 @@
     }
 
     // 4. fissures: cracks of the rift that run across rooms. Chasm cracks; molten (lava) cracks where the floor has no water.
-    if (c >= 0.2) {
+    if (c >= 0.25) {
       let water = false;
       for (let i = 0; i < n && !water; i++) if (tiles[i] === T.WATER || tiles[i] === T.DEEP_WATER) water = true;
-      const wantN = Math.min(6, 1 + Math.floor(c * 5.2));
+      const wantN = Math.min(9, Math.floor((1 + c * 5.2) * mul));
       for (let f = 0, guard = 40; f < wantN && guard > 0; guard--) {
         const s = floorCells[(rng.next() * floorCells.length) | 0];
         let x = s % w, y = (s / w) | 0;
@@ -252,7 +271,7 @@
     // growths (solid, glowing) and veins (flat, walked over)
     const spots = rooms.filter(function (r) { return r.type !== 'start' && r.type !== 'lockdown' && r.type !== 'exit' && (r.type !== 'boss' || ctx.isCore); });
     if (!spots.length) return;
-    for (let k = Math.min(45, Math.floor(c * reach / 80)), guard = k * 6; k > 0 && guard > 0; guard--) {
+    for (let k = Math.min(70, Math.floor(c * reach / 80 * (ctx.act === 'hellscape' || ctx.act === 'endless' ? 1.6 : 1))), guard = k * 6; k > 0 && guard > 0; guard--) {
       if (H.solidIn(spots[(rng.next() * spots.length) | 0], 'crystal', { light: 2, look: 'growth', corrupt: lvl(), tint: rift.glow }, rng.chance(0.5))) k--;
     }
     for (let k = Math.min(90, Math.floor(c * reach / 28)), guard = k * 5; k > 0 && guard > 0; guard--) {

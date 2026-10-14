@@ -230,9 +230,34 @@
     }
     gen.corruptDress(ctx, { rng, add, canSolid, canSoft, solidIn, softIn, centrepiece }, props);
 
+    // ---- cleansed act (R7.7): a friendly camp — fire, refugees, sometimes a merchant ----------------------------
+    const camps = [];
+    if (ctx.cleansed) {
+      const cands = rng.shuffle(rooms.filter(function (r) { return r.type === 'normal' && !r.lm && r.w >= 5 && r.h >= 5 && !inRect(startRoom, r.cx, r.cy, 3); }));
+      for (const r of cands) {
+        if (camps.length >= (rng.chance(0.3) ? 2 : 1)) break;
+        const fire = solidIn(r, 'campfire', { light: 4 }, false);
+        if (!fire) continue;
+        const roles = ['refugee', 'refugee'];
+        if (rng.chance(0.4)) roles.push('camp_merchant');
+        let placed = 0;
+        for (const role of roles) {
+          for (let t = 0; t < 40; t++) {
+            const x = fire.x + rng.int(-2, 2), y = fire.y + rng.int(-2, 2);
+            if (!inRect(r, x, y, 0) || !canSoft(x, y) || tiles[y * w + x] !== T.FLOOR || dist[y * w + x] < 10) continue;
+            spawns.push({ x, y, kind: 'npc', role, camp: true });
+            occ[y * w + x] |= 2;
+            placed++;
+            break;
+          }
+        }
+        camps.push({ x: r.x, y: r.y, w: r.w, h: r.h, fire: { x: fire.x, y: fire.y }, npcs: placed });
+      }
+    }
+
     // ---- monsters ----------------------------------------------------------------------------------------
     // Budget counts every pack member; an elite is costed at 3 (leader + whatever retinue the game adds).
-    let left = Math.round(Math.min(68, 26 + depth * 2) * (ctx.isBoss ? 0.85 : 1));
+    let left = Math.round(Math.min(68, 26 + depth * 2) * (ctx.isBoss ? 0.85 : 1) * (ctx.cleansed ? 0.5 : 1));
     const pMin = 2 + Math.min(2, Math.floor(depth / 8)), pMax = Math.min(7, 4 + Math.floor(depth / 5));
     const spawnable = function (x, y) {
       if (!gen.interior(ctx, x, y)) return false;
@@ -272,7 +297,7 @@
       left -= 1;
     }
 
-    let elites = Math.min(5, 1 + Math.floor(depth / 4));
+    let elites = Math.min(5, 1 + Math.floor(depth / 4)) - (ctx.cleansed ? 1 : 0);
     for (const lm of ctx.landmarks) {         // chained arena: a guaranteed elite on the central tile
       if (!lm.eliteAt) continue;
       const i = lm.eliteAt.y * w + lm.eliteAt.x;
@@ -309,6 +334,6 @@
       if (rng.chance(0.15)) { put(x, y, 'monster'); left -= 1; } else pack(x, y);
     }
 
-    return { props, spawns };
+    return { props, spawns, camps };
   };
 })();

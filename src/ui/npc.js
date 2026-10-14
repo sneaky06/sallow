@@ -245,7 +245,8 @@
     const parts = [];
     if (r && r.gold) parts.push(fmt(r.gold) + ' gold');
     if (r && r.xp) parts.push(fmt(r.xp) + ' XP');
-    if (r && r.item) parts.push(((C.RARITY[r.item] && C.RARITY[r.item].name) || r.item) + ' item');
+    const it = r && r.item && G.meta._rarityPick ? G.meta._rarityPick(r.item) : r && r.item;
+    if (it) parts.push(((C.RARITY[it] && C.RARITY[it].name) || it) + ' item');
     return parts.join(', ');
   }
 
@@ -261,6 +262,7 @@
         const box = h('div', { class: 'ed-box ed-quest', style: q.status === 'done' ? 'opacity:.55' : null },
           h('div', { class: 't' }, h('b', { text: q.name }), h('span', { class: 'ed-st', style: 'color:' + st[1], text: st[0] })));
         if (q.status !== 'done') {
+          if (q.giverName) box.appendChild(h('div', { class: 'ed-note', text: 'For ' + q.giverName }));
           box.appendChild(h('p', { text: q.desc }));
           if (q.status !== 'available') {
             box.appendChild(h('div', { class: 'ed-bar' }, h('i', { style: 'width:' + Math.round(Math.min(1, q.progress / (q.goal || 1)) * 100) + '%' })));
@@ -269,15 +271,16 @@
           box.appendChild(h('div', { class: 'ed-note', text: 'Reward: ' + rewardText(q.rewards) }));
           if (actions && q.status === 'available') box.appendChild(ui._btn('Accept', function () { G.meta.acceptQuest(q.id); ui._refreshNow(); }));
           if (actions && q.status === 'ready') box.appendChild(ui._btn('Claim reward', function () { G.meta.turnInQuest(q.id); ui._refreshNow(); }, 'gold'));
-          if (!actions && q.status === 'ready') box.appendChild(h('div', { class: 'ed-gold', text: 'Return to the Elder in Emberfall.' }));
+          if (!actions && q.status === 'ready') box.appendChild(h('div', { class: 'ed-gold', text: 'Return to the Elder in ' + ui._townName() + '.' }));
         }
         wrap.appendChild(box);
       });
     };
     add('The Descent', list.filter(function (q) { return q.main; }));
-    add('Bounties', list.filter(function (q) { return !q.main; }));
-    if (!list.length) wrap.appendChild(h('div', { class: 'ed-note', text: 'No quests yet. Speak with the Elder in Emberfall.' }));
-    else if (!actions) wrap.appendChild(h('div', { class: 'ed-note', text: 'The Elder in Emberfall offers quests and pays their rewards. Bounties change each time you return to town.' }));
+    add('Townsfolk', list.filter(function (q) { return q.side; }));
+    add('Bounties', list.filter(function (q) { return !q.main && !q.side; }));
+    if (!list.length) wrap.appendChild(h('div', { class: 'ed-note', text: 'No quests yet. Speak with the Elder in ' + ui._townName() + '.' }));
+    else if (!actions) wrap.appendChild(h('div', { class: 'ed-note', text: 'The Elder in ' + ui._townName() + ' offers quests and pays their rewards. Bounties change each time you return to town.' }));
     return wrap;
   }
 
@@ -323,7 +326,10 @@
       const ent = arg && arg.entity;
       if (!p) return ui._frame(def.title, null, h('div', { class: 'ed-body' }));
       // reopen on the tab used last time at this vendor (session only) — most visits repeat the last errand
-      if (!view.tab) view.tab = lastTab[role] && def.tabs.some(function (t) { return t[0] === lastTab[role]; }) ? lastTab[role] : def.tabs[0][0];
+      // R7.7 town revival: some services open with later acts (story_data.js TOWN)
+      const tabs = def.tabs.filter(function (t) { return !ui._serviceOpen || ui._serviceOpen(role, t[0]); });
+      if (view.tab && !tabs.some(function (t) { return t[0] === view.tab; })) view.tab = null;
+      if (!view.tab) view.tab = lastTab[role] && tabs.some(function (t) { return t[0] === lastTab[role]; }) ? lastTab[role] : tabs[0][0];
       lastTab[role] = view.tab;
       let body;
       if (view.tab === 'buy') body = buyTab(role, p, role === 'merchant');
@@ -336,7 +342,7 @@
       else body = stashBody(p);
       const right = view.tab === 'stash' ? stashSort() : null;
       const sub = h('div', { class: 'ed-npc' }, ui._portrait((ent && ent.sprite) || NPC_SPRITE[role], 48),
-        h('div', { style: 'flex:1;min-width:0' }, h('b', { class: 'ed-ember', text: (ent && ent.name) || def.title }), h('p', { text: '"' + def.line + '"' })),
+        h('div', { style: 'flex:1;min-width:0' }, h('b', { class: 'ed-ember', text: (ent && ent.name) || def.title }), h('p', { text: '"' + ((ui._townLine && ui._townLine(role)) || def.line) + '"' })),
         ui._goldEl(p.gold || 0));
       const foot = view.tab === 'sell' ? [
         ui._junkButton(),
@@ -344,7 +350,7 @@
         ui._sortButton('inv'),
       ] : null;
       return ui._frame(def.title, {
-        tabs: def.tabs.length > 1 ? def.tabs.map(function (t) { return { id: t[0], label: t[1] }; }) : null,
+        tabs: tabs.length > 1 ? tabs.map(function (t) { return { id: t[0], label: t[1] }; }) : null,
         tab: view.tab, onTab: function (id) { view.tab = id; ui._refreshNow(); },
         sub: sub, foot: foot, right: right, compact: true,
       }, body);

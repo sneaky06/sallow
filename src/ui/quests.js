@@ -5,43 +5,65 @@
   const G = window.G, S = G.state, C = G.C;
   const meta = G.meta = G.meta || {};
 
-  // kind 'depth': reach depth `goal`. kind 'boss': slay the theme boss `boss` (a monsterId, R4.1) — any depth, it returns deeper.
-  // {boss} in name/desc is replaced by G.game.getMonsterInfo(boss).name at display time. The Elder's lines live in story.js.
+  // kind 'depth': reach depth `goal`. kind 'boss': slay `boss` (a monsterId, R4.1) — any depth, it returns deeper; with
+  // `orDepth` any boss killed at depth >= `depth` also counts (repeat bosses deeper down; the world boss the combat team adds).
+  // {boss} is G.game.getMonsterInfo(boss).name at display time (else `bossName`). Dialogue and acts live in story_data.js.
+  // R7.7 campaign: Act I The Shallows (1–10), Act II The Deep (11–20), Act III Hellscape (21–30), world boss at 30.
+  // Reward items name rarity keys in order of preference (the rarity ladder changes in R7.1; the first key that exists wins).
+  const LOW = ['uncommon', 'magic'], MID = ['rare'], HIGH = ['epic', 'magic'], TOP = ['legendary'];
   const MAIN = [
     { id: 'main_1', name: 'The Cold Stair', kind: 'depth', goal: 3,
-      desc: '{Rift} under the well breathes cold now. Go down to depth 3 and see what is breathing.',
-      rewards: { gold: 120, xp: 150, item: 'magic' } },
+      desc: 'Start in the old mine and the crypt beneath it. Reach depth 3 and see what is rotting.',
+      rewards: { gold: 120, xp: 150, item: LOW } },
     { id: 'main_2', name: 'The Crowned Dead', kind: 'boss', boss: 'boss_gravelord', depth: 5,
-      desc: 'The rot has crowned {boss}. It keeps court on depth 5 and counts our dead. Break the count.',
-      rewards: { gold: 400, xp: 600, item: 'rare' } },
+      desc: '{boss} was the town priest. Now he keeps court on depth 5 and will not let the dead lie. Put him in the ground.',
+      rewards: { gold: 400, xp: 600, item: MID } },
     { id: 'main_3', name: 'Where the Water Remembers', kind: 'depth', goal: 8,
-      desc: 'Below the crypt {rift} opens into wet caves, and the rot runs thicker. Reach depth 8.',
-      rewards: { gold: 600, xp: 1200, item: 'magic' } },
+      desc: 'Under the crypt the stone goes wet and the water keeps voices. Do not answer. Reach depth 8.',
+      rewards: { gold: 600, xp: 1200, item: LOW } },
     { id: 'main_4', name: 'The Nest', kind: 'boss', boss: 'boss_broodmother', depth: 10,
-      desc: '{boss} nests where the warm air used to rise. Find her on depth 10 and empty her.',
-      rewards: { gold: 1200, xp: 3000, item: 'rare' } },
-    { id: 'main_5', name: 'The Old Fire', kind: 'depth', goal: 13,
-      desc: 'Deeper, {rift} still burns, but the fire gives no heat. Walk it to depth 13.',
-      rewards: { gold: 1800, xp: 5500, item: 'rare' } },
+      desc: '{boss} breeds on the last of the heat at the bottom of the Shallows. Find her on depth 10 and empty her.',
+      rewards: { gold: 1200, xp: 3000, item: MID } },
+    { id: 'main_5', name: 'Fever Heat', kind: 'depth', goal: 13,
+      desc: 'Below depth 10 the heat cooks instead of warming. The missing adventurers went this way. Reach depth 13.',
+      rewards: { gold: 1800, xp: 5500, item: MID } },
     { id: 'main_6', name: 'The Keeper of Embers', kind: 'boss', boss: 'boss_tyrant', depth: 15,
-      desc: '{boss} hoards the last clean fire on depth 15. Take it back.',
-      rewards: { gold: 3200, xp: 11000, item: 'epic' } },
+      desc: '{boss} sits on a vein of clean fire on depth 15 and lets none of it rise. Take it back.',
+      rewards: { gold: 3200, xp: 11000, item: HIGH } },
     { id: 'main_7', name: 'The Quiet', kind: 'depth', goal: 18,
-      desc: 'Past the fire, {rift} is only a quiet that listens. Reach depth 18.',
-      rewards: { gold: 4500, xp: 18000, item: 'rare' } },
-    { id: 'main_8', name: 'The Root of the Rift', kind: 'boss', boss: 'boss_hollow', depth: 20,
-      desc: 'At the core, on depth 20, {pale} has hollowed out {star}: {boss}. Cleanse it, or tear it out by the root.',
-      rewards: { gold: 10000, xp: 40000, item: 'legendary' } },
+      desc: 'Past the fire the Deep goes quiet, and listens. Reach depth 18.',
+      rewards: { gold: 4500, xp: 18000, item: MID } },
+    { id: 'main_8', name: 'The Hollow Star', kind: 'boss', boss: 'boss_hollow', depth: 20,
+      desc: '{boss} is the floor of the Deep, on depth 20. Put it out.',
+      rewards: { gold: 8000, xp: 30000, item: HIGH } },
+    { id: 'main_9', name: 'The Skin Floors', kind: 'depth', goal: 23,
+      desc: 'Nobody came back to map what lies under the Deep. Reach depth 23.',
+      rewards: { gold: 9000, xp: 42000, item: MID } },
+    { id: 'main_10', name: 'The Choir', kind: 'boss', boss: 'boss_choir', bossName: 'the singer', orDepth: true, depth: 25,
+      desc: 'Something on depth 25 sings, and the whole town hears it through the floorboards. Kill the singer.',
+      rewards: { gold: 12000, xp: 60000, item: HIGH } },
+    { id: 'main_11', name: 'The Heartbeat', kind: 'depth', goal: 28,
+      desc: 'The floor down here has a pulse. Reach depth 28.',
+      rewards: { gold: 14000, xp: 80000, item: MID } },
+    { id: 'main_12', name: 'The Hearthking', kind: 'boss', boss: 'boss_world', bossName: '{king}', orDepth: true, depth: 30,
+      desc: 'At the core of {rift}, on depth 30: {boss}, founder of {town}. Tear it out. All of it.',
+      rewards: { gold: 30000, xp: 150000, item: TOP } },
   ];
-  function bossName(id) {
+  meta._rarityPick = function (r) {
+    if (!Array.isArray(r)) return r;
+    for (const k of r) if (C.RARITY[k]) return k;
+    return 'rare';
+  };
+  function bossName(id, fallback) {
     let info = null;
     if (id && G.game && G.game.getMonsterInfo) { try { info = G.game.getMonsterInfo(id); } catch (err) { info = null; } }
-    return (info && info.name) || 'the guardian';
+    const n = info && info.name && info.name !== id ? info.name : (fallback || 'the guardian');
+    return meta._fillNames ? meta._fillNames(n) : n;
   }
   meta._bossName = bossName;
   function fill(text, m) {
-    const t = String(text).replace('{boss}', bossName(m.boss));
-    return meta._fillNames ? meta._fillNames(t) : t;     // {rift}, {town}… live in story.js NAMES
+    const t = String(text).replace('{boss}', bossName(m.boss, m.bossName));
+    return meta._fillNames ? meta._fillNames(t) : t;     // {rift}, {town}… live in story_data.js NAMES
   }
 
   const BOUNTIES = {
@@ -124,6 +146,7 @@
       if (q.main.progress >= goal) { q.main.status = 'ready'; becameReady(m.id, fill(m.name, m)); }
       else if (q.main.progress !== before) G.emit('quest:updated', { quest: viewOf(m.id) });
     }
+    sideAdvance(fn);
     for (const b of q.bounties) {
       if (b.status !== 'active') continue;
       const before = b.progress;
@@ -131,6 +154,76 @@
       if (b.progress >= b.goal) { b.status = 'ready'; becameReady(b.id, b.name); }
       else if (b.progress !== before) G.emit('quest:updated', { quest: bountyView(b) });
     }
+  }
+
+  // ---------- side quest lines (R7.7, story_data.js SIDE) ----------
+  // state.quests.side = { [lineId]: { step, status, progress } }. A line opens once state.flags.act reaches line.act; the
+  // Elder hands it over. The view's id is the line id; story.js plays the giver's lines from (lineId, step).
+  function sideLines() { return (meta.STORY && meta.STORY.SIDE) || []; }
+  function sideState(q, line) {
+    if (!q.side || typeof q.side !== 'object') q.side = {};
+    return q.side[line.id] || (q.side[line.id] = { step: 0, status: 'available', progress: 0 });
+  }
+  function sideView(line, st) {
+    const s = line.steps[Math.min(st.step, line.steps.length - 1)];
+    const lastStep = st.step >= line.steps.length - 1;
+    const fillN = meta._fillNames || String;
+    return { id: line.id, lineId: line.id, side: true, step: st.step, giver: 'elder', giverName: line.giver,
+      name: fillN(line.name) + (line.steps.length > 1 ? ' (' + (Math.min(st.step, line.steps.length - 1) + 1) + '/' + line.steps.length + ')' : ''),
+      desc: fillN(s.desc), status: st.status, progress: Math.min(st.progress, s.goal), goal: s.goal, main: false,
+      rewards: lastStep ? Object.assign({}, line.rewards) : { xp: Math.round((line.rewards.xp || 0) / 4) } };
+  }
+  function sideViews() {
+    const q = Q(), out = [];
+    if (!q) return out;
+    const act = S.flags.act | 0 || 1;
+    for (const line of sideLines()) {
+      if (act < (line.act || 1)) continue;
+      const st = sideState(q, line);
+      if (st.status !== 'done') out.push(sideView(line, st));
+    }
+    return out;
+  }
+  function sideAdvance(fn) {
+    const q = Q();
+    if (!q || !q.side) return;
+    for (const line of sideLines()) {
+      const st = q.side[line.id];
+      if (!st || st.status !== 'active') continue;
+      const s = line.steps[st.step];
+      if (!s || (s.minDepth && s.kind !== 'depth' && (S.depth | 0) < s.minDepth)) continue;
+      const before = st.progress;
+      st.progress = Math.min(s.goal, fn(s.kind, st.progress, s) | 0);
+      if (st.progress >= s.goal) { st.status = 'ready'; becameReady(line.id, (meta._fillNames || String)(line.name)); }
+      else if (st.progress !== before) G.emit('quest:updated', { quest: sideView(line, st) });
+    }
+  }
+  function sideAccept(id) {
+    const q = Q(), line = sideLines().find(l => l.id === id);
+    if (!q || !line) return false;
+    const st = sideState(q, line);
+    if (st.status !== 'available') return false;
+    st.status = 'active'; st.progress = 0;
+    G.emit('sfx', { name: 'quest' });
+    G.emit('quest:updated', { quest: sideView(line, st) });
+    const s = line.steps[st.step];
+    if (s && s.kind === 'depth') sideAdvance((kind, prog, e) => (e === s ? Math.max(prog, S.flags.maxDepth | 0) : prog));
+    return true;
+  }
+  function sideTurnIn(id) {
+    const q = Q(), line = sideLines().find(l => l.id === id);
+    if (!q || !line) return false;
+    const st = sideState(q, line);
+    if (st.status !== 'ready') return false;
+    const done = sideView(line, st);
+    done.status = 'done';
+    grant(done.rewards);
+    st.step++; st.progress = 0;
+    st.status = st.step < line.steps.length ? 'available' : 'done';
+    G.emit('sfx', { name: 'quest' });
+    G.emit('quest:completed', { quest: done });
+    G.emit('quest:updated', { quest: done });
+    return true;
   }
 
   // ---------- public API ----------
@@ -147,10 +240,12 @@
     for (let i = 0; i < step; i++) out.push(mainView(i, { status: 'done', progress: MAIN[i].kind === 'depth' ? MAIN[i].goal : 1 }));
     if (step < MAIN.length) out.push(mainView(step, q.main));
     for (const b of q.bounties) out.push(bountyView(b));
+    for (const v of sideViews()) out.push(v);
     return out;
   };
 
   meta.acceptQuest = function (id) {
+    if (sideAccept(id)) return true;
     const q = Q();
     if (!q) return false;
     const m = MAIN[q.main.step];
@@ -189,7 +284,7 @@
       parts.push(rewards.xp + ' XP');
     }
     if (rewards.item && G.items && G.items.rollItem) {
-      const item = G.items.rollItem({ level: p.level || 1, rarity: rewards.item });
+      const item = G.items.rollItem({ level: p.level || 1, rarity: meta._rarityPick(rewards.item) });
       if (item) {
         const stored = !!(G.items.addToInventory && G.items.addToInventory(item));
         if (!stored && G.items.dropItemAt) G.items.dropItemAt(p.x, p.y, item);
@@ -200,6 +295,7 @@
   }
 
   meta.turnInQuest = function (id) {
+    if (sideTurnIn(id)) return true;
     const q = Q();
     if (!q) return false;
     const m = MAIN[q.main.step];
@@ -233,6 +329,8 @@
     const ok = q && q.main && typeof q.main.step === 'number' && Array.isArray(q.bounties);
     if (!ok) { S.quests = { v: 1, main: { step: 0, status: 'available', progress: 0 }, bounties: [], n: 0 }; return; }
     q.bounties = q.bounties.filter(b => b && BOUNTIES[b.kind] && typeof b.goal === 'number');
+    if (q.main.status === 'done' && q.main.step < MAIN.length) q.main.status = 'available';     // the chain grew (R7.7)
+    if (!q.side || typeof q.side !== 'object') q.side = {};
   };
 
   meta._MAIN = MAIN;
@@ -246,7 +344,7 @@
     advance(function (kind, prog, entry) {
       if (kind === 'kill') return prog + 1;
       if (kind === 'elite' && elite) return prog + 1;
-      if (kind === 'boss' && mon.rarity === 'boss' && (mon.monsterId ? mon.monsterId === entry.boss : S.depth >= entry.depth)) return 1;
+      if (kind === 'boss' && mon.rarity === 'boss' && (mon.monsterId === entry.boss || ((entry.orDepth || !mon.monsterId) && (S.depth | 0) >= entry.depth))) return 1;
       return prog;
     });
   });

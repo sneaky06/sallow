@@ -33,7 +33,7 @@
       });
       if (S.scene === 'dungeon') {
         list.appendChild(h('button', { type: 'button', class: 'ed-btn', onclick: function () { ui._sfx('stairs'); G.scenes.enterTown(); } },
-          h('span', null, 'Emberfall'), h('span', { class: 'ed-gold', text: 'Town' })));
+          h('span', null, ui._townName()), h('span', { class: 'ed-gold', text: 'Town' })));
       }
       return ui._frame(arg && arg.type === 'waypoint' ? 'Waypoint' : 'Descend', null, h('div', { class: 'ed-body' }, list));
     },
@@ -63,7 +63,7 @@
         h('div', { style: 'max-width:300px;line-height:18px', class: pen.retrievable ? null : 'ed-gold', text: msg }),
         // R6.2: any death while a corpse exists abandons it, and the abandoned remains rise as the Echo
         old && old.depth ? h('div', { style: 'max-width:300px;color:#bfe6ff', text: ui._echoText && !S.flags.echo ? ui._echoText('deathScreen', old.depth) : 'What you left on depth ' + old.depth + ' is gone for good.' }) : null,
-        ui._btn('Rise in Emberfall', function () {
+        ui._btn('Rise in ' + ui._townName(), function () {
           try { G.scenes.respawn(); } catch (err) { console.error('[ui respawn]', err); ui.close(); }
         }, 'big gold'),
       ];

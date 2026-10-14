@@ -155,6 +155,7 @@
       corruption, rift, taint,
       fissures: [{ x: 19, y: 19, w: 3, h: 2, kind: 'rift', cells: [19, 19, 20, 19, 19, 20, 20, 20, 21, 20] }],
       core: null,
+      act: 'town', cleansed: false, camps: [],
       tiles,
       explored: new Uint8Array(n).fill(1),
       visible: new Uint8Array(n).fill(1),

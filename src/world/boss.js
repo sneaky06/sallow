@@ -15,7 +15,7 @@
     const aw = core ? 17 : 15, ah = core ? 17 : rng.int(13, 15);
     const ax = bx0 + (core ? 1 : 3), ay = rng.int(3, h - 3 - ah);
     const acx = ax + (aw >> 1), acy = ay + (ah >> 1);
-    const ex = ax + aw + (core ? 3 : 2), ey = acy - 2;
+    const ex = ax + aw + 2, ey = acy - 2;
     const organic = core || th === 'caves' || th === 'abyss';
 
     for (let y = 0; y < h; y++) for (let x = bx0; x < w; x++) ctx.lock[y * w + x] = 1;

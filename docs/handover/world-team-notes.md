@@ -145,3 +145,34 @@ ambient: { particles: 'mist|ash|ember|spore|drip|snow|motes|void', density: 0..2
 blend:   null | { theme, amount }
 ```
 `map.floorName` holds the floor name (the UI reads it); `palette.accent` is the banner colour. Fields the engine ignores today (saturation, brightness, accent, liquid, torch*, flicker, darkness, blend) are there for later.
+
+## Revision 6/7 — the corrupted rift, acts, world-boss arena, cleansed floors (R6.5 / R7.7)
+
+Check: `tests/world.html` → "Run automated checks": **PASS — 918 dungeons (depth 1–60) + 10 towns, 1.39 M assertions, 0 failed**; gen avg 2.6 ms/map (abyss p95 6 ms). New code: `src/world/corruption.js`.
+
+### Map fields (every map; town too)
+```js
+map.act          // 'town' | 'shallows' (1-10) | 'deep' (11-20) | 'hellscape' (21-30) | 'endless' (31+). G.world.ACTS / actForDepth(d)
+map.corruption   // 0..1: 0.03 at depth 1, linear to 1.0 at G.world.CORE_DEPTH (30), 1 beyond. Town 0.08. Halved on cleansed floors.
+map.rift         // { tier 0-4, name 'Seep|Taint|Blight|Ruin|Core', glow '#hex', vein '#hex', pulse 0..1 }  colours/animation for the engine
+map.fissures     // [{ x, y, w, h, kind 'chasm'|'lava'|'rift'(town), cells: [x0,y0,x1,y1,...] }]  crack centre lines; tiles are CHASM / LAVA+DEEP_LAVA. Draw a glow of rift.glow over them.
+map.taint        // Uint8Array(w*h), 0..3 per tile: how far the rift has eaten it (tint floor/wall, veins at 2-3). Not saved with maps.
+map.core         // null, or on the world-boss floor: { final:true, arena:{x,y,w,h,cx,cy}, boss:{x,y}, heart:{x,y}, stairs:{x,y} }
+map.cleansed     // bool: this floor's act was cleansed. map.camps = [{x,y,w,h,fire:{x,y},npcs}]
+map.variant.corruption  // same number; the variant palette/light/ambient already drift toward rift.glow with depth (deep floors: 'void' particles, 'heart' sound)
+```
+### Props (existing PROP_TYPES only; extra optional fields)
+`prop.corrupt` 0..1 (how swollen/tinted to draw), `prop.tint` '#hex' (glow/light colour override), `prop.look`:
+`growth` (solid crystal, light 2) · `vein` (soft bones decal) · `rift_shrine` (shrine, also `shrineKind:'corrupt'` = a bargain, game decides) · `rift_crystal` (core arena ring) · `rift_core` (the heart, `interact:'rift_core'`, solid, light 6) · `rift_shard` (town plaza) · `capped` (town's old healer well). Existing tombstones/pillars/crystals/trees/torches may also carry `corrupt`/`tint`. Engine fallback with no new art: draw the base type tinted.
+### Terrain
+From corruption 0.25 (depth ~8): rubble, ragged pits (CHASM bites out of rooms), rift fissures across rooms (lava fissures on inferno/abyss floors without water), breached walls. Hellscape/endless ×1.6. All validated: dry ground stays one piece, stairs/spawn/boss arena/landmarks/lockdown sealing untouched (the sealing rooms must also have their anchor within 1 tile of centre now).
+### Acts → looks
+Shallows = crypt/caves variants; Deep = inferno + first abyss (starless_isles, shattered_spire, glasswork_drift, 16-20); Hellscape (21-30) = renamed grimmer blends (Flayed Cathedral, Rendered Drift, Hanging Grove) + `unmaking` + `the_wound` (24+), with the heaviest corruption; Endless = unmaking / the_wound / pale_end.
+### World-boss arena (depth 30, `CORE_DEPTH`, BOSS_EVERY untouched)
+Variant `rift_core`, abyss floor. Arena = 17×17 round platform ringed by six 2×2 pits, 8 `rift_crystal` pillars; one `boss` spawn at the centre (monster id is the game's call); behind it a 5×5 exit room with stairs and the `rift_core` heart prop 2 tiles from the stairs. Pitch for the real fight: pits become the phase mechanic (pits widen each phase via the game's own tile edits), the heart is the cleanse interaction after the kill.
+### Cleansed hook
+`G.world.generateDungeon(depth, seed, { cleansed })` (falls back to `G.state.flags.cleansed`, array of act ids and/or act boss ids `boss_broodmother` (shallows), `boss_hollow` (deep), `boss_world`/`world_boss` (hellscape)). On non-boss floors of a cleansed act: monster budget ×0.5, one fewer elite, corruption ×0.5, 1–2 camps: campfire + `kind:'npc'` spawns `role:'refugee'` (×2) and 40 % `camp_merchant`, each with `camp:true`. **Needs from others:** game to spawn those roles (not in C.NPC_ROLES), core scenes to keep passing flags, UI/engine names.
+### Town
+Fountain removed; the plaza centre is a 5-tile CHASM fissure ringed by four glowing `rift_shard` crystals + rubble, with taint around it (`map.fissures[0].kind === 'rift'`). The healer's well stays, `look:'capped'`.
+### Open questions
+1. Is depth 30 the right world-boss floor if the campaign length changes? (one constant)  2. `interact:'rift_core'` must be handled or ignored by game/UI.  3. Hellscape "abstract" is currently palette + corruption + blend layouts; real abstraction (non-Euclidean tiles, no walls) would need engine art — pitch: Hellscape floors drop walls entirely and use only CHASM/BRIDGE/rift tiles.

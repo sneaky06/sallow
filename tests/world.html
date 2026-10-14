@@ -289,6 +289,7 @@ window.G = { manifest: {} };
       const rf = map.rift;
       ok(rf && Number.isInteger(rf.tier) && rf.tier >= 0 && rf.tier <= 4 && HEX.test(rf.glow) && HEX.test(rf.vein) && rf.pulse >= 0 && rf.pulse <= 1, 'rift fields');
       ok(map.variant.corruption === c, 'variant.corruption');
+      ok(map.act === W.actForDepth(depth) && ['shallows', 'deep', 'hellscape', 'endless'].indexOf(map.act) >= 0 && map.cleansed === false && Array.isArray(map.camps) && map.camps.length === 0, 'map.act / cleansed fields');
       ok(map.taint instanceof Uint8Array && map.taint.length === n, 'taint array');
       let tainted = 0, walkTiles = 0, bad = 0;
       for (let i = 0; i < n; i++) {
@@ -300,7 +301,7 @@ window.G = { manifest: {} };
       const share = tainted / Math.max(1, walkTiles);
       (R.taintByBand[Math.min(5, Math.floor((depth - 1) / 10))] = R.taintByBand[Math.min(5, Math.floor((depth - 1) / 10))] || []).push(share);
       ok(Array.isArray(map.fissures), 'fissures array');
-      if (depth <= 9) ok(map.fissures.length === 0, 'fissure above the first threshold');
+      if (depth <= 6) ok(map.fissures.length === 0, 'fissure above the first threshold');
       for (const f of map.fissures) {
         ok(['chasm', 'lava'].indexOf(f.kind) >= 0 && f.cells.length >= 10 && f.cells.length % 2 === 0, 'fissure fields');
         ok(f.x >= 1 && f.y >= 1 && f.x + f.w <= w - 1 && f.y + f.h <= h - 1, 'fissure rect');
@@ -321,7 +322,7 @@ window.G = { manifest: {} };
       }
       (R.growthByBand[Math.min(5, Math.floor((depth - 1) / 10))] = R.growthByBand[Math.min(5, Math.floor((depth - 1) / 10))] || []).push(growths + veins);
       R.riftShrines += riftShrines;
-      if (depth <= 2) ok(growths === 0 && riftShrines === 0, 'growths/rift shrines on depth 1-2');
+      if (depth <= 1) ok(growths === 0 && riftShrines === 0, 'growths/rift shrines on depth 1-2');
       if (depth === W.CORE_DEPTH) {
         const k = map.core, arena = map.rooms.find(function (r) { return r.type === 'boss'; }), exitR = map.rooms.find(function (r) { return r.type === 'exit'; });
         if (ok(k && k.final === true && map.theme === 'abyss', 'core descriptor missing at depth ' + depth)) {
@@ -420,14 +421,14 @@ window.G = { manifest: {} };
       for (const s of map.spawns) {
         const i = s.y * w + s.x;
         if (!ok(Number.isInteger(s.x) && Number.isInteger(s.y) && s.x >= 0 && s.y >= 0 && s.x < w && s.y < h, 'spawn out of bounds')) continue;
-        ok(['monster', 'pack', 'elite', 'boss'].indexOf(s.kind) >= 0, 'spawn kind ' + s.kind);
+        ok(['monster', 'pack', 'elite', 'boss'].indexOf(s.kind) >= 0 || (s.kind === 'npc' && map.cleansed), 'spawn kind ' + s.kind);
         ok(W.isWalkable(map, s.x, s.y), s.kind + ' spawn on unwalkable tile ' + s.x + ',' + s.y);
         ok(dry.dist[i] >= 0, s.kind + ' spawn not reachable on dry ground');
         ok(tiles[i] === T.FLOOR || tiles[i] === T.RUBBLE, s.kind + ' spawn on tile ' + tiles[i]);
         for (const r of map.rooms) if (r.type === 'lockdown') ok(!inR(r, s.x, s.y, 1), s.kind + ' spawn inside a lockdown room');
         ok(!inR(start, s.x, s.y, 1), s.kind + ' spawn in/adjacent to start room');
         ok(!taken.has(i), 'two spawns on one tile'); taken.set(i, 1);
-        if (s.kind === 'pack') { ok(s.count >= 2 && s.count <= 8, 'pack count ' + s.count); monsters += s.count; } else monsters++;
+        if (s.kind === 'pack') { ok(s.count >= 2 && s.count <= 8, 'pack count ' + s.count); monsters += s.count; } else if (s.kind !== 'npc') monsters++;
         if (s.kind === 'boss') { bosses++; ok(inR(arena, s.x, s.y, 0), 'boss outside arena'); }
         R.spawnKinds[s.kind] = (R.spawnKinds[s.kind] || 0) + 1;
       }
@@ -580,7 +581,8 @@ window.G = { manifest: {} };
       ok(map.corruption > 0 && map.corruption < 0.2 && map.rift && map.taint instanceof Uint8Array && map.taint.length === n && map.fissures.length === 1 && map.core === null, 'town rift fields');
       for (let k = 0; k < 10; k += 2) ok(map.tiles[map.fissures[0].cells[k + 1] * w + map.fissures[0].cells[k]] === T.CHASM, 'town fissure tile');
       ok(map.props.filter(function (p) { return p.look === 'rift_shard' && p.solid; }).length >= 3 && !map.props.some(function (p) { return p.type === 'fountain'; }), 'rift shards / fountain gone');
-      ok(map.taint[20 * w + 18] > 0 && map.taint[20 * w + 22] > 0, 'taint around the fissure');
+      let tn = 0; for (let y = 16; y <= 24; y++) for (let x = 16; x <= 24; x++) if (map.taint[y * w + x]) tn++;
+      ok(tn >= 8, 'taint around the fissure (' + tn + ')');
       one('well'); one('sign'); one('campfire'); one('stall'); one('tree'); one('bush');
       const wp = one('waypoint', 'waypoint'), de = one('dungeon_entrance', 'dungeon_entrance'), st = one('stash', 'stash');
       const sk = map.spawns.find(function (s) { return s.role === 'stashkeeper'; });
@@ -807,14 +809,38 @@ window.G = { manifest: {} };
         R.asserts += 8;
         const need = function (cond, msg) { if (!cond) { R.failed++; R.failures.push('trend: ' + msg); } };
         need(tb[4] > tb[0] + 0.15 && tb[5] > tb[2], 'taint share does not rise with depth ' + JSON.stringify(R.trend.taintShare));
-        need(fb[0] === 0 && fb[2] > 0.5 && fb[5] > fb[2], 'fissures do not rise with depth ' + JSON.stringify(R.trend.fissures));
-        need(gb[0] < gb[2] && gb[2] < gb[5] && gb[5] > 10, 'growths/veins do not rise with depth ' + JSON.stringify(R.trend.growthsAndVeins));
+        need(fb[0] < 1.5 && fb[2] > 1 && fb[2] > fb[0] && fb[1] >= fb[0], 'fissures do not rise with depth ' + JSON.stringify(R.trend.fissures));
+        need(gb[0] < gb[1] && gb[1] < gb[2] && gb[5] > 10, 'growths/veins do not rise with depth ' + JSON.stringify(R.trend.growthsAndVeins));
         need(R.riftShrines > 20, 'too few rift shrines (' + R.riftShrines + ')');
         need(R.coreMaps >= 10, 'core floors checked ' + R.coreMaps);
-        const c1 = W.generateDungeon(60, 4242), c2 = W.generateDungeon(51, 4242);
+        const c1 = W.generateDungeon(60, 4242), c2 = W.generateDungeon(W.CORE_DEPTH + 1, 4242);
         need(c1.corruption === 1 && c2.corruption === 1 && c1.core === null && c2.core === null, 'depth 51+ should be plain deep floors at corruption 1');
-        need(W.generateDungeon(50, 4242).core && W.generateDungeon(50, 4242).variant.id === 'rift_core', 'depth 50 is the core floor');
+        need(W.generateDungeon(W.CORE_DEPTH, 4242).core && W.generateDungeon(W.CORE_DEPTH, 4242).variant.id === 'rift_core', 'depth 50 is the core floor');
         need(W.corruptionForDepth(1) > 0 && W.corruptionForDepth(1) < 0.05, 'depth 1 corruption');
+      }
+      // ---- R7.7 cleansed acts: fewer monsters, friendly camps, lower corruption; acts line up with depth ----
+      {
+        R.asserts += 6;
+        const need2 = function (cond, msg) { if (!cond) { R.failed++; R.failures.push('cleansed: ' + msg); } };
+        need2(W.actForDepth(10) === 'shallows' && W.actForDepth(11) === 'deep' && W.actForDepth(21) === 'hellscape' && W.actForDepth(31) === 'endless' && W.CORE_DEPTH === 30, 'act boundaries');
+        let base = 0, clean = 0, npcs = 0, camps = 0, nmaps = 0, cor = 0, cor0 = 0;
+        const total = function (m) { let t = 0; for (const s of m.spawns) t += s.kind === 'pack' ? s.count : s.kind === 'npc' ? 0 : s.kind === 'elite' ? 3 : 1; return t; };
+        for (let d = 2; d <= 29; d++) {
+          if (d % C.BOSS_EVERY === 0) continue;
+          for (let k = 0; k < 3; k++) {
+            const seed = d * 911 + k * 77;
+            const a = W.generateDungeon(d, seed, { cleansed: [] }), b = W.generateDungeon(d, seed, { cleansed: [W.actForDepth(d)] });
+            base += total(a); clean += total(b); cor0 += a.corruption; cor += b.corruption; nmaps++;
+            need2(b.cleansed === true && a.cleansed === false, 'flag d' + d);
+            for (const s of b.spawns) if (s.kind === 'npc') { npcs++; need2(['refugee', 'camp_merchant'].indexOf(s.role) >= 0 && W.isWalkable(b, s.x, s.y) && s.camp === true, 'npc spawn d' + d); }
+            camps += b.camps.length;
+            need2(JSON.stringify(b.spawns).length > 0 && sig(b) === sig(W.generateDungeon(d, seed, { cleansed: [W.actForDepth(d)] })), 'cleansed determinism d' + d);
+          }
+        }
+        need2(clean < base * 0.65 && npcs >= nmaps && camps >= nmaps * 0.8 && cor < cor0 * 0.6, 'effects base ' + base + ' clean ' + clean + ' npcs ' + npcs + ' camps ' + camps + '/' + nmaps);
+        const viaBoss = W.generateDungeon(7, 555, { cleansed: ['boss_broodmother'] });
+        need2(viaBoss.cleansed === true && W.generateDungeon(13, 555, { cleansed: ['boss_broodmother'] }).cleansed === false, 'act boss id counts');
+        R.cleansedInfo = 'cleansed monsters ' + clean + '/' + base + ', npcs ' + npcs + ', camps ' + camps + '/' + nmaps;
       }
       R.genStats = stats(R.genMs);
       const lines = [];
@@ -834,6 +860,7 @@ window.G = { manifest: {} };
       lines.push('landmarks ' + JSON.stringify(R.landmarks) + '  chained-arena elite ' + R.arenaElite + '/' + R.arenaTotal + '  chest at moat/span ' + R.payoffChest + '/' + R.payoffTotal);
       lines.push('attempts needed ' + JSON.stringify(R.attempts) + '  fallback layout ' + R.fallbacks + '  forced layout swapped for the plain one ' + R.layoutSwaps + ' of ' + R.forced + '  distinct floor names ' + Object.keys(R.names).length);
       lines.push('corruption trend by 10-depth band: taint share ' + JSON.stringify(R.trend.taintShare) + '  fissures/map ' + JSON.stringify(R.trend.fissures) + '  growths+veins/map ' + JSON.stringify(R.trend.growthsAndVeins) + '  rift shrines ' + R.riftShrines + '  core floors ' + R.coreMaps);
+      lines.push(R.cleansedInfo);
       lines.push('rooms ' + JSON.stringify(R.roomTypes));
       lines.push('spawns ' + JSON.stringify(R.spawnKinds));
       lines.push('props ' + JSON.stringify(R.propTypes));

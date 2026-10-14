@@ -75,3 +75,25 @@ Status (2026-10-13, Revision 2 pass): section 5 + R2.2–R2.7 implemented and ve
 - hud.js: floor name (map.floorName → variant.floorName → map.name → variant.name) under the depth label + arrival banner;
   Pallor meter (game.getPallor, fallback flags.pallor) once unlocked. Quest tracker top follows the label height (--trk-top).
 - sw.js VERSION emberdeep-v6, ui._VERSION 0.6.0.
+
+## Revision 6 + 7 (2026-10-14)
+- **Story is data:** src/ui/story_data.js (meta.STORY: NAMES, OPENING, ACTS, STEPS, FINALE, BOSS_LINES, ECHO, ADVENTURERS, SIDE, TOWN, LORE).
+  story.js only plays it. Outline for the lead: docs/STORY.md. Town name comes from NAMES.town via ui._townName() (now 'Emberdeep').
+- Main chain is 12 steps to depth 30 (main_1..8 ids unchanged, so old saves keep their place; a 'done' chain reopens at main_9).
+  Boss steps accept `orDepth` (any boss at >= depth counts): main_10 (depth 25) and main_12 (world boss, id 'boss_world' expected).
+  Reward rarities are preference lists resolved by meta._rarityPick (survives the R7.1 ladder change).
+- Side lines: state.quests.side = { [lineId]: { step, status, progress } }, offered by the Elder once flags.act >= line.act;
+  steps reuse bounty kinds (+ optional minDepth). Views carry side, lineId, step, giverName.
+- Town revival: flags.act / cleansed / warmth derived from the main step on every town arrival; 'town:warmed' { act, warmth }
+  on change. TOWN stages swap NPC greetings and gate services ('mystic:enchant' opens in act 2) via ui._serviceOpen(role, tab).
+- Opening plays for heroes without storySeen 'premise' (old heroes skip it). Endgame unlock (Pallor + title 'Bearer of the
+  Ember') now follows the finale after main_12; old titles are swapped; old heroes keep pallorUnlocked.
+- R6.1 deeper.js: 'stairs:confirm' -> prompt (getPallor / previewPallor / pallorGain), Descend -> game.confirmDescend().
+  "Don't ask again this run" = flags.deeperNoAsk, cleared in town (the UI auto-confirms while set).
+- R6.2 Echo: entity.echo -> boss-style bar (cold blue), first-sight + death banners, tracker reads flags.echo.depth,
+  death screen says the abandoned remains rise as your Echo. Corrupted adventurers: banner on adventurerId / monsterId 'adv_<id>'.
+- R6.3 dash: pips from getClassAction().charges/maxCharges (shown when max > 1); faint sweep while charges remain.
+- R6.4 volume sliders: settings.sfxVolume / musicVolume / ambienceVolume (0..1, missing = 1); emits 'settings:changed' { key }.
+- tests/ui-smoke.html drives the REAL game headless (no free preview slot this round):
+  chrome --headless=new --allow-file-access-from-files --window-size=375,667 --virtual-time-budget=30000 --dump-dom tests/ui-smoke.html
+- sw.js VERSION emberdeep-v8, ui._VERSION 0.8.0.
