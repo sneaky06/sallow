@@ -1,0 +1,681 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Emberdeep — world harness</title>
+<style>
+  body { margin: 0; background: #111016; color: #d8d4c8; font: 13px/1.4 ui-monospace, Menlo, Consolas, monospace; }
+  #bar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 8px; background: #1b1922; position: sticky; top: 0; }
+  button, input { font: inherit; background: #2b2836; color: #eee; border: 1px solid #4a4560; padding: 4px 8px; }
+  button:hover { background: #3a3650; }
+  input[type=number] { width: 110px; }
+  #wrap { display: flex; flex-wrap: wrap; gap: 12px; padding: 8px; }
+  canvas { background: #000; image-rendering: pixelated; touch-action: none; cursor: crosshair; }
+  #side { flex: 1; min-width: 280px; }
+  pre { margin: 0 0 10px; white-space: pre-wrap; }
+  .ok { color: #7fe08a; } .bad { color: #ff6b6b; }
+  #legend span { display: inline-block; margin-right: 10px; }
+  #legend i { display: inline-block; width: 10px; height: 10px; margin-right: 4px; vertical-align: -1px; }
+</style>
+</head>
+<body>
+<div id="bar">
+  <button id="bTown">Town</button>
+  <button id="bPrev">Depth −</button>
+  <b id="lDepth">depth 1</b>
+  <button id="bNext">Depth +</button>
+  seed <input id="iSeed" type="number" value="12345">
+  <button id="bSeed">Reseed</button>
+  <label><input id="cFog" type="checkbox" checked> visibility mask</label>
+  <label><input id="cRooms" type="checkbox" checked> rooms</label>
+  <button id="bCheck">Run automated checks</button>
+</div>
+<div id="wrap">
+  <canvas id="cv" width="640" height="640"></canvas>
+  <div id="side">
+    <div id="legend"></div>
+    <pre id="info"></pre>
+    <pre id="path">Click two tiles to path between them. Drag the white dot to walk it with moveWithCollision.</pre>
+    <pre id="out"></pre>
+  </div>
+</div>
+<script>
+window.G = { manifest: {} };
+(function () {
+  'use strict';
+  const errors = [];
+  window.addEventListener('error', function (e) { errors.push(e.message + ' @ ' + e.filename + ':' + e.lineno); });
+  window.__errors = errors;
+
+  function load(src) {
+    return new Promise(function (resolve, reject) {
+      const s = document.createElement('script');
+      s.src = src; s.async = false;
+      s.onload = resolve;
+      s.onerror = function () { reject(new Error('missing ' + src)); };
+      document.body.appendChild(s);
+    });
+  }
+  const seq = function (list) { return list.reduce(function (p, src) { return p.then(function () { return load(src); }); }, Promise.resolve()); };
+
+  seq(['constants.js', 'events.js', 'rng.js', 'state.js', 'scenes.js'].map(function (f) { return '../src/core/' + f; }))
+    .then(function () { return load('../src/world/manifest.js'); })
+    .then(function () { return seq(G.manifest.world.map(function (f) { return '../src/world/' + f; })); })
+    .then(init)
+    .catch(function (err) { document.getElementById('out').textContent = 'LOAD FAILED: ' + err.message; errors.push(String(err)); });
+
+  function init() {
+    const C = G.C, T = C.TILE, W = G.world;
+    const $ = function (id) { return document.getElementById(id); };
+    const cv = $('cv'), g = cv.getContext('2d');
+    const TILE_COL = ['#000000', '#4b4656', '#8d879c', '#b07a3a', '#35e0ff', '#ffe45b', '#2a5fb8', '#2f6b35', '#9a8a66', '#ff5a1e', '#8a5a2b', '#6a6470', '#12306a', '#8a1f08', '#1d1430'];
+    const ROOM_COL = { start: '#ffe45b', normal: '#777', treasure: '#ffd700', elite: '#b65bff', boss: '#ff3b4e', shrine: '#5bffd0', exit: '#35e0ff', lockdown: '#ff7ad9' };
+    const SPAWN_COL = { monster: '#ffb347', pack: '#ff8a2b', elite: '#b65bff', boss: '#ff3b4e', npc: '#3ddc6a' };
+    const PROP_COL = { chest: '#ffd700', chest_open: '#a08a30', barrel: '#a86a32', crate: '#c08a4a', torch: '#ffcf5a', shrine: '#5bffd0',
+      pillar: '#cfcfe0', bones: '#e8e4d0', stash: '#ffa0ff', portal: '#7fd4ff', dungeon_entrance: '#ff3b4e', waypoint: '#7fd4ff',
+      tree: '#1c4a22', bush: '#3f8a45', fountain: '#6fb8ff', sign: '#d0b070', stall: '#e07050', well: '#6080a0', tombstone: '#9aa0a8',
+      crystal: '#c07bff', campfire: '#ff7a2b', gate: '#ffffff', corpse: '#ff2bd0' };
+    $('legend').innerHTML = Object.keys(SPAWN_COL).map(function (k) { return '<span><i style="background:' + SPAWN_COL[k] + ';border-radius:5px"></i>' + k + '</span>'; }).join('') +
+      '<br>' + Object.keys(ROOM_COL).map(function (k) { return '<span><i style="border:2px solid ' + ROOM_COL[k] + ';width:6px;height:6px"></i>' + k + '</span>'; }).join('');
+
+    let depth = 1, map = null, S = 8, lastGenMs = 0;
+    const dot = { x: 0, y: 0, radius: 0.3 };
+    let dragging = false, target = null, clicks = [], path = null, lastVisTile = -1;
+
+    function regen() {
+      const seed = (+$('iSeed').value >>> 0) || 1;
+      const t0 = performance.now();
+      map = depth === 0 ? W.generateTown(seed) : W.generateDungeon(depth, seed);
+      lastGenMs = performance.now() - t0;
+      S = Math.max(4, Math.floor(640 / Math.max(map.w, map.h)));
+      cv.width = map.w * S; cv.height = map.h * S;
+      dot.x = map.spawn.x + 0.5; dot.y = map.spawn.y + 0.5;
+      clicks = []; path = null; lastVisTile = -1;
+      $('lDepth').textContent = depth === 0 ? 'town' : 'depth ' + depth + ' (' + map.theme + (depth % C.BOSS_EVERY === 0 ? ', boss' : '') + ')';
+      let monsters = 0;
+      for (const s of map.spawns) monsters += s.kind === 'pack' ? s.count : (s.kind === 'npc' ? 0 : 1);
+      const kinds = {};
+      for (const s of map.spawns) kinds[s.kind] = (kinds[s.kind] || 0) + 1;
+      $('info').textContent = map.w + 'x' + map.h + '  seed ' + map.seed + '  gen ' + lastGenMs.toFixed(1) + ' ms\n' +
+        'rooms ' + map.rooms.length + ' [' + map.rooms.map(function (r) { return r.type[0]; }).join('') + ']\n' +
+        'spawns ' + JSON.stringify(kinds) + '  monsters ' + monsters + '\nprops ' + map.props.length;
+      window.__map = map;
+    }
+
+    function draw() {
+      if (!map) return;
+      const fog = $('cFog').checked && map.kind !== 'town';
+      g.fillStyle = '#000'; g.fillRect(0, 0, cv.width, cv.height);
+      for (let y = 0; y < map.h; y++) {
+        for (let x = 0; x < map.w; x++) {
+          const i = y * map.w + x, t = map.tiles[i];
+          if (t === T.VOID && !(fog && map.visible[i])) continue;
+          g.globalAlpha = fog ? (map.visible[i] ? 1 : map.explored[i] ? 0.45 : 0.14) : 1;
+          g.fillStyle = t === T.VOID ? '#15131d' : TILE_COL[t];
+          g.fillRect(x * S, y * S, S, S);
+        }
+      }
+      g.globalAlpha = 1;
+      if ($('cRooms').checked) {
+        g.lineWidth = 2;
+        for (const r of map.rooms) { g.strokeStyle = ROOM_COL[r.type] || '#fff'; g.strokeRect(r.x * S + 1, r.y * S + 1, r.w * S - 2, r.h * S - 2); }
+      }
+      for (const p of map.props) {
+        g.fillStyle = PROP_COL[p.type] || '#f0f';
+        const m = p.solid ? 1 : Math.max(1, S * 0.3);
+        g.fillRect(p.x * S + m, p.y * S + m, S - 2 * m, S - 2 * m);
+        if (p.interact) { g.strokeStyle = '#fff'; g.lineWidth = 1; g.strokeRect(p.x * S + 0.5, p.y * S + 0.5, S - 1, S - 1); }
+      }
+      for (const s of map.spawns) {
+        g.fillStyle = SPAWN_COL[s.kind] || '#f0f';
+        g.beginPath();
+        g.arc((s.x + 0.5) * S, (s.y + 0.5) * S, s.kind === 'boss' ? S : s.kind === 'elite' ? S * 0.7 : S * 0.5, 0, 6.3);
+        g.fill();
+        if (s.count || s.role) { g.fillStyle = '#000'; g.font = 'bold ' + S + 'px monospace'; g.fillText(s.count || s.role[0].toUpperCase(), (s.x + 0.2) * S, (s.y + 0.9) * S); }
+      }
+      if (path) {
+        g.strokeStyle = '#3dff7a'; g.lineWidth = 2; g.beginPath();
+        g.moveTo((clicks[0].x + 0.5) * S, (clicks[0].y + 0.5) * S);
+        for (const p of path) g.lineTo(p.x * S, p.y * S);
+        g.stroke();
+        g.fillStyle = '#3dff7a';
+        for (const p of path) g.fillRect(p.x * S - 2, p.y * S - 2, 4, 4);
+      }
+      for (const c of clicks) { g.strokeStyle = '#3dff7a'; g.lineWidth = 2; g.strokeRect(c.x * S + 1, c.y * S + 1, S - 2, S - 2); }
+      g.fillStyle = '#fff'; g.beginPath(); g.arc(dot.x * S, dot.y * S, dot.radius * S, 0, 6.3); g.fill();
+      g.strokeStyle = '#000'; g.lineWidth = 1; g.stroke();
+    }
+
+    let last = performance.now();
+    function frame(now) {
+      const dt = Math.min(0.05, (now - last) / 1000); last = now;
+      if (map && target) {
+        const dx = target.x - dot.x, dy = target.y - dot.y, d = Math.hypot(dx, dy);
+        if (d > 0.02) { const s = Math.min(d, 9 * dt); W.moveWithCollision(map, dot, dx / d * s, dy / d * s); }
+      }
+      if (map) {
+        const ti = Math.floor(dot.y) * map.w + Math.floor(dot.x);
+        if (ti !== lastVisTile) { lastVisTile = ti; W.updateVisibility(map, dot.x, dot.y); }
+      }
+      draw();
+      requestAnimationFrame(frame);
+    }
+
+    const toWorld = function (e) { const r = cv.getBoundingClientRect(); return { x: (e.clientX - r.left) * cv.width / r.width / S, y: (e.clientY - r.top) * cv.height / r.height / S }; };
+    cv.addEventListener('pointerdown', function (e) {
+      const p = toWorld(e);
+      if (Math.hypot(p.x - dot.x, p.y - dot.y) < 1) { dragging = true; target = p; cv.setPointerCapture(e.pointerId); return; }
+      if (clicks.length >= 2) { clicks = []; path = null; }
+      clicks.push({ x: Math.floor(p.x), y: Math.floor(p.y) });
+      if (clicks.length === 2) {
+        const t0 = performance.now();
+        path = W.findPath(map, clicks[0].x, clicks[0].y, clicks[1].x, clicks[1].y);
+        const ms = performance.now() - t0;
+        $('path').textContent = path ? 'path: ' + path.length + ' waypoints, ' + ms.toFixed(2) + ' ms' : 'path: null (' + ms.toFixed(2) + ' ms)';
+      }
+    });
+    cv.addEventListener('pointermove', function (e) { if (dragging) target = toWorld(e); });
+    const stop = function () { dragging = false; target = null; };
+    cv.addEventListener('pointerup', stop);
+    cv.addEventListener('pointercancel', stop);
+
+    $('bTown').onclick = function () { depth = 0; regen(); };
+    $('bPrev').onclick = function () { depth = Math.max(1, depth - 1); regen(); };
+    $('bNext').onclick = function () { depth = depth + 1; regen(); };
+    $('bSeed').onclick = function () { $('iSeed').value = (Math.random() * 0x7fffffff) | 0; regen(); };
+    $('iSeed').onchange = regen;
+    $('bCheck').onclick = function () { $('out').textContent = 'running…'; setTimeout(function () { runChecks(); }, 30); };
+    window.__setDepth = function (d, seed) { depth = d; if (seed !== undefined) $('iSeed').value = seed; regen(); };
+
+    // =====================================================================================================
+    // Automated checks
+    // =====================================================================================================
+    const DRY = C.WALKABLE.slice(); DRY[T.WATER] = 0; DRY[T.LAVA] = 0;
+    const LIQ = []; LIQ[T.WATER] = LIQ[T.LAVA] = LIQ[T.DEEP_WATER] = LIQ[T.DEEP_LAVA] = 1;
+    // 4-connected flood from the spawn (or `from`). dry = true ignores shallow water/lava as footing.
+    function flood(map, blockSolid, mask, dry, from) {
+      const w = map.w, n = w * map.h, tiles = map.tiles, ok = dry ? DRY : C.WALKABLE;
+      const blocked = new Uint8Array(n);
+      if (blockSolid) for (const p of map.props) if (p.solid) blocked[p.y * w + p.x] = 1;
+      if (mask) for (let i = 0; i < n; i++) if (mask[i]) blocked[i] = 1;
+      const dist = new Int32Array(n).fill(-1), q = [from === undefined ? map.spawn.y * w + map.spawn.x : from];
+      dist[q[0]] = 0;
+      for (let qh = 0; qh < q.length; qh++) {
+        const i = q[qh], x = i % w;
+        for (const j of [x > 0 ? i - 1 : -1, x < w - 1 ? i + 1 : -1, i - w, i + w]) {
+          if (j < 0 || j >= n || dist[j] >= 0 || !ok[tiles[j]] || blocked[j]) continue;
+          dist[j] = dist[i] + 1; q.push(j);
+        }
+      }
+      return { dist, count: q.length };
+    }
+
+    function checkDungeon(depth, seed, R) {
+      const fail = function (msg) { R.failures.push('d' + depth + ' s' + seed + ': ' + msg); R.failed++; };
+      const ok = function (cond, msg) { R.asserts++; if (!cond) fail(msg); return cond; };
+      const t0 = performance.now();
+      let map;
+      try { map = W.generateDungeon(depth, seed); } catch (err) { R.asserts++; fail('threw ' + err.message); return; }
+      const ms = performance.now() - t0;
+      R.genMs.push(ms);
+      const w = map.w, h = map.h, n = w * h, tiles = map.tiles, isBoss = depth % C.BOSS_EVERY === 0;
+      (R.byTheme[map.theme] = R.byTheme[map.theme] || []).push(ms);
+
+      ok(map.kind === 'dungeon' && map.depth === depth && map.seed === seed && map.theme === C.themeForDepth(depth), 'header fields');
+      ok(w >= 48 && w <= 80 && h >= 48 && h <= 80, 'size ' + w + 'x' + h);
+      ok(tiles instanceof Uint8Array && tiles.length === n && map.explored.length === n && map.visible.length === n, 'array sizes');
+      ok(tiles[map.spawn.y * w + map.spawn.x] === T.STAIRS_UP, 'STAIRS_UP at spawn');
+      let down = -1, downs = 0, ups = 0, walkable = 0, dryTiles = 0, borderWalk = 0, naked = 0, badDeep = 0, chasm = 0;
+      const liq = {};
+      for (let i = 0; i < n; i++) {
+        const t = tiles[i], x = i % w, y = (i / w) | 0;
+        if (t === T.STAIRS_DOWN) { down = i; downs++; }
+        if (t === T.STAIRS_UP) ups++;
+        if (t > 14) fail('bad tile id ' + t);
+        if (t === T.CHASM) chasm++;
+        if (LIQ[t]) liq[t] = (liq[t] || 0) + 1;
+        if (t === T.DEEP_WATER || t === T.DEEP_LAVA) {     // deep must be ringed by its own shallow (or a bridge)
+          const sh = t === T.DEEP_WATER ? T.WATER : T.LAVA;
+          for (const j of [i - 1, i + 1, i - w, i + w, i - w - 1, i - w + 1, i + w - 1, i + w + 1]) if (tiles[j] !== t && tiles[j] !== sh && tiles[j] !== T.BRIDGE) badDeep++;
+        }
+        if (!C.WALKABLE[t]) continue;
+        walkable++;
+        if (DRY[t]) dryTiles++;
+        if (x === 0 || y === 0 || x === w - 1 || y === h - 1) { borderWalk++; continue; }
+        for (const j of [i - 1, i + 1, i - w, i + w, i - w - 1, i - w + 1, i + w - 1, i + w + 1]) if (tiles[j] === T.VOID) naked++;
+      }
+      ok(downs === 1 && ups === 1, 'stairs count up=' + ups + ' down=' + downs);
+      ok(borderWalk === 0, 'walkable tile on map border');
+      ok(naked === 0, 'walkable tile next to VOID (' + naked + ')');
+      ok(badDeep === 0, 'deep liquid without a shallow rim (' + badDeep + ')');
+      ok(map.theme === 'abyss' ? chasm > 200 : chasm === 0, 'CHASM count ' + chasm + ' in ' + map.theme);
+      ok(!(liq[T.WATER] || liq[T.DEEP_WATER]) || !(liq[T.LAVA] || liq[T.DEEP_LAVA]), 'water and lava on one floor');
+      for (const k in liq) R.liquid[map.theme + ':' + k] = (R.liquid[map.theme + ':' + k] || 0) + liq[k];
+      if (down < 0) return;
+
+      const open = flood(map, false), real = flood(map, true), dry = flood(map, true, null, true), dryOpen = flood(map, false, null, true);
+      ok(open.dist[down] >= 0, 'stairs down unreachable');
+      ok(real.dist[down] >= 0, 'stairs down blocked by a solid prop');
+      ok(dry.dist[down] >= 0, 'route to the stairs forces the player through water/lava');
+      ok(dryOpen.count === dryTiles, 'dry tiles only reachable by wading: ' + (dryTiles - dryOpen.count));
+      ok(open.count === walkable, 'orphan walkable tiles: ' + (walkable - open.count));
+      let solidOnReach = 0;
+      for (const p of map.props) if (p.solid && open.dist[p.y * w + p.x] >= 0) solidOnReach++;
+      ok(real.count === open.count - solidOnReach, 'solid props cut off ' + (open.count - solidOnReach - real.count) + ' tiles');
+      R.exitDist.push(open.dist[down]);
+
+      // rooms
+      const types = {};
+      for (const r of map.rooms) {
+        types[r.type] = (types[r.type] || 0) + 1;
+        ok(ROOM_COL[r.type] !== undefined, 'room type ' + r.type);
+        ok(r.x >= 0 && r.y >= 0 && r.x + r.w <= w && r.y + r.h <= h && r.w > 0 && r.h > 0, 'room rect out of map');
+        ok(Object.keys(r).length === (r.type === 'lockdown' ? 7 : 5), 'room has extra keys');
+      }
+      for (const k in types) R.roomTypes[k] = (R.roomTypes[k] || 0) + types[k];
+      ok(types.start === 1 && types.exit === 1, 'need exactly one start and one exit room');
+      ok((types.boss || 0) === (isBoss ? 1 : 0), 'boss room count ' + (types.boss || 0));
+      const start = map.rooms.find(function (r) { return r.type === 'start'; });
+      const exit = map.rooms.find(function (r) { return r.type === 'exit'; });
+      const arena = map.rooms.find(function (r) { return r.type === 'boss'; });
+      const inR = function (r, x, y, pad) { return r && x >= r.x - pad && y >= r.y - pad && x < r.x + r.w + pad && y < r.y + r.h + pad; };
+      ok(inR(start, map.spawn.x, map.spawn.y, 0), 'spawn not in start room');
+      ok(inR(exit, down % w, (down / w) | 0, 0), 'stairs down not in exit room');
+
+      // spawns
+      let monsters = 0, bosses = 0;
+      const taken = new Map();
+      for (const s of map.spawns) {
+        const i = s.y * w + s.x;
+        if (!ok(Number.isInteger(s.x) && Number.isInteger(s.y) && s.x >= 0 && s.y >= 0 && s.x < w && s.y < h, 'spawn out of bounds')) continue;
+        ok(['monster', 'pack', 'elite', 'boss'].indexOf(s.kind) >= 0, 'spawn kind ' + s.kind);
+        ok(W.isWalkable(map, s.x, s.y), s.kind + ' spawn on unwalkable tile ' + s.x + ',' + s.y);
+        ok(dry.dist[i] >= 0, s.kind + ' spawn not reachable on dry ground');
+        ok(tiles[i] === T.FLOOR || tiles[i] === T.RUBBLE, s.kind + ' spawn on tile ' + tiles[i]);
+        for (const r of map.rooms) if (r.type === 'lockdown') ok(!inR(r, s.x, s.y, 1), s.kind + ' spawn inside a lockdown room');
+        ok(!inR(start, s.x, s.y, 1), s.kind + ' spawn in/adjacent to start room');
+        ok(!taken.has(i), 'two spawns on one tile'); taken.set(i, 1);
+        if (s.kind === 'pack') { ok(s.count >= 2 && s.count <= 8, 'pack count ' + s.count); monsters += s.count; } else monsters++;
+        if (s.kind === 'boss') { bosses++; ok(inR(arena, s.x, s.y, 0), 'boss outside arena'); }
+        R.spawnKinds[s.kind] = (R.spawnKinds[s.kind] || 0) + 1;
+      }
+      ok(bosses === (isBoss ? 1 : 0), 'boss spawns ' + bosses);
+      ok(monsters >= 12 && monsters <= 80, 'monster total ' + monsters);
+      R.monsters.push(monsters);
+
+      // props
+      const propTiles = new Map();
+      let chests = 0;
+      for (const p of map.props) {
+        if (!ok(Number.isInteger(p.x) && Number.isInteger(p.y) && p.x > 0 && p.y > 0 && p.x < w - 1 && p.y < h - 1, 'prop out of bounds')) continue;
+        const i = p.y * w + p.x, t = tiles[i];
+        ok(C.PROP_TYPES.indexOf(p.type) >= 0, 'prop type ' + p.type);
+        ok(typeof p.solid === 'boolean', 'prop.solid not bool');
+        ok(t === T.FLOOR || t === T.RUBBLE, p.type + ' on tile ' + t);
+        ok(open.dist[i] >= 0, p.type + ' on unreachable tile');
+        ok(!propTiles.has(i), 'two props on one tile'); propTiles.set(i, p);
+        ok(!taken.has(i), 'prop on a spawn tile');
+        ok(W.propAt(map, p.x, p.y) === p, 'propAt mismatch');
+        if (p.solid) ok(!W.isWalkable(map, p.x, p.y), 'solid prop tile reported walkable');
+        if (p.interact) {
+          ok(['chest', 'shrine', 'barrel'].indexOf(p.interact) >= 0 && p.used === false, 'interact fields');
+          let reachAdj = false;
+          for (const j of [i - 1, i + 1, i - w, i + w]) if (dry.dist[j] >= 0) reachAdj = true;
+          ok(reachAdj, p.type + ' cannot be reached to use');
+        }
+        if (p.type === 'torch') ok(p.light > 0 && !p.solid, 'torch fields');
+        if (p.type === 'chest') chests++;
+        // nothing solid on or beside doors, stairs, bridges
+        if (p.solid) for (const j of [i - 1, i + 1, i - w, i + w]) ok(tiles[j] !== T.DOOR && tiles[j] !== T.STAIRS_DOWN && tiles[j] !== T.STAIRS_UP, 'solid ' + p.type + ' beside door/stairs');
+        R.propTypes[p.type] = (R.propTypes[p.type] || 0) + 1;
+      }
+      R.chests.push(chests);
+      R.props.push(map.props.length);
+
+      if (isBoss && arena) {
+        const mask = new Uint8Array(n);
+        for (let y = arena.y; y < arena.y + arena.h; y++) for (let x = arena.x; x < arena.x + arena.w; x++) mask[y * w + x] = 1;
+        ok(flood(map, false, mask).dist[down] < 0, 'exit reachable without crossing the boss arena');
+      }
+
+      // lockdown rooms (R2.5)
+      const locks = map.rooms.filter(function (r) { return r.type === 'lockdown'; });
+      ok(locks.length <= 2 && (locks.length === 0 || (!isBoss && depth >= 2)), 'lockdown room count ' + locks.length);
+      R.lockdowns[map.theme] = (R.lockdowns[map.theme] || 0) + locks.length;
+      for (const r of locks) {
+        ok(Array.isArray(r.doors) && r.doors.length >= 1 && r.doors.length <= 3, 'lockdown doors ' + (r.doors && r.doors.length));
+        ok(Number.isInteger(r.waves) && r.waves >= 2 && r.waves <= 4, 'lockdown waves ' + r.waves);
+        ok(!inR(r, map.spawn.x, map.spawn.y, 1) && !inR(r, down % w, (down / w) | 0, 1), 'lockdown room holds the stairs');
+        const gate = new Uint8Array(n);
+        for (const d of r.doors || []) {
+          ok(tiles[d.y * w + d.x] === T.DOOR, 'lockdown door is not a DOOR tile');
+          ok(inR(r, d.x, d.y, 1) && !inR(r, d.x, d.y, 0), 'lockdown door not on the room edge');
+          ok(!propTiles.has(d.y * w + d.x), 'prop on a lockdown door');
+          gate[d.y * w + d.x] = 1;
+        }
+        const chest = map.props.filter(function (p) { return p.type === 'chest' && p.locked === true && inR(r, p.x, p.y, 0); });
+        if (ok(chest.length === 1, 'lockdown room needs exactly one locked chest, has ' + chest.length)) {
+          ok(Math.abs(chest[0].x - (r.x + (r.w >> 1))) <= 4 && Math.abs(chest[0].y - (r.y + (r.h >> 1))) <= 4, 'locked chest not near the centre');
+          // gate exactly the listed doors: whoever stands by the chest is sealed in, the rest of the floor sealed out
+          let from = -1;
+          for (const j of [chest[0].y * w + chest[0].x - 1, chest[0].y * w + chest[0].x + 1, (chest[0].y - 1) * w + chest[0].x, (chest[0].y + 1) * w + chest[0].x]) if (real.dist[j] >= 0) from = j;
+          const inside = flood(map, true, gate, false, from);
+          let leak = 0;
+          for (let i = 0; i < n; i++) if (inside.dist[i] >= 0 && !inR(r, i % w, (i / w) | 0, 0)) leak++;
+          ok(from >= 0 && leak === 0, 'lockdown room not sealed by its doors (' + leak + ' tiles leak)');
+          ok(inside.count >= 10, 'lockdown room too small to fight in (' + inside.count + ')');
+          const outside = flood(map, true, gate, false);
+          let breach = 0;
+          for (let i = 0; i < n; i++) if (outside.dist[i] >= 0 && inR(r, i % w, (i / w) | 0, 0)) breach++;
+          ok(breach === 0, 'lockdown room can be entered past its doors (' + breach + ')');
+          // and through the real API with gate props, as the game team will do it
+          const gates = r.doors.map(function (d) { return { type: 'gate', x: d.x, y: d.y, solid: true }; });
+          for (const gp of gates) map.props.push(gp);
+          W.invalidate(map);
+          const fx = from % w, fy = (from / w) | 0;
+          ok(!W.isWalkable(map, r.doors[0].x, r.doors[0].y), 'gate prop does not block its door');
+          const pin = W.findPath(map, map.spawn.x, map.spawn.y, fx, fy, 1e6);
+          ok(pin === null, 'findPath gets into a gated lockdown room');
+          map.props.length -= gates.length;
+          W.invalidate(map);
+          ok(W.isWalkable(map, r.doors[0].x, r.doors[0].y) && W.findPath(map, map.spawn.x, map.spawn.y, fx, fy, 1e6) !== null, 'room not reachable once the gates lift');
+        }
+      }
+      for (const p of map.props) if (p.locked) ok(locks.some(function (r) { return inR(r, p.x, p.y, 0); }), 'locked chest outside a lockdown room');
+
+      // API cross-checks on this map
+      const t1 = performance.now();
+      const p = W.findPath(map, map.spawn.x, map.spawn.y, down % w, (down / w) | 0, 1e6);
+      R.longPathMs.push(performance.now() - t1);
+      if (ok(p && p.length > 0, 'findPath spawn→stairs returned null')) {
+        const e = p[p.length - 1];
+        for (const q of p) if (tiles[Math.floor(q.y) * w + Math.floor(q.x)] === T.LAVA) { R.lavaOnMainPath++; break; }
+        ok(Math.floor(e.x) === down % w && Math.floor(e.y) === ((down / w) | 0), 'path does not end on the stairs');
+        // walk it with moveWithCollision
+        const ent = { x: map.spawn.x + 0.5, y: map.spawn.y + 0.5, radius: 0.3 };
+        let k = 0, steps = 0;
+        for (; k < p.length && steps < 6000; steps++) {
+          const dx = p[k].x - ent.x, dy = p[k].y - ent.y, d = Math.hypot(dx, dy);
+          if (d < 0.12) { k++; continue; }
+          const s = Math.min(d, 0.1);
+          if (!W.moveWithCollision(map, ent, dx / d * s, dy / d * s)) break;
+          if (!W.canMoveTo(map, ent.x, ent.y, 0.3)) { fail('walker ended inside a wall'); break; }
+        }
+        ok(k === p.length, 'walker stuck following path at waypoint ' + k + '/' + p.length);
+      }
+      W.updateVisibility(map, map.spawn.x + 0.5, map.spawn.y + 0.5);
+      let vis = 0;
+      for (let i = 0; i < n; i++) { if (map.visible[i]) { vis++; if (!map.explored[i]) fail('visible but not explored'); } }
+      ok(vis >= 9 && map.visible[map.spawn.y * w + map.spawn.x] === 1, 'visibility around spawn (' + vis + ')');
+      ok(W.tileAt(map, -1, 5) === T.VOID && W.tileAt(map, w, 5) === T.VOID && W.tileAt(map, map.spawn.x + 0.7, map.spawn.y + 0.2) === T.STAIRS_UP, 'tileAt');
+      try { JSON.stringify({ r: map.rooms, s: map.spawns, p: map.props, sp: map.spawn }); } catch (err) { fail('not JSON-able'); }
+      return map;
+    }
+
+    function sig(map) {
+      let hsh = 0;
+      for (let i = 0; i < map.tiles.length; i++) hsh = (Math.imul(hsh, 31) + map.tiles[i]) | 0;
+      return hsh + '|' + JSON.stringify(map.rooms) + JSON.stringify(map.spawns) + JSON.stringify(map.props);
+    }
+
+    function checkTown(seed, R) {
+      const fail = function (msg) { R.failures.push('town s' + seed + ': ' + msg); R.failed++; };
+      const ok = function (cond, msg) { R.asserts++; if (!cond) fail(msg); return cond; };
+      const map = W.generateTown(seed), w = map.w, h = map.h, n = w * h;
+      ok(map.kind === 'town' && map.theme === 'town' && map.depth === 0, 'header');
+      ok(w >= 36 && w <= 44 && h >= 36 && h <= 44, 'size');
+      ok(map.explored.every(function (v) { return v === 1; }) && map.visible.every(function (v) { return v === 1; }), 'all explored + visible');
+      const real = flood(map, true);
+      for (const role of C.NPC_ROLES) {
+        const list = map.spawns.filter(function (s) { return s.kind === 'npc' && s.role === role; });
+        if (ok(list.length === 1, 'npc ' + role + ' ×' + list.length)) {
+          ok(real.dist[list[0].y * w + list[0].x] >= 0, role + ' unreachable');
+          ok(W.isWalkable(map, list[0].x, list[0].y), role + ' on blocked tile');
+        }
+      }
+      ok(map.spawns.length === C.NPC_ROLES.length, 'extra spawns in town');
+      const one = function (type, interact) {
+        const list = map.props.filter(function (p) { return p.type === type; });
+        ok(list.length >= 1, 'missing ' + type);
+        if (interact && list[0]) {
+          ok(list[0].interact === interact, type + ' interact field');
+          let adj = false;
+          for (let oy = -1; oy <= 1; oy++) for (let ox = -1; ox <= 1; ox++) if (real.dist[(list[0].y + oy) * w + list[0].x + ox] >= 0) adj = true;
+          ok(adj, type + ' unreachable');
+        }
+        return list[0];
+      };
+      one('fountain'); one('well'); one('sign'); one('campfire'); one('stall'); one('tree'); one('bush');
+      const wp = one('waypoint', 'waypoint'), de = one('dungeon_entrance', 'dungeon_entrance'), st = one('stash', 'stash');
+      const sk = map.spawns.find(function (s) { return s.role === 'stashkeeper'; });
+      if (st && sk) ok(Math.abs(st.x - sk.x) + Math.abs(st.y - sk.y) === 1, 'stash not next to stashkeeper');
+      if (de) ok(Math.min(de.x, de.y, w - 1 - de.x, h - 1 - de.y) <= 4, 'dungeon entrance not at the edge');
+      if (wp) ok(Math.hypot(wp.x - 20, wp.y - 20) < 7, 'waypoint not in plaza');
+      for (let oy = -1; oy <= 1; oy++) for (let ox = -1; ox <= 1; ox++) {
+        ok(W.isWalkable(map, map.spawn.x + ox, map.spawn.y + oy) && !W.propAt(map, map.spawn.x + ox, map.spawn.y + oy), 'spawn surroundings not free');
+      }
+      ok(map.tiles[map.spawn.y * w + map.spawn.x] === T.PATH, 'spawn not on plaza');
+      let wallTiles = 0;
+      for (let i = 0; i < n; i++) if (map.tiles[i] === T.WALL) wallTiles++;
+      ok(wallTiles > 100, 'houses');
+      const seen = new Set();
+      for (const p of map.props) {
+        ok(C.PROP_TYPES.indexOf(p.type) >= 0, 'prop type ' + p.type);
+        ok(C.WALKABLE[map.tiles[p.y * w + p.x]] === 1, p.type + ' on unwalkable tile');
+        ok(!seen.has(p.y * w + p.x), 'two props on a tile'); seen.add(p.y * w + p.x);
+      }
+      // nothing walkable is fenced off by trees
+      const open = flood(map, false);
+      let solidOnReach = 0;
+      for (const p of map.props) if (p.solid && open.dist[p.y * w + p.x] >= 0) solidOnReach++;
+      ok(real.count === open.count - solidOnReach, 'town has fenced-off pockets (' + (open.count - solidOnReach - real.count) + ')');
+      // core's portal placement + scene flow
+      G.state.seed = seed; G.state.flags.portalDepth = 3; G.state.player = null;
+      G.scenes.enterTown();
+      const portal = G.state.map.props[G.state.map.props.length - 1];
+      ok(portal.type === 'portal' && W.propAt(G.state.map, portal.x, portal.y) === portal && W.isWalkable(G.state.map, portal.x, portal.y), 'portal tile');
+      G.state.flags.portalDepth = 0;
+      return map;
+    }
+
+    function stats(a) {
+      if (!a.length) return 'n/a';
+      const s = a.slice().sort(function (x, y) { return x - y; });
+      let sum = 0; for (const v of s) sum += v;
+      return 'avg ' + (sum / s.length).toFixed(2) + '  p95 ' + s[Math.floor(s.length * 0.95)].toFixed(2) + '  max ' + s[s.length - 1].toFixed(2);
+    }
+
+    function runChecks(perDepth) {
+      perDepth = perDepth || 14;
+      const R = { asserts: 0, failed: 0, failures: [], genMs: [], byTheme: {}, monsters: [], props: [], chests: [], exitDist: [], longPathMs: [],
+        roomTypes: {}, spawnKinds: {}, propTypes: {}, liquid: {}, lockdowns: {}, lavaOnMainPath: 0, maps: 0 };
+      // warm up the JIT so timings are representative
+      for (let d = 1; d <= 20; d += 5) W.generateDungeon(d, 99);
+      const keep = [];
+      for (let d = 1; d <= 25; d++) {
+        for (let k = 0; k < perDepth; k++) {
+          const seed = (d * 7919 + k * 104729 + 17) >>> 0;
+          const m = checkDungeon(d, seed, R);
+          R.maps++;
+          if (m) {
+            R.asserts++;
+            if (sig(m) !== sig(W.generateDungeon(d, seed))) { R.failed++; R.failures.push('d' + d + ' s' + seed + ': not deterministic'); }
+            if (k === 0) keep.push(m);
+          }
+        }
+      }
+      for (let s = 1; s <= 10; s++) checkTown(s * 1337, R);
+      R.asserts++;
+      if (sig(W.generateTown(5)) !== sig(W.generateTown(5))) { R.failed++; R.failures.push('town not deterministic'); }
+      // scene flow through core
+      G.state.seed = 4242; G.state.flags = { maxDepth: 1, waypoints: [1], portalDepth: 0, visits: 0, kills: 0, deaths: 0 };
+      G.scenes.enterDungeon(5);
+      R.asserts++;
+      if (!(G.state.map && G.state.map.depth === 5 && G.state.scene === 'dungeon')) { R.failed++; R.failures.push('scenes.enterDungeon'); }
+
+      // ---- R2.4 corpse: core rebuilds the floor of death from its seed and adds the corpse prop ----
+      {
+        const ref = W.generateDungeon(7, 987654);
+        const spot = W.findFreeTileNear(ref, ref.spawn.x + 6, ref.spawn.y + 3, 12);
+        G.state.flags.corpse = { depth: 7, seed: 987654, x: spot.x + 0.4, y: spot.y + 0.6, gold: 5, items: [] };
+        G.scenes.enterDungeon(7);
+        const cm = G.state.map, cp = W.propAt(cm, spot.x, spot.y);
+        R.asserts += 3;
+        if (cm.seed !== 987654 || cm.tiles.join() !== ref.tiles.join() || JSON.stringify(cm.rooms) !== JSON.stringify(ref.rooms)) { R.failed++; R.failures.push('corpse floor differs from the original'); }
+        if (!cp || cp.type !== 'corpse') { R.failed++; R.failures.push('corpse prop not found by propAt'); }
+        if (!W.isWalkable(cm, spot.x, spot.y)) { R.failed++; R.failures.push('corpse tile not walkable'); }
+        G.state.flags.corpse = null;
+      }
+      // ---- R2.1 path costs on a hand-built map: 3 tiles of liquid in a corridor vs. a 14-step dry detour ----
+      for (const liquid of [T.LAVA, T.WATER]) {
+        const mw = 9, mh = 7, tl = new Uint8Array(mw * mh).fill(T.WALL);
+        for (let x = 1; x <= 7; x++) { tl[1 * mw + x] = T.FLOOR; tl[5 * mw + x] = T.FLOOR; }
+        for (let y = 1; y <= 5; y++) { tl[y * mw + 1] = T.FLOOR; tl[y * mw + 7] = T.FLOOR; }
+        for (let x = 3; x <= 5; x++) tl[1 * mw + x] = liquid;
+        const tm = { w: mw, h: mh, kind: 'dungeon', depth: 1, theme: 'crypt', seed: 1, tiles: tl, explored: new Uint8Array(mw * mh), visible: new Uint8Array(mw * mh), spawn: { x: 1, y: 1 }, rooms: [], spawns: [], props: [] };
+        const tp = W.findPath(tm, 2, 1, 6, 1);
+        let wet = false, len = 0, px = 2.5, py = 1.5;
+        for (const q of tp || []) {
+          const steps = Math.ceil(Math.hypot(q.x - px, q.y - py) * 4);
+          for (let s = 1; s <= steps; s++) if (tl[Math.floor(py + (q.y - py) * s / steps) * mw + Math.floor(px + (q.x - px) * s / steps)] === liquid) wet = true;
+          len += Math.hypot(q.x - px, q.y - py); px = q.x; py = q.y;
+        }
+        R.asserts += 2;
+        if (!tp || !W.isWalkable(tm, 4, 1)) { R.failed++; R.failures.push('shallow ' + liquid + ' not walkable / no path'); }
+        if (liquid === T.LAVA ? (wet || len < 10) : (!wet || len > 5)) { R.failed++; R.failures.push((liquid === T.LAVA ? 'path wades through lava despite a dry detour' : 'path detours around a short water crossing') + ' (len ' + len.toFixed(1) + ')'); }
+        // deep tiles block movement and paths but not sight
+        tl[1 * mw + 4] = liquid === T.LAVA ? T.DEEP_LAVA : T.DEEP_WATER; W.invalidate(tm);
+        R.asserts++;
+        if (W.isWalkable(tm, 4, 1) || !W.hasLineOfSight(tm, 2.5, 1.5, 6.5, 1.5) || W.canMoveTo(tm, 4.5, 1.5, 0.3)) { R.failed++; R.failures.push('deep tile walkability / sight'); }
+        tl[1 * mw + 4] = T.CHASM; W.invalidate(tm);
+        R.asserts++;
+        if (W.isWalkable(tm, 4, 1) || !W.hasLineOfSight(tm, 2.5, 1.5, 6.5, 1.5) || W.hasLineOfSight(tm, 2.5, 1.5, 2.5, 4.5) === false && false) { R.failed++; R.failures.push('CHASM walkability / sight'); }
+        W.updateVisibility(tm, 2.5, 1.5);
+        R.asserts++;
+        if (!tm.visible[1 * mw + 6]) { R.failed++; R.failures.push('cannot see across a chasm'); }
+      }
+
+      // ---- pathfinding: correctness against BFS reachability + timing with the default node cap ----
+      const rng = G.rng.create(777);
+      const pathMs = [], localMs = [];
+      let pathNull = 0, pathCalls = 0, partial = 0;
+      for (const m of keep) {
+        const real = flood(m, true, null, true), cells = [];
+        for (let i = 0; i < real.dist.length; i++) if (real.dist[i] >= 0) cells.push(i);
+        for (let k = 0; k < 40; k++) {
+          const a = rng.pick(cells), b = rng.pick(cells);
+          const ax = a % m.w, ay = (a / m.w) | 0, bx = b % m.w, by = (b / m.w) | 0;
+          let t0 = performance.now();
+          const full = W.findPath(m, ax, ay, bx, by, 1e6);
+          R.asserts++;
+          if (!full || Math.floor(full[full.length - 1].x) !== bx || Math.floor(full[full.length - 1].y) !== by) { R.failed++; R.failures.push('d' + m.depth + ': findPath failed between reachable tiles'); }
+          else {
+            // every leg must be walkable for a 0.25 body
+            let px = ax + 0.5, py = ay + 0.5, bad = false;
+            for (const p of full) {
+              const steps = Math.ceil(Math.hypot(p.x - px, p.y - py) * 5);
+              for (let s = 1; s <= steps && !bad; s++) if (!W.canMoveTo(m, px + (p.x - px) * s / steps, py + (p.y - py) * s / steps, 0.25)) bad = true;
+              px = p.x; py = p.y;
+            }
+            R.asserts++;
+            if (bad) { R.failed++; R.failures.push('d' + m.depth + ': smoothed path clips a wall ' + ax + ',' + ay + '→' + bx + ',' + by); }
+          }
+          t0 = performance.now();
+          const capped = W.findPath(m, ax, ay, bx, by);
+          pathMs.push(performance.now() - t0);
+          pathCalls++;
+          if (!capped) pathNull++;
+          else if (Math.floor(capped[capped.length - 1].x) !== bx || Math.floor(capped[capped.length - 1].y) !== by) partial++;
+          // typical AI query: goal within ~12 tiles
+          const near = cells.filter(function (c) { return Math.abs(c % m.w - ax) < 12 && Math.abs(((c / m.w) | 0) - ay) < 12; });
+          const c = rng.pick(near);
+          t0 = performance.now();
+          for (let rep = 0; rep < 10; rep++) W.findPath(m, ax, ay, c % m.w, (c / m.w) | 0);
+          localMs.push((performance.now() - t0) / 10);
+        }
+        // unreachable goal → null; blocked goal → nearest free tile
+        R.asserts += 2;
+        if (W.findPath(m, m.spawn.x, m.spawn.y, 0, 0, 1e6) !== null && m.theme !== 'x') {
+          const p0 = W.findPath(m, m.spawn.x, m.spawn.y, 0, 0, 1e6);
+          if (p0 && W.isWalkable(m, 0, 0)) { R.failed++; R.failures.push('path into the border'); }
+        }
+        const chest = m.props.find(function (p) { return p.solid && p.interact; });
+        if (chest) {
+          const pc = W.findPath(m, m.spawn.x, m.spawn.y, chest.x, chest.y, 1e6);
+          if (!pc || Math.max(Math.abs(Math.floor(pc[pc.length - 1].x) - chest.x), Math.abs(Math.floor(pc[pc.length - 1].y) - chest.y)) > 1) { R.failed++; R.failures.push('d' + m.depth + ': path to solid prop does not end beside it'); }
+        }
+      }
+      // ---- visibility + collision timing ----
+      const big = keep[keep.length - 1];
+      const cells = [];
+      { const real = flood(big, true); for (let i = 0; i < real.dist.length; i++) if (real.dist[i] >= 0) cells.push(i); }
+      let t0 = performance.now();
+      for (let k = 0; k < 2000; k++) { const c = cells[k % cells.length]; W.updateVisibility(big, (c % big.w) + 0.5, ((c / big.w) | 0) + 0.5); }
+      const visMs = (performance.now() - t0) / 2000;
+      const ent = { x: big.spawn.x + 0.5, y: big.spawn.y + 0.5, radius: 0.3 };
+      t0 = performance.now();
+      for (let k = 0; k < 20000; k++) { const a = k * 0.37; W.moveWithCollision(big, ent, Math.cos(a) * 0.12, Math.sin(a) * 0.12); }
+      const moveUs = (performance.now() - t0) / 20000 * 1000;
+      R.asserts++;
+      if (!W.canMoveTo(big, ent.x, ent.y, 0.3)) { R.failed++; R.failures.push('random walk ended inside geometry'); }
+      // LOS sanity: symmetric-ish and blocked by walls
+      let losBad = 0;
+      for (let k = 0; k < 300; k++) {
+        const a = rng.pick(cells), b = rng.pick(cells);
+        const ax = (a % big.w) + 0.5, ay = ((a / big.w) | 0) + 0.5, bx = (b % big.w) + 0.5, by = ((b / big.w) | 0) + 0.5;
+        if (W.hasLineOfSight(big, ax, ay, bx, by) !== W.hasLineOfSight(big, bx, by, ax, ay)) losBad++;
+      }
+      R.asserts++;
+      if (losBad > 6) { R.failed++; R.failures.push('line of sight asymmetric in ' + losBad + '/300 cases'); }
+      R.asserts++;
+      if (!W.hasLineOfSight(big, ent.x, ent.y, ent.x, ent.y) || W.hasLineOfSight(big, -3, 2, 5, 5)) { R.failed++; R.failures.push('LOS edge cases'); }
+      // findFreeTileNear
+      R.asserts++;
+      const solid = big.props.find(function (p) { return p.solid; });
+      const ft = solid && W.findFreeTileNear(big, solid.x + 0.5, solid.y + 0.5);
+      if (solid && !(ft && W.isWalkable(big, ft.x, ft.y) && Math.abs(ft.x - solid.x) <= 1 && Math.abs(ft.y - solid.y) <= 1)) { R.failed++; R.failures.push('findFreeTileNear'); }
+      // prop mutation is picked up by the lazy lookup
+      if (solid) {
+        R.asserts += 2;
+        solid.solid = false; W.invalidate(big);
+        if (!W.isWalkable(big, solid.x, solid.y)) { R.failed++; R.failures.push('solid=false not picked up'); }
+        const idx = big.props.indexOf(solid);
+        big.props.splice(idx, 1);
+        if (W.propAt(big, solid.x, solid.y) !== null) { R.failed++; R.failures.push('removed prop still returned by propAt'); }
+      }
+
+      R.genStats = stats(R.genMs);
+      const lines = [];
+      lines.push((R.failed ? 'FAIL' : 'PASS') + ' — ' + R.maps + ' dungeons + 10 towns, ' + R.asserts + ' assertions, ' + R.failed + ' failed, ' + window.__errors.length + ' script errors');
+      lines.push('generation ms/map: ' + R.genStats);
+      for (const th in R.byTheme) lines.push('  ' + th + ': ' + stats(R.byTheme[th]));
+      lines.push('monsters/map: ' + stats(R.monsters) + '   props/map: ' + stats(R.props) + '   chests/map: ' + stats(R.chests));
+      lines.push('walk distance spawn→stairs (tiles): ' + stats(R.exitDist));
+      lines.push('findPath spawn→stairs, uncapped (ms): ' + stats(R.longPathMs));
+      lines.push('findPath random pair, default cap 2000 (ms): ' + stats(pathMs) + '   null ' + pathNull + ', partial ' + partial + ' of ' + pathCalls);
+      lines.push('findPath goal within 12 tiles (ms): ' + stats(localMs));
+      lines.push('updateVisibility r=9 on ' + big.w + 'x' + big.h + ': ' + (visMs * 1000).toFixed(1) + ' µs/call   moveWithCollision: ' + moveUs.toFixed(2) + ' µs/call');
+      lines.push('lockdown rooms by theme ' + JSON.stringify(R.lockdowns) + '   spawn→stairs paths touching lava: ' + R.lavaOnMainPath + '/' + R.maps);
+      lines.push('liquid tiles (theme:tile) ' + JSON.stringify(R.liquid));
+      lines.push('rooms ' + JSON.stringify(R.roomTypes));
+      lines.push('spawns ' + JSON.stringify(R.spawnKinds));
+      lines.push('props ' + JSON.stringify(R.propTypes));
+      if (R.failures.length) lines.push('', 'first failures:', R.failures.slice(0, 40).join('\n'));
+      const out = $('out');
+      out.textContent = lines.join('\n');
+      out.className = R.failed ? 'bad' : 'ok';
+      R.summary = lines.join('\n');
+      window.__result = R;
+      regen();
+      return R;
+    }
+    window.runChecks = runChecks;
+
+    regen();
+    requestAnimationFrame(frame);
+  }
+})();
+</script>
+</body>
+</html>

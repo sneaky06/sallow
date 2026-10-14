@@ -1,0 +1,2023 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Emberdeep — combat harness</title>
+<style>
+  html, body { margin: 0; background: #0b0a0f; color: #c8c8c8; font: 12px/1.35 Consolas, monospace; }
+  #bar { padding: 6px 8px; display: flex; flex-wrap: wrap; gap: 4px; align-items: center; border-bottom: 1px solid #2a2833; }
+  #bar button, #bar select, #bar input { font: inherit; background: #1b1a22; color: #ddd; border: 1px solid #44414f; padding: 3px 7px; }
+  #bar button:hover { background: #2a2833; cursor: pointer; }
+  #bar .sep { width: 10px; }
+  #bar input { width: 42px; }
+  #wrap { display: flex; gap: 8px; padding: 8px; align-items: flex-start; }
+  #cv { background: #000; border: 1px solid #2a2833; image-rendering: pixelated; flex: none; }
+  #side { flex: 1; min-width: 300px; }
+  pre { margin: 0 0 8px; white-space: pre-wrap; }
+  #results { max-height: 520px; overflow: auto; border: 1px solid #2a2833; padding: 6px; }
+  .pass { color: #5bd67a; } .fail { color: #ff5b5b; font-weight: bold; } .info { color: #8fa3c9; }
+  #errors { color: #ff5b5b; }
+</style>
+</head>
+<body>
+<div id="bar">
+  <b>Class</b>
+  <button data-class="warrior">Warrior</button><button data-class="ranger">Ranger</button>
+  <button data-class="sorcerer">Sorcerer</button><button data-class="necromancer">Necromancer</button>
+  <span class="sep"></span><b>Auto-build</b>
+  <button data-mode="single">Single</button><button data-mode="aoe">Group</button><button data-mode="balanced">Balanced</button><button data-mode="">Manual</button>
+  <button id="respec">Respec</button>
+  <span class="sep"></span>
+  <button id="lvl1">Level +1</button><button id="lvl5">+5</button>
+  gear <input id="gear" type="number" value="1" min="0" max="80">
+  <span class="sep"></span>
+  depth <input id="depth" type="number" value="1" min="1" max="200">
+  <button id="dungeon">Dungeon</button><button id="arena">Empty arena</button><button id="town">Town</button>
+  <span class="sep"></span>
+  <select id="mon"></select>
+  <select id="rar"><option>normal</option><option>champion</option><option>rare</option></select>
+  <button id="spawn">Spawn</button><button id="pack">Pack ×5</button><button id="boss">Boss (depth)</button><button id="clear">Clear</button>
+  <span class="sep"></span>
+  <button id="god">God mode</button><button id="revive">Revive</button>
+  <button id="runtests">Run tests</button><button id="runsim">Balance sim</button>
+</div>
+<div id="wrap">
+  <canvas id="cv" width="900" height="560"></canvas>
+  <div id="side">
+    <pre id="hud"></pre>
+    <pre id="errors"></pre>
+    <pre id="results">Loading…</pre>
+    <pre class="info">WASD move · click = tap (move / attack / interact) · Space hold = attack · F = attack once / interact · 1-4 skills · Q/E potions</pre>
+  </div>
+</div>
+
+<script>window.G = { manifest: {} };</script>
+<script src="../src/core/constants.js"></script>
+<script src="../src/core/events.js"></script>
+<script src="../src/core/rng.js"></script>
+<script src="../src/core/state.js"></script>
+<script src="../src/core/scenes.js"></script>
+<script>
+// =====================================================================================================
+// Harness-only stubs for the other teams (world / items). Deliberately crude.
+// =====================================================================================================
+(function () {
+  'use strict';
+  const G = window.G, C = G.C, T = C.TILE;
+  const H = window.H = { real: /[?&]real/.test(location.search), gear: 1, arena: false, drops: 0, lastDrop: null, visCalls: 0, pathCalls: 0, errors: [], god: false };
+
+  window.addEventListener('error', function (e) { H.errors.push((e.message || 'error') + ' @ ' + (e.filename || '').split('/').pop() + ':' + e.lineno); });
+  const origErr = console.error;
+  console.error = function () { H.errors.push(Array.prototype.map.call(arguments, function (a) { return a && a.stack ? a.stack.split('\n').slice(0, 2).join(' ') : String(a); }).join(' ')); origErr.apply(console, arguments); };
+
+  function mkMap(w, h, kind, depth, theme, seed) {
+    const m = { w: w, h: h, kind: kind, depth: depth, theme: theme, seed: seed, tiles: new Uint8Array(w * h).fill(T.FLOOR), explored: new Uint8Array(w * h),
+      visible: new Uint8Array(w * h), spawn: { x: 4, y: h >> 1 }, rooms: [], spawns: [], props: [] };
+    for (let x = 0; x < w; x++) { m.tiles[x] = T.WALL; m.tiles[(h - 1) * w + x] = T.WALL; }
+    for (let y = 0; y < h; y++) { m.tiles[y * w] = T.WALL; m.tiles[y * w + w - 1] = T.WALL; }
+    return m;
+  }
+  const set = function (m, x, y, t) { m.tiles[y * m.w + x] = t; };
+
+  const world = G.world = {
+    generateDungeon(depth, seed) {
+      const m = mkMap(46, 30, 'dungeon', depth, C.themeForDepth(depth), seed);
+      if (H.arena) { m.spawn = { x: 10, y: 15 }; return m; }
+      for (let y = 4; y <= 11; y++) set(m, 15, y, T.WALL);
+      for (let y = 18; y <= 25; y++) set(m, 15, y, T.WALL);
+      for (let y = 10; y <= 12; y++) for (let x = 26; x <= 28; x++) set(m, x, y, T.WALL);
+      for (let y = 20; y <= 22; y++) for (let x = 30; x <= 32; x++) set(m, x, y, T.WATER);
+      set(m, 4, 15, T.STAIRS_UP); set(m, 43, 15, T.STAIRS_DOWN);
+      for (let y = 26; y <= 27; y++) for (let x = 19; x <= 23; x++) set(m, x, y, T.LAVA);
+      if (depth >= 2 && depth % C.BOSS_EVERY !== 0) {          // R2.5 lockdown room: walled box, one door, locked chest
+        for (let x = 33; x <= 41; x++) { set(m, x, 2, T.WALL); set(m, x, 8, T.WALL); }
+        for (let y = 2; y <= 8; y++) { set(m, 33, y, T.WALL); set(m, 41, y, T.WALL); }
+        set(m, 37, 8, T.DOOR);
+        m.rooms.push({ x: 34, y: 3, w: 7, h: 5, type: 'lockdown', doors: [{ x: 37, y: 8 }], waves: 2 });
+        m.props.push({ type: 'chest', x: 37, y: 4, solid: true, interact: 'chest', locked: true });
+      }
+      m.props.push({ type: 'chest', x: 8, y: 5, solid: true, interact: 'chest' }, { type: 'barrel', x: 9, y: 5, solid: true, interact: 'barrel' },
+        { type: 'shrine', x: 10, y: 5, solid: true, interact: 'shrine', light: 3 }, { type: 'torch', x: 6, y: 12, solid: false, light: 4 });
+      if (depth % C.BOSS_EVERY === 0) {
+        m.spawns.push({ x: 36, y: 15, kind: 'boss' }, { x: 22, y: 8, kind: 'pack' }, { x: 22, y: 22, kind: 'pack' });
+      } else {
+        m.spawns.push({ x: 20, y: 8, kind: 'pack' }, { x: 22, y: 22, kind: 'pack', count: 4 }, { x: 31, y: 6, kind: 'pack' }, { x: 36, y: 25, kind: 'pack' }, { x: 39, y: 10, kind: 'pack' },
+          { x: 11, y: 22, kind: 'monster' }, { x: 19, y: 15, kind: 'monster' }, { x: 26, y: 16, kind: 'monster' }, { x: 37, y: 17, kind: 'elite' });
+      }
+      return m;
+    },
+    generateTown(seed) {
+      const m = mkMap(26, 18, 'town', 0, 'town', seed);
+      for (let i = 0; i < m.tiles.length; i++) if (m.tiles[i] === T.FLOOR) m.tiles[i] = T.GRASS;
+      m.explored.fill(1);
+      m.spawn = { x: 13, y: 13 };
+      C.NPC_ROLES.forEach(function (role, i) { m.spawns.push({ x: 4 + i * 3, y: 6, kind: 'npc', role: role }); });
+      m.props.push({ type: 'stash', x: 6, y: 10, solid: true, interact: 'stash' }, { type: 'dungeon_entrance', x: 20, y: 10, solid: false, interact: 'dungeon_entrance' },
+        { type: 'waypoint', x: 13, y: 10, solid: false, interact: 'waypoint' });
+      return m;
+    },
+    tileAt(map, x, y) { x = Math.floor(x); y = Math.floor(y); return (x < 0 || y < 0 || x >= map.w || y >= map.h) ? T.VOID : map.tiles[y * map.w + x]; },
+    propAt(map, tx, ty) { for (const p of map.props) if (p.x === tx && p.y === ty) return p; return null; },
+    isWalkable(map, x, y) {
+      x = Math.floor(x); y = Math.floor(y);
+      if (!C.WALKABLE[world.tileAt(map, x, y)]) return false;
+      const p = world.propAt(map, x, y);
+      return !(p && p.solid);
+    },
+    canMoveTo(map, x, y, r) {
+      r = r || 0.3;
+      return world.isWalkable(map, x - r, y - r) && world.isWalkable(map, x + r, y - r) && world.isWalkable(map, x - r, y + r) && world.isWalkable(map, x + r, y + r);
+    },
+    moveWithCollision(map, ent, dx, dy) {
+      const r = Math.min(0.45, ent.radius || 0.3);
+      let moved = false;
+      if (dx && world.canMoveTo(map, ent.x + dx, ent.y, r)) { ent.x += dx; moved = true; }
+      if (dy && world.canMoveTo(map, ent.x, ent.y + dy, r)) { ent.y += dy; moved = true; }
+      return moved;
+    },
+    hasLineOfSight(map, x0, y0, x1, y1) {
+      const d = Math.hypot(x1 - x0, y1 - y0), n = Math.ceil(d * 10);
+      for (let i = 1; i < n; i++) { const t = i / n; if (C.OPAQUE[world.tileAt(map, x0 + (x1 - x0) * t, y0 + (y1 - y0) * t)]) return false; }
+      return true;
+    },
+    findPath(map, sx, sy, tx, ty) {          // plain BFS, 4-neighbour; avoids lava when a dry route exists (R2.1 cost stand-in)
+      H.pathCalls++;
+      return world._bfs(map, sx, sy, tx, ty, true) || world._bfs(map, sx, sy, tx, ty, false);
+    },
+    _bfs(map, sx, sy, tx, ty, dry) {
+      const lava = function (x, y) { return dry && map.tiles[y * map.w + x] === T.LAVA; };
+      const w = map.w, s = Math.floor(sy) * w + Math.floor(sx), g = Math.floor(ty) * w + Math.floor(tx);
+      if (!world.isWalkable(map, tx, ty)) return null;
+      const prev = new Int32Array(w * map.h).fill(-1), q = [s];
+      prev[s] = s;
+      for (let qi = 0; qi < q.length; qi++) {
+        const c = q[qi];
+        if (c === g) break;
+        const cx = c % w, cy = (c / w) | 0;
+        for (const d of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          const nx = cx + d[0], ny = cy + d[1], n = ny * w + nx;
+          if (prev[n] >= 0 || !world.isWalkable(map, nx, ny) || lava(nx, ny)) continue;
+          prev[n] = c; q.push(n);
+        }
+      }
+      if (prev[g] < 0) return null;
+      const out = [];
+      for (let c = g; c !== s; c = prev[c]) out.push({ x: c % w + 0.5, y: ((c / w) | 0) + 0.5 });
+      out.reverse();
+      // drop nodes we can see past (cheap smoothing)
+      const sm = [];
+      let ax = sx, ay = sy;
+      for (let i = 0; i < out.length; i++) {
+        if (i === out.length - 1 || !clearWalk(map, ax, ay, out[i + 1].x, out[i + 1].y, dry)) { sm.push(out[i]); ax = out[i].x; ay = out[i].y; }
+      }
+      return sm;
+    },
+    updateVisibility(map, px, py, radius) {
+      H.visCalls++;
+      if (H.visRadius) H.visRadius.push(radius || 9);
+      radius = radius || 9;
+      map.visible.fill(0);
+      const x0 = Math.max(0, Math.floor(px - radius)), x1 = Math.min(map.w - 1, Math.floor(px + radius));
+      const y0 = Math.max(0, Math.floor(py - radius)), y1 = Math.min(map.h - 1, Math.floor(py + radius));
+      for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+        if (Math.hypot(x + 0.5 - px, y + 0.5 - py) > radius || !world.hasLineOfSight(map, px, py, x + 0.5, y + 0.5)) continue;
+        map.visible[y * map.w + x] = 1; map.explored[y * map.w + x] = 1;
+      }
+    },
+    invalidate(map) { H.invalidates = (H.invalidates || 0) + 1; },
+    findFreeTileNear(map, x, y, maxR) {
+      for (let r = 0; r <= (maxR || 6); r++) for (let oy = -r; oy <= r; oy++) for (let ox = -r; ox <= r; ox++) {
+        if (Math.max(Math.abs(ox), Math.abs(oy)) === r && world.isWalkable(map, x + ox, y + oy)) return { x: Math.floor(x + ox), y: Math.floor(y + oy) };
+      }
+      return null;
+    },
+  };
+  function clearWalk(map, x0, y0, x1, y1, dry) {
+    const d = Math.hypot(x1 - x0, y1 - y0), n = Math.ceil(d * 8);
+    for (let i = 1; i <= n; i++) {
+      const t = i / n, x = x0 + (x1 - x0) * t, y = y0 + (y1 - y0) * t;
+      if (!world.canMoveTo(map, x, y, 0.3) || (dry && world.tileAt(map, x, y) === T.LAVA)) return false;
+    }
+    return true;
+  }
+
+  // Items stub. Weapon/armour follow the items team's published curves (power(l) = 3 + 1.5l + 0.02l²) at "gear level" H.gear.
+  const WEAP = { warrior: ['sword', 1.4, 1.0, 0.25], ranger: ['bow', 1.3, 1.25, 0.3], sorcerer: ['staff', 1.0, 1.0, 0.3], necromancer: ['wand', 1.5, 0.7, 0.3] };
+  const ARMK = { warrior: 2.2, ranger: 1.4, sorcerer: 0.9, necromancer: 0.9 };
+  G.items = {
+    getActiveEffects() { return H.fx || {}; },
+    rollItem(o) { return { id: G.newId(), type: 'armor', name: 'Stub ' + (o.rarity || o._floor || 'item'), rarity: o.rarity || o._floor || 'common' }; },
+    dropItemAt(x, y, item) { G.state.groundItems.push({ id: G.newId(), x: x, y: y, item: item }); },
+    getEquipmentMods(p) {
+      if (H.mods) return H.mods;
+      const l = H.gear;
+      if (l <= 0) return {};
+      // calibrated against what the real items module hands a bot by depth 5 (see runProgression in ?real=1 mode)
+      return { armor: Math.round((4 + 2.2 * l + 0.02 * l * l) * ARMK[p.classId] * (l <= 1 ? 0.5 : 1.8)), hpMax: l <= 1 ? 0 : l * 14, dmgPct: l <= 1 ? 0 : l * 3 };
+    },
+    getWeapon(p) {
+      const WT = { bow: ['bow', 1.3, 1.25, 0.3], sword: ['sword', 1.4, 1.0, 0.25], dagger: ['dagger', 1.9, 0.9, 0.3] };
+      const d = (H.wtype && WT[H.wtype]) || WEAP[p.classId], l = Math.max(1, H.gear), avg = (3 + 1.5 * l + 0.02 * l * l) * d[2] / d[1];
+      const mn = Math.max(1, Math.round(avg * (1 - d[3])));
+      return { dmgMin: mn, dmgMax: Math.max(mn + 1, Math.round(avg * (1 + d[3]))), attackSpeed: d[1], weaponType: d[0], twoHanded: false };
+    },
+    grantStarterGear(p) { p.equipment.weapon = H.gear > 0 ? { id: G.newId(), baseId: 'stub', name: 'Stub weapon', type: 'weapon', slot: 'weapon' } : null; p.potions.hp = 4; p.potions.mp = 2; },
+    dropLoot(x, y, opts) {
+      H.drops++; H.lastDrop = opts;
+      const g = { id: G.newId(), x: x + G.rng.global.range(-0.4, 0.4), y: y + G.rng.global.range(-0.4, 0.4),
+        item: { type: 'gold', qty: 3 + opts.level * 2, name: 'Gold', rarity: 'common', icon: { shape: 'gold', color: '#ffd94a' } } };
+      G.state.groundItems.push(g);
+      if (opts.floor) G.state.groundItems.push({ id: G.newId(), x: x, y: y, item: { id: G.newId(), type: "armor", name: "Stub floor item", rarity: opts.floor } });
+      G.emit("loot:dropped", { ground: g });
+    },
+    pickup(id) {
+      const list = G.state.groundItems, i = list.findIndex(function (g) { return g.id === id; });
+      if (i < 0) return false;
+      const g = list.splice(i, 1)[0], p = G.state.player;
+      if (g.item.type === 'gold') { p.gold += g.item.qty; G.emit('gold:changed', { gold: p.gold, delta: g.item.qty }); G.emit('sfx', { name: 'gold' }); }
+      return true;
+    },
+  };
+})();
+</script>
+<script src="../src/game/manifest.js"></script>
+<script>
+// Load the game team's files exactly as index.html would (through the manifest), then start the harness.
+// With ?real=1 the stub world/items are dropped and the real modules are loaded in front of the game module.
+(function () {
+  const teams = H.real ? ['world', 'items', 'game'] : ['game'];
+  if (H.real) { delete G.world; delete G.items; }
+  const one = function (src) {
+    return new Promise(function (resolve) {
+      const s = document.createElement('script');
+      s.src = src; s.async = false; s.onload = resolve;
+      s.onerror = function () { H.errors.push('missing ' + src); resolve(); };
+      document.body.appendChild(s);
+    });
+  };
+  let p = Promise.resolve();
+  teams.forEach(function (t) { if (t !== 'game') p = p.then(function () { return one('../src/' + t + '/manifest.js'); }); });
+  p.then(function () {
+    let q = Promise.resolve();
+    teams.forEach(function (t) { (G.manifest[t] || []).forEach(function (f) { q = q.then(function () { return one('../src/' + t + '/' + f); }); }); });
+    return q;
+  }).then(function () { window.startHarness(); });
+})();
+
+window.startHarness = function () {
+  'use strict';
+  const G = window.G, C = G.C, S = G.state, game = G.game, H = window.H;
+  const $ = function (id) { return document.getElementById(id); };
+  const cv = $('cv'), ctx = cv.getContext('2d');
+  const TS = 18;                       // pixels per tile (top-down debug view)
+  const fxList = [], texts = [];
+  const seen = { fx: {}, sfx: {}, badFx: [], badSfx: [], badShape: [] };
+  const SFX = 'hit swing cast fire ice bolt arrow hurt die loot loot_rare loot_legendary gold levelup equip potion click error door stairs quest buy sell chest shrine'.split(' ');
+  let simulating = false;
+
+  G.on('fx:spawn', function (e) {
+    seen.fx[e.type] = 1;
+    if (C.FX_TYPES.indexOf(e.type) < 0) seen.badFx.push(e.type);
+    if (!simulating) fxList.push({ type: e.type, x: e.x, y: e.y, color: e.color || '#ffffff', r: e.radius || 0.6, d: e.duration || 0.35, t: 0 });
+  });
+  G.on('fx:text', function (e) { if (!simulating) texts.push({ x: e.x, y: e.y, text: e.text, color: e.color || '#fff', crit: e.crit, t: 0 }); });
+  G.on('sfx', function (e) { seen.sfx[e.name] = 1; if (SFX.indexOf(e.name) < 0) seen.badSfx.push(e.name); });
+  let lastToast = '';
+  G.on('ui:toast', function (e) { lastToast = e.text; });
+  G.on('player:died', function () { lastToast = 'YOU DIED — press Revive'; });
+
+  // ---------------- controls ----------------
+  const monSel = $('mon');
+  Object.keys(game.MONSTERS).forEach(function (id) {
+    const o = document.createElement('option');
+    o.value = id; o.textContent = game.MONSTERS[id].theme + ' · ' + game.MONSTERS[id].n;
+    monSel.appendChild(o);
+  });
+  function newGame(classId) { G.scenes.startNewGame(classId, 'Tester'); G.scenes.enterDungeon(+$('depth').value || 1); }
+  document.querySelectorAll('[data-class]').forEach(function (b) { b.onclick = function () { H.arena = false; newGame(b.dataset.class); }; });
+  document.querySelectorAll('[data-mode]').forEach(function (b) { b.onclick = function () { game.setAutoBuild(b.dataset.mode || null); }; });
+  $('respec').onclick = function () { S.player.gold += game.getRespecCost(); game.respec(); };
+  function levelUp(n) { for (let i = 0; i < n; i++) if (S.player.level < 60) game.gainXp(Math.ceil((S.player.xpNext - S.player.xp) / (1 + S.player.stats.xpGain / 100))); }
+  $('lvl1').onclick = function () { levelUp(1); };
+  $('lvl5').onclick = function () { levelUp(5); };
+  $('gear').onchange = function () { H.gear = +$('gear').value; G.items.grantStarterGear(S.player); game.recomputeStats(S.player); };
+  $('dungeon').onclick = function () { H.arena = false; G.scenes.enterDungeon(+$('depth').value || 1); };
+  $('arena').onclick = function () { H.arena = true; G.scenes.enterDungeon(+$('depth').value || 1); H.arena = false; };
+  $('town').onclick = function () { G.scenes.enterTown(); };
+  function spawnNear(id, rarity) {
+    const p = S.player, a = Math.random() * 6.28;
+    const e = game.createMonster(id, p.x + Math.cos(a) * 5, p.y + Math.sin(a) * 5, +$('depth').value || 1, rarity);
+    const spot = G.world.findFreeTileNear(S.map, e.x, e.y, 6);
+    if (spot) { e.x = spot.x + 0.5; e.y = spot.y + 0.5; }
+    S.entities.push(e);
+    return e;
+  }
+  $('spawn').onclick = function () { spawnNear(monSel.value, $('rar').value); };
+  $('pack').onclick = function () { for (let i = 0; i < 5; i++) spawnNear(monSel.value, 'normal'); };
+  $('boss').onclick = function () { const p = S.player; S.entities.push(game.createBoss(+$('depth').value || 5, Math.min(S.map.w - 3, p.x + 7), p.y)); };
+  $('clear').onclick = function () { S.entities = S.entities.filter(function (e) { return e.type !== 'monster' || e.faction === 'player'; }); S.projectiles.length = 0; game.zones.length = 0; };
+  $('god').onclick = function () { H.god = !H.god; $('god').textContent = H.god ? 'God mode ON' : 'God mode'; };
+  $('revive').onclick = function () { game.revivePlayer(); };
+  $('runtests').onclick = function () { runTests(); };
+  $('runsim').onclick = function () { runSim(); };
+
+  const keys = {};
+  function syncMove() {
+    G.input.move.x = (keys.d ? 1 : 0) - (keys.a ? 1 : 0);
+    G.input.move.y = (keys.s ? 1 : 0) - (keys.w ? 1 : 0);
+  }
+  window.addEventListener('keydown', function (e) {
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+    const k = e.key.toLowerCase();
+    if ('wasd'.indexOf(k) >= 0 && k.length === 1) { keys[k] = true; syncMove(); }
+    else if (k >= '1' && k <= '4') G.emit('input:skill', { slot: +k - 1 });
+    else if (k === 'q') G.emit('input:potion', { kind: 'hp' });
+    else if (k === 'e') G.emit('input:potion', { kind: 'mp' });
+    else if (k === 'f') G.emit('input:attack', {});
+    else if (k === ' ') { G.input.attackHeld = true; e.preventDefault(); }
+  });
+  window.addEventListener('keyup', function (e) {
+    const k = e.key.toLowerCase();
+    if ('wasd'.indexOf(k) >= 0 && k.length === 1) { keys[k] = false; syncMove(); }
+    else if (k === ' ') G.input.attackHeld = false;
+  });
+  let camX = 0, camY = 0;
+  cv.addEventListener('mousedown', function (e) {
+    const r = cv.getBoundingClientRect();
+    G.emit('input:tap', { x: (e.clientX - r.left) * cv.width / r.width / TS + camX, y: (e.clientY - r.top) * cv.height / r.height / TS + camY });
+  });
+
+  // ---------------- debug renderer ----------------
+  const TILE_COL = ['#000', '#23212b', '#55505f', '#3a3040', '#2b6a8a', '#8a6a2b', '#1c3a6a', '#1f3322', '#3a342a', '#8a2a12', '#4a3a2a', '#2e2a30'];
+  function render() {
+    const map = S.map, p = S.player;
+    ctx.fillStyle = '#000'; ctx.fillRect(0, 0, cv.width, cv.height);
+    if (!map || !p) return;
+    camX = p.x - cv.width / TS / 2; camY = p.y - cv.height / TS / 2;
+    const X = function (x) { return (x - camX) * TS; }, Y = function (y) { return (y - camY) * TS; };
+    for (let y = Math.max(0, Math.floor(camY)); y < Math.min(map.h, camY + cv.height / TS + 1); y++) {
+      for (let x = Math.max(0, Math.floor(camX)); x < Math.min(map.w, camX + cv.width / TS + 1); x++) {
+        const i = y * map.w + x;
+        ctx.fillStyle = TILE_COL[map.tiles[i]] || '#f0f';
+        ctx.globalAlpha = map.visible[i] ? 1 : map.explored[i] ? 0.45 : 0.15;
+        ctx.fillRect(X(x), Y(y), TS - 1, TS - 1);
+      }
+    }
+    ctx.globalAlpha = 1;
+    ctx.font = '9px Consolas'; ctx.textAlign = 'center';
+    for (const pr of map.props) { ctx.fillStyle = pr.used ? '#555' : '#c9a24a'; ctx.fillRect(X(pr.x) + 3, Y(pr.y) + 3, TS - 7, TS - 7); ctx.fillStyle = '#000'; ctx.fillText(pr.type[0].toUpperCase(), X(pr.x + 0.5), Y(pr.y + 0.5) + 3); }
+    for (const z of game.zones) {
+      ctx.strokeStyle = z.faction === 'enemy' ? '#ff4040' : (z.color || '#fff'); ctx.lineWidth = z.delay > 0 ? 2 : 1;
+      ctx.setLineDash(z.delay > 0 ? [4, 3] : []);
+      ctx.beginPath(); ctx.arc(X(z.x), Y(z.y), (z.trap ? 0.5 : z.r) * TS, 0, 6.29); ctx.stroke();
+    }
+    ctx.setLineDash([]);
+    for (const g of S.groundItems) { ctx.fillStyle = '#ffd94a'; ctx.fillRect(X(g.x) - 2, Y(g.y) - 2, 4, 4); }
+    const drawEnt = function (e) {
+      const r = e.radius * TS;
+      ctx.globalAlpha = e.dead ? 0.3 : 1;
+      ctx.fillStyle = e.hitFlash > 0 ? '#fff' : e.sprite.color;
+      ctx.beginPath(); ctx.arc(X(e.x), Y(e.y), r, 0, 6.29); ctx.fill();
+      ctx.strokeStyle = e.faction === 'player' ? '#5bff8a' : e.type === 'npc' ? '#ffe45b' : e.sprite.accent; ctx.lineWidth = 2; ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(X(e.x), Y(e.y)); ctx.lineTo(X(e.x) + Math.cos(e.facing) * (r + 4), Y(e.y) + Math.sin(e.facing) * (r + 4)); ctx.stroke();
+      if (!e.dead && e.type !== 'npc' && e.hp < e.stats.hpMax) {
+        ctx.fillStyle = '#400'; ctx.fillRect(X(e.x) - 12, Y(e.y) - r - 7, 24, 3);
+        ctx.fillStyle = e.faction === 'player' ? '#5bff8a' : '#e33'; ctx.fillRect(X(e.x) - 12, Y(e.y) - r - 7, 24 * Math.max(0, e.hp / e.stats.hpMax), 3);
+      }
+      if (!e.dead && (e.type === 'npc' || (e.rarity && e.rarity !== 'normal'))) {
+        ctx.fillStyle = e.rarity === 'boss' ? '#ff3b4e' : e.rarity === 'rare' ? '#ffe45b' : e.rarity === 'champion' ? '#5b8cff' : '#ddd';
+        ctx.fillText(e.name + (e.affixes && e.affixes.length ? ' [' + e.affixes.join(', ') + ']' : ''), X(e.x), Y(e.y) - r - 10);
+      }
+      if (!e.dead && e.effects.length) { ctx.fillStyle = '#9cf'; ctx.fillText(e.effects.map(function (f) { return f.id; }).join(' '), X(e.x), Y(e.y) + r + 9); }
+      if (e.ai && e.ai.st === 'sleep' && !e.dead) { ctx.fillStyle = '#888'; ctx.fillText('z', X(e.x) + r, Y(e.y) - r); }
+      ctx.globalAlpha = 1;
+    };
+    for (const e of S.entities) drawEnt(e);
+    drawEnt(p);
+    for (const pr of S.projectiles) {
+      ctx.fillStyle = pr.color; ctx.beginPath(); ctx.arc(X(pr.x), Y(pr.y), Math.max(2, pr.radius * TS * 0.6), 0, 6.29); ctx.fill();
+    }
+    for (const f of fxList) {
+      const k = f.t / f.d;
+      ctx.globalAlpha = Math.max(0, 1 - k) * 0.8; ctx.strokeStyle = f.color; ctx.lineWidth = f.type === 'ring' ? 2 : 1;
+      ctx.beginPath(); ctx.arc(X(f.x), Y(f.y), f.r * TS * (f.type === 'ring' ? 1 : 0.4 + 0.6 * k), 0, 6.29); ctx.stroke();
+    }
+    for (const t of texts) {
+      ctx.globalAlpha = Math.max(0, 1 - t.t / 0.9); ctx.fillStyle = t.color; ctx.font = (t.crit ? 'bold 13px' : '10px') + ' Consolas';
+      ctx.fillText(t.text, X(t.x), Y(t.y) - t.t * 26);
+    }
+    ctx.globalAlpha = 1; ctx.textAlign = 'left';
+  }
+
+  function hud() {
+    const p = S.player;
+    if (!p) return;
+    const st = p.stats, cls = game.CLASSES[p.classId];
+    const bar = p.skillBar.map(function (id, i) {
+      if (!id) return (i + 1) + ': —';
+      const info = game.getSkillInfo(id);
+      return (i + 1) + ': ' + info.name + ' r' + info.rank + ' (' + info.mpCost + 'mp' + (info.cdRemaining > 0 ? ', cd ' + info.cdRemaining.toFixed(1) : '') + ')';
+    });
+    const learned = Object.keys(p.skills).map(function (id) { return game.SKILLS[id].name + ' ' + p.skills[id]; });
+    $('hud').textContent =
+      p.name + ' — ' + cls.name + ' L' + p.level + '  xp ' + p.xp + '/' + p.xpNext + '  mode: ' + (p.autoBuild || 'manual') + '  [' + S.scene + ' d' + S.depth + ', ' + S.map.theme + ']\n' +
+      'HP ' + Math.ceil(p.hp) + '/' + st.hpMax + '  MP ' + Math.floor(p.mp) + '/' + st.mpMax + '  potions ' + p.potions.hp + '/' + p.potions.mp + '  gold ' + p.gold + '\n' +
+      'attrs ' + JSON.stringify(p.attrs) + ' (+' + p.attrPoints + ')  skill pts ' + p.skillPoints + '\n' +
+      'dmg ' + (p.bonus.w.min + st.dmgMin).toFixed(1) + '-' + (p.bonus.w.max + st.dmgMax).toFixed(1) + ' @' + p.bonus.w.aps + ' ' + p.bonus.w.type + '  +' + st.dmgPct + '%  crit ' + st.critChance + '%/+' + st.critDmg +
+      '%  armor ' + st.armor + '  dodge ' + st.dodge + '%  regen ' + st.hpRegen + '/' + st.mpRegen + '\n' +
+      bar.join(' | ') + '\n' +
+      'skills: ' + learned.join(', ') + '\n' +
+      'effects: ' + p.effects.map(function (e) { return e.id + ' ' + e.t.toFixed(1); }).join(', ') + '\n' +
+      'monsters ' + S.entities.filter(function (e) { return e.type === 'monster' && !e.dead; }).length + ' (active ' + game.live.foes.length + ', minions ' + game.live.allies.length + ')  projectiles ' + S.projectiles.length +
+      '  zones ' + game.zones.length + '\n' + lastToast;
+    $('errors').textContent = H.errors.length ? 'ERRORS (' + H.errors.length + '):\n' + H.errors.slice(-6).join('\n') : '';
+  }
+
+  let last = performance.now(), hudT = 0;
+  function frame(now) {
+    const dt = Math.min(0.05, (now - last) / 1000);
+    last = now;
+    if (!simulating && S.scene !== 'menu' && !S.paused) {
+      S.time += dt;
+      if (H.god && S.player && !S.player.dead) { S.player.hp = S.player.stats.hpMax; S.player.mp = S.player.stats.mpMax; }
+      try { game.update(dt); } catch (err) { console.error('[game.update]', err); }
+      for (let i = fxList.length - 1; i >= 0; i--) { fxList[i].t += dt; if (fxList[i].t > fxList[i].d) fxList.splice(i, 1); }
+      for (let i = texts.length - 1; i >= 0; i--) { texts[i].t += dt; if (texts[i].t > 0.9) texts.splice(i, 1); }
+    }
+    render();
+    hudT -= dt;
+    if (hudT <= 0) { hudT = 0.2; hud(); }
+    requestAnimationFrame(frame);
+  }
+
+  // =====================================================================================================
+  // Scripted assertions
+  // =====================================================================================================
+  const out = [];
+  let passed = 0, failed = 0;
+  function log(cls, text) { out.push('<span class="' + cls + '">' + text.replace(/&/g, '&amp;').replace(/</g, '&lt;') + '</span>'); }
+  function ok(cond, name, detail) {
+    if (cond) { passed++; log('pass', 'PASS  ' + name); }
+    else { failed++; log('fail', 'FAIL  ' + name + (detail !== undefined ? '  → ' + detail : '')); }
+  }
+  function section(name) { log('info', '\n— ' + name + ' —'); }
+  function flush() { $('results').innerHTML = out.join('\n'); }
+  function step(sec, fn) {
+    const dt = 1 / 30;
+    for (let t = 0; t < sec; t += dt) { S.time += dt; game.update(dt); if (fn && fn(t) === false) return; }
+  }
+  function fresh(classId, arena, depth) {
+    G.input.move.x = 0; G.input.move.y = 0; G.input.attackHeld = false;
+    G.scenes.startNewGame(classId, 'Test');
+    H.arena = !!arena;
+    G.scenes.enterDungeon(depth || 1);
+    H.arena = false;
+    return S.player;
+  }
+  function toLevel(p, lvl) { while (S.player.level < lvl) game.gainXp(S.player.xpNext); return S.player; }
+  function dummy(x, y, hp, level) {
+    const e = game.createMonster('skeleton', x, y, level || 1, 'normal');
+    e.stats.hpMax = hp; e.hp = hp; e.stats.armor = 0; e.dmgMin = 0; e.dmgMax = 0; e.speed = 0; e.ai.st = 'chase'; e.atkCd = 999; e.ai.atk = 999;
+    S.entities.push(e);
+    game.live.foes.push(e);
+    return e;
+  }
+  const sumRanks = function (p) { let n = 0; for (const id in p.skills) n += p.skills[id]; return n; };
+  const jsonable = function (o) { try { return JSON.stringify(JSON.parse(JSON.stringify(o))) === JSON.stringify(o); } catch (e) { return false; } };
+
+  function runTests() {
+    out.length = 0; passed = 0; failed = 0;
+    simulating = true; H.fx = null;
+    const errBefore = H.errors.length;
+    const t0 = performance.now();
+    try { allTests(); } catch (err) { failed++; log('fail', 'EXCEPTION ' + (err.stack || err)); }
+    simulating = false;
+    ok(H.errors.length === errBefore, 'no console errors / uncaught exceptions during the run', H.errors.slice(errBefore, errBefore + 3).join(' | '));
+    log(failed ? 'fail' : 'pass', '\n' + passed + ' passed, ' + failed + ' failed  (' + Math.round(performance.now() - t0) + ' ms)');
+    window.__results = { passed: passed, failed: failed, errors: H.errors.slice(), text: out.join('\n').replace(/<[^>]+>/g, '') };
+    flush();
+    H.gear = +$('gear').value; H.mods = null; H.fx = null;
+    fresh('warrior', false, +$('depth').value || 1);
+  }
+
+  function allTests() {
+    const CL = game.CLASSES, SK = game.SKILLS, MO = game.MONSTERS;
+    H.gear = 1; H.mods = null;
+
+    // ------------------------------------------------------------------
+    section('API surface (CONTRACT.md §4)');
+    const fns = ['createPlayer', 'revivePlayer', 'spawnMapEntities', 'update', 'recomputeStats', 'gainXp', 'spendAttr', 'canLearn', 'learnSkill', 'setSkillSlot', 'respec',
+      'setAutoBuild', 'getSkillInfo', 'useSkill', 'usePotion', 'getXpForLevel', 'getMonsterInfo', 'healPlayer'];
+    ok(fns.every(function (f) { return typeof game[f] === 'function'; }), 'all 18 G.game functions exist', fns.filter(function (f) { return typeof game[f] !== 'function'; }).join(','));
+    ok(typeof CL === 'object' && typeof SK === 'object', 'G.game.CLASSES and G.game.SKILLS exist');
+    ok(Array.isArray(G.manifest.game) && G.manifest.game.length > 0, 'manifest lists the game files');
+
+    section('Classes & skill trees');
+    const classIds = Object.keys(CL);
+    ok(classIds.join() === 'warrior,ranger,sorcerer,necromancer', 'four classes', classIds.join());
+    const TAGS = ['single', 'aoe', 'defense', 'mobility', 'summon', 'buff'];
+    for (const cid of classIds) {
+      const c = CL[cid];
+      const shape = c.id === cid && c.name && c.desc && c.sprite && c.icon && c.baseAttrs && c.primaryStat && Array.isArray(c.weaponTypes) && c.trees.length === 3;
+      ok(shape && C.BODY_TYPES.indexOf(c.sprite.body) >= 0 && C.WEAPON_LOOKS.indexOf(c.sprite.weapon) >= 0 && C.ICON_SHAPES.indexOf(c.icon.shape) >= 0 &&
+        ['str', 'dex', 'int', 'vit'].indexOf(c.primaryStat) >= 0, cid + ': class descriptor valid');
+      let bad = [], nAct = 0, nPas = 0, n = 0, lvl1Attack = false;
+      const tagSeen = {};
+      for (const tr of c.trees) {
+        if (!(tr.id && tr.name && tr.desc && tr.skills.length >= 5 && tr.skills.length <= 7)) bad.push('tree ' + tr.id);
+        const cells = {};
+        for (const id of tr.skills) {
+          const s = SK[id];
+          n++;
+          if (!s) { bad.push('missing ' + id); continue; }
+          if (s.id !== id || s.classId !== cid || s.tree !== tr.id) bad.push(id + ' ids');
+          if (!s.name || !s.desc || /\{|undefined|NaN/.test(s.desc)) bad.push(id + ' desc');
+          if (s.maxRank !== 5 || !(s.reqLevel >= 1)) bad.push(id + ' rank/level');
+          if (['active', 'passive'].indexOf(s.kind) < 0) bad.push(id + ' kind');
+          if (!s.tags.length || !s.tags.every(function (t) { return TAGS.indexOf(t) >= 0; })) bad.push(id + ' tags');
+          if (C.ICON_SHAPES.indexOf(s.icon.shape) < 0 || !/^#[0-9a-f]{6}$/i.test(s.icon.color)) bad.push(id + ' icon');
+          if (s.requires && (!SK[s.requires] || SK[s.requires].classId !== cid || SK[s.requires].reqLevel > s.reqLevel)) bad.push(id + ' requires');
+          if (cells[s.row + ',' + s.col]) bad.push(id + ' cell clash'); cells[s.row + ',' + s.col] = 1;
+          if (s.kind === 'active' && typeof s.cast !== 'function') bad.push(id + ' cast');
+          for (let r = 1; r <= 5; r++) if (/\{|undefined|NaN/.test(game.skillDesc(s, r))) bad.push(id + ' desc r' + r);
+          if (game.skillDesc(s, 1) === game.skillDesc(s, 5)) bad.push(id + ' no per-rank numbers');
+          s.kind === 'active' ? nAct++ : nPas++;
+          s.tags.forEach(function (t) { tagSeen[t] = 1; });
+          if (s.kind === 'active' && s.reqLevel === 1 && (s.tags.indexOf('single') >= 0 || s.tags.indexOf('aoe') >= 0)) lvl1Attack = true;
+        }
+      }
+      ok(!bad.length, cid + ': ' + n + ' skills well-formed (' + nAct + ' active / ' + nPas + ' passive)', bad.join('; '));
+      ok(tagSeen.single && tagSeen.aoe && tagSeen.defense && lvl1Attack && nPas >= 4, cid + ': has single, aoe, defense tags + a level-1 attack');
+    }
+    ok(Object.keys(SK).length === 72, '72 skills total', Object.keys(SK).length);
+
+    section('Bestiary');
+    for (const th of C.THEMES) {
+      const pool = game.THEME_POOLS[th];
+      const arch = {};
+      pool.forEach(function (id) { arch[MO[id].arch] = 1; });
+      ok(pool.length >= 5 && ['melee', 'ranged', 'caster', 'swarm', 'brute'].every(function (a) { return arch[a]; }), th + ': ' + pool.length + ' monsters covering all 5 archetypes', Object.keys(arch).join());
+    }
+    let badMon = [];
+    for (const id in MO) {
+      const d = MO[id], info = game.getMonsterInfo(id);
+      if (C.BODY_TYPES.indexOf(d.sprite.body) < 0 || C.WEAPON_LOOKS.indexOf(d.sprite.weapon) < 0 || !/^#[0-9a-f]{6}$/i.test(d.sprite.color)) badMon.push(id + ' sprite');
+      if (d.proj && C.PROJECTILE_SHAPES.indexOf(d.proj.shape) < 0) badMon.push(id + ' proj');
+      if (!info || info.name !== d.n || !info.sprite) badMon.push(id + ' info');
+      if (d.atk !== 'melee' && !(d.range > 0)) badMon.push(id + ' range');
+    }
+    ok(!badMon.length, 'every monster descriptor valid (' + Object.keys(MO).length + ')', badMon.join('; '));
+    ok(game.BOSS_ORDER.length === 4 && game.BOSS_ORDER.every(function (id, i) { return MO[id].boss && MO[id].theme === C.THEMES[i] && MO[id].phases.length >= 3; }), '4 bosses, one per theme, ≥ 3 phases each');
+    ok([5, 10, 15, 20].map(function (d) { return game.bossForDepth(d).id; }).join() === game.BOSS_ORDER.join() && game.bossForDepth(25).id === game.BOSS_ORDER[0] && game.bossForDepth(25).tier === 1,
+      'boss per boss floor; bosses repeat with a tier beyond depth 20');
+    ok(game.hpScale(200) > game.hpScale(100) && game.hpScale(100) > game.hpScale(50) && isFinite(game.hpScale(500)) && game.dmgScale(200) > game.dmgScale(100), 'level scaling keeps growing (depth 50 → 500)');
+    ok(game.AFFIX_IDS.length >= 8, game.AFFIX_IDS.length + ' elite affixes');
+
+    // ------------------------------------------------------------------
+    section('Player creation & stat recompute');
+    for (const cid of classIds) {
+      const p = game.createPlayer(cid, 'A');
+      const missing = C.STATS.filter(function (k) { return typeof p.stats[k] !== 'number' || !isFinite(p.stats[k]); });
+      ok(!missing.length && p.type === 'player' && p.classId === cid && p.level === 1 && p.hp === p.stats.hpMax && p.inventory.length === C.INV_SIZE &&
+        p.skillBar.length === C.SKILL_SLOTS && C.EQUIP_SLOTS.every(function (s) { return p.equipment[s] === null; }) && p.autoBuild === null && p.xpNext === game.getXpForLevel(1) &&
+        typeof p.potions.hp === 'number' && jsonable(p), cid + ': createPlayer shape + JSON-able', missing.join());
+    }
+    let p = fresh('warrior', true);
+    let statEvents = 0;
+    const offStats = G.on('player:stats', function () { statEvents++; });
+    const hp0 = p.stats.hpMax, dp0 = p.stats.dmgPct;
+    p.attrPoints = 2;
+    ok(game.spendAttr('vit') && p.stats.hpMax === hp0 + (CL.warrior.hpVit || 8), 'spendAttr(vit) → +' + (CL.warrior.hpVit || 8) + ' max life (warrior)', p.stats.hpMax - hp0);
+    ok(game.spendAttr('str') && p.stats.dmgPct === dp0 + 1 && statEvents >= 2, 'spendAttr(primary) → +1% damage, player:stats emitted');
+    ok(!game.spendAttr('str') && !game.spendAttr('luck'), 'spendAttr refuses with no points / unknown attr');
+    H.mods = { armor: 100, hpMax: 50, resFire: 300, resAll: 10, critChance: 500, dodge: 500, str: 5, bogus: 3 };
+    const armor0 = p.stats.armor;
+    game.recomputeStats(p);
+    ok(p.stats.armor >= 100 + p.stats.str && armor0 > 0 && p.stats.resFire === 75 && p.stats.resCold === 10 && p.stats.critChance <= 75 && p.stats.dodge <= 60 && p.stats.bogus === undefined &&
+      p.stats.str === p.attrs.str + 5, 'equipment mods folded in; resist cap 75, crit/dodge capped, unknown stats ignored');
+    H.mods = null;
+    const savedItems = G.items;
+    G.items = undefined;
+    let threw = false;
+    try { game.recomputeStats(p); } catch (e) { threw = true; }
+    ok(!threw && p.stats.hpMax > 0 && p.bonus.w.max > 0, 'recomputeStats works with G.items missing (class fallback weapon)');
+    G.items = { getEquipmentMods() { throw new Error('boom'); }, getWeapon() { throw new Error('boom'); } };
+    threw = false;
+    try { game.recomputeStats(p); } catch (e) { threw = true; }
+    ok(!threw && p.bonus.w.max > 0, 'recomputeStats survives a throwing items module');
+    G.items = savedItems;
+    game.recomputeStats(p);
+    game.addEffect(p, { id: 'test_buff', t: 5, mods: { dmgPct: 30, armor: 20 } });
+    const withBuff = p.stats.dmgPct;
+    step(5.2);
+    ok(withBuff === p.stats.dmgPct + 30 && !game.getEffect(p, 'test_buff'), 'timed effect mods apply and expire');
+    offStats();
+
+    // ------------------------------------------------------------------
+    section('Damage pipeline');
+    p = fresh('warrior', true);
+    H.mods = { dmgMin: 100, dmgMax: 100 }; game.recomputeStats(p);      // big flat damage so crits are unmistakable
+    const w = p.bonus.w, st = p.stats;
+    const lo = (w.min + st.dmgMin) * (1 + st.dmgPct / 100), hi = (w.max + st.dmgMax) * (1 + st.dmgPct / 100);
+    let mn = 1e9, mx = 0, crits = 0, cmax = 0;
+    const d = dummy(p.x + 1, p.y, 1e9);
+    const offDmg = [];
+    for (let i = 0; i < 3000; i++) {
+      const hpB = d.hp;
+      game.playerHit(d, { pct: 100, type: 'phys', skill: false });
+      const dealt = hpB - d.hp;
+      if (dealt > Math.round(hi)) { crits++; cmax = Math.max(cmax, dealt); } else { mn = Math.min(mn, dealt); mx = Math.max(mx, dealt); }
+    }
+    ok(mn >= Math.max(1, Math.round(lo) - 0) && mx <= Math.round(hi), 'non-crit basic hits stay within weapon range × damage% [' + lo.toFixed(1) + ', ' + hi.toFixed(1) + ']', mn + '..' + mx);
+    ok(cmax <= Math.round(hi * (1 + st.critDmg / 100)) && crits > 3000 * st.critChance / 100 * 0.5 && crits < 3000 * st.critChance / 100 * 2, 'crits: rate ≈ critChance, never above max × crit multiplier', crits + ' crits, max ' + cmax);
+    let sum = 0;
+    for (let i = 0; i < 400; i++) { const hpB = d.hp; game.playerHit(d, { pct: 200, type: 'phys', skill: false }); sum += hpB - d.hp; }
+    const avg200 = sum / 400, expect = (lo + hi) / 2 * 2 * (1 + st.critChance / 100 * st.critDmg / 100);
+    ok(Math.abs(avg200 / expect - 1) < 0.12, '200% skill multiplier doubles average damage', avg200.toFixed(1) + ' vs ' + expect.toFixed(1));
+    ok(game.armorReduction(0, 5) === 0 && game.armorReduction(1e9, 1) === 0.75 && game.armorReduction(100, 5) > game.armorReduction(50, 5) && game.armorReduction(100, 5) > game.armorReduction(100, 50),
+      'armour mitigation: 0 → 0%, monotonic, capped at 75%, weaker against higher-level attackers');
+    d.stats.armor = 1e9; d.hp = 1e9;
+    game.applyHit(d, { phys: 1000 }, { src: p });
+    ok(Math.abs((1e9 - d.hp) - 250) <= 1, 'armour cap: 1000 physical → 250 through infinite armour', 1e9 - d.hp);
+    d.stats.armor = 0; d.stats.resFire = 500; d.hp = 1e9;
+    game.applyHit(d, { fire: 1000 }, { src: p });
+    ok(Math.abs((1e9 - d.hp) - 250) <= 1, 'resist cap 75: 1000 fire → 250 through 500% resistance', 1e9 - d.hp);
+    d.stats.resCold = -50; d.hp = 1e9;
+    game.applyHit(d, { cold: 100, lightning: 100, poison: 100 }, { src: p });
+    ok(1e9 - d.hp === 350, 'damage types resolve separately (cold vs −50%, lightning, poison)', 1e9 - d.hp);
+    // defensive layers on the player
+    const hitP = function (opts) { p.hp = p.stats.hpMax = 1e6; const b = p.hp; game.applyHit(p, { phys: 1000 }, opts || {}); return b - p.hp; };
+    p.stats.armor = 0; p.effects = []; p.bonus.dr = 0;
+    p.stats.dodge = 100;
+    ok(hitP({ canDodge: true }) === 0 && hitP({}) === 1000, 'dodge avoids dodgeable attacks only');
+    p.stats.dodge = 0; p.stats.block = 100;
+    ok(hitP({ canBlock: true }) === 300, 'block reduces a hit by 70%');
+    p.stats.block = 0;
+    game.addEffect(p, { id: 'shield_wall', t: 5, taken: -50 });
+    ok(hitP() === 500, 'damage-taken effects (Shield Wall −50%)');
+    p.effects = [];
+    game.addEffect(p, { id: 'bone_armor', t: 5, absorb: 400 });
+    ok(hitP() === 600 && game.getEffect(p, 'bone_armor').absorb === 0, 'absorb shield soaks damage first');
+    p.effects = [];
+    p.mp = p.stats.mpMax = 1000; game.addEffect(p, { id: 'mana_shield', t: 5, pct: 40 });
+    ok(hitP() === 600 && p.mp === 600, 'Mana Shield diverts 40% to mana');
+    p.effects = [];
+    game.addEffect(p, { id: 'invuln', t: 1 });
+    ok(hitP() === 0, 'invulnerability (dodge roll) negates hits');
+    p.effects = [];
+    const att = dummy(p.x + 1, p.y, 100);
+    p.stats.thorns = 30;
+    game.monsterHit(att, p, { melee: true, mult: 1 });
+    ok(att.hp === 70, 'thorns reflect onto melee attackers', att.hp);
+    p.stats.thorns = 0; p.stats.lifeSteal = 10; p.stats.manaSteal = 10; p.stats.hpMax = 1e6; p.hp = 100; p.stats.mpMax = 1e6; p.mp = 0;
+    d.stats.resFire = 0; d.stats.resCold = 0; d.hp = 1e9;
+    const dealtLs = game.playerHit(d, { pct: 100, type: 'phys', skill: false });
+    ok(p.hp > 100 && p.mp > 0 && Math.abs((p.hp - 100) - dealtLs * 0.1) < 1, 'life steal and mana steal return a share of damage dealt');
+    void offDmg;
+
+    section("Status effects");
+    H.mods = null;
+    p = fresh('sorcerer', true);
+    let m = dummy(p.x + 2, p.y, 1000);
+    game.applyStatus(m, 'burn', 3, 20, p);
+    step(3.2);
+    ok(m.hp < 1000 - 40 && m.hp > 1000 - 80 && !game.getEffect(m, 'burn'), 'burn: fire damage over time, then expires', 1000 - m.hp);
+    m.hp = 1000; game.applyStatus(m, 'poison', 4, 10, p); step(4.2);
+    ok(m.hp < 1000 - 25 && m.hp >= 1000 - 45, 'poison ticks', 1000 - m.hp);
+    game.applyStatus(m, 'chill', 2);
+    ok(Math.abs(game.speedMult(m) - 0.7) < 1e-9, 'chill slows by 30%');
+    game.applyStatus(m, 'slow', 2, 0.4);
+    ok(Math.abs(game.speedMult(m) - 0.42) < 1e-9, 'slow stacks multiplicatively with chill');
+    game.applyStatus(m, 'freeze', 1.5);
+    ok(game.isStunned(m), 'freeze stops the target acting');
+    step(1.7);
+    ok(!game.isStunned(m), 'freeze wears off');
+    game.applyStatus(m, 'stun', 1);
+    ok(game.isStunned(m), 'stun');
+    m.effects = []; m.hp = 1000;
+    game.applyHit(m, { phys: 100 }, {}); const plain = 1000 - m.hp;
+    game.applyStatus(m, 'shock', 3); m.hp = 1000; game.applyHit(m, { phys: 100 }, {});
+    ok(1000 - m.hp === Math.round(plain * 1.2), 'shock: +20% damage taken', (1000 - m.hp) + ' vs ' + plain);
+    const boss = game.createBoss(5, p.x + 4, p.y); S.entities.push(boss);
+    game.applyStatus(boss, 'freeze', 2);
+    ok(!game.isStunned(boss) && game.getEffect(boss, 'chill'), 'bosses cannot be frozen (chilled instead)');
+    game.applyStatus(boss, 'stun', 2);
+    ok(game.isStunned(boss) && game.getEffect(boss, 'stun').t <= 0.61 && game.getEffect(boss, 'cc_immune'), 'boss stuns are cut to 30% and grant brief CC immunity');
+    // elemental identity of skills
+    m = dummy(p.x + 3, p.y, 1e6); p.skills.ice_shard = 1; p.skills.frost_nova = 1; game.recomputeStats(p);
+    game.playerHit(m, { pct: 100, type: 'cold' });
+    ok(!!game.getEffect(m, 'chill'), 'cold damage chills');
+
+    // ------------------------------------------------------------------
+    section('XP curve & levelling');
+    let mono = true;
+    for (let l = 1; l < 60; l++) if (!(game.getXpForLevel(l + 1) > game.getXpForLevel(l)) || game.getXpForLevel(l) <= 0) mono = false;
+    ok(mono, 'getXpForLevel strictly increasing for levels 1..60 (' + game.getXpForLevel(1) + ' … ' + game.getXpForLevel(59) + ')');
+    p = fresh('ranger', true);
+    const evs = { up: 0, xp: 0 };
+    const o1 = G.on('player:levelup', function (e) { evs.up++; evs.lastLevel = e.level; });
+    const o2 = G.on('player:xp', function (e) { evs.xp++; evs.last = e; });
+    game.gainXp(p.xpNext - 1);
+    ok(p.level === 1 && p.xp === p.xpNext - 1 && evs.xp === 1 && evs.last.gained === p.xp, 'gainXp below the threshold: no level, player:xp payload');
+    game.gainXp(1);
+    ok(p.level === 2 && p.xp === 0 && p.attrPoints === 3 && p.skillPoints === 2 && evs.up === 1 && evs.lastLevel === 2 && p.hp === p.stats.hpMax, 'level-up: +3 attr, +1 skill point, full heal, player:levelup');
+    game.gainXp(game.getXpForLevel(2) + game.getXpForLevel(3) + 5);
+    ok(p.level === 4 && p.xp === 5, 'multi-level gain carries the remainder');
+    game.gainXp(1e9);
+    ok(p.level === 60 && p.xp === 0 && p.skillPoints === 60 && p.attrPoints === 177, 'level cap 60 (60 skill points, 177 attribute points in total)', p.level + ' ' + p.skillPoints + ' ' + p.attrPoints);
+    game.gainXp(1e9);
+    ok(p.level === 60 && p.xp === 0, 'no XP past the cap');
+    o1(); o2();
+
+    // ------------------------------------------------------------------
+    section('Learning skills');
+    p = fresh('warrior', true);
+    ok(p.skillPoints === 1 && game.canLearn('bash').ok, 'new character starts with 1 skill point');
+    ok(!game.canLearn('fire_bolt').ok && !game.canLearn('nope').ok, 'cannot learn another class\'s / unknown skills');
+    ok(!game.canLearn('charge').ok && /level/i.test(game.canLearn('charge').reason), 'level requirement enforced: ' + game.canLearn('charge').reason);
+    let skEv = 0; const o3 = G.on('skills:changed', function () { skEv++; });
+    ok(game.learnSkill('bash') && p.skills.bash === 1 && p.skillPoints === 0 && p.skillBar[0] === 'bash' && skEv === 1, 'learnSkill spends a point, auto-slots the active, emits skills:changed');
+    ok(!game.learnSkill('cleave') && /point/i.test(game.canLearn('cleave').reason), 'no points → cannot learn');
+    toLevel(p, 6);
+    p.skills = {}; p.skillBar = [null, null, null, null]; p.skillPoints = 6;
+    ok(!game.canLearn('charge').ok && /Bash/.test(game.canLearn('charge').reason) && !game.learnSkill('charge'), 'prerequisite enforced: ' + game.canLearn('charge').reason);
+    ok(game.learnSkill('bash') && game.learnSkill('charge') && p.skillBar[1] === 'charge', 'prerequisite satisfied → learnable');
+    const armorBefore = p.stats.armor;
+    ok(game.learnSkill('iron_skin') && p.stats.armor > armorBefore && p.skillBar.indexOf('iron_skin') < 0, 'passives apply immediately and never take a bar slot');
+    p.skillPoints = 10;
+    for (let i = 0; i < 6; i++) game.learnSkill('bash');
+    ok(p.skills.bash === 5 && game.canLearn('bash').reason === 'Max rank', 'max rank 5');
+    const info = game.getSkillInfo('bash'), info0 = game.getSkillInfo('execute');
+    ok(info.rank === 5 && info.nextRankDesc === null && info.mpCost > 0 && info.cooldown === 0 && info.learnable === false && info.name === 'Bash' && /312%/.test(info.desc), 'getSkillInfo (learned, max rank): ' + info.desc);
+    ok(info0.rank === 0 && info0.learnable === false && !!info0.lockedReason && !!info0.nextRankDesc && info0.cooldown === 6, 'getSkillInfo (locked): ' + info0.lockedReason);
+    game.setSkillSlot(3, 'bash');
+    ok(p.skillBar[3] === 'bash' && p.skillBar[0] === null, 'setSkillSlot moves a skill (no duplicates)');
+    game.setSkillSlot(0, 'iron_skin'); game.setSkillSlot(0, 'whirlwind');
+    ok(p.skillBar[0] === null, 'setSkillSlot rejects passives and unlearned skills');
+    game.setSkillSlot(3, null);
+    ok(p.skillBar[3] === null, 'setSkillSlot(slot, null) clears');
+    o3();
+
+    // ------------------------------------------------------------------
+    section('Auto-build: every class × mode, level 1 → 60');
+    const MODES = ['single', 'aoe', 'balanced'];
+    const finals = {};
+    for (const cid of classIds) {
+      for (const mode of MODES) {
+        p = fresh(cid, true);
+        game.setAutoBuild(mode);
+        const problems = [];
+        let firstAttackOk = false, defAt10 = false, fullBarAt = 0;
+        const cls = CL[cid];
+        for (let lvl = 1; lvl <= 60; lvl++) {
+          if (lvl > 1) game.gainXp(p.xpNext - p.xp);
+          p = S.player;
+          if (p.level !== lvl) problems.push('level ' + p.level + '≠' + lvl);
+          if (p.skillPoints !== 0) problems.push('L' + lvl + ' unspent skill ' + p.skillPoints);
+          if (p.attrPoints !== 0) problems.push('L' + lvl + ' unspent attr ' + p.attrPoints);
+          if (sumRanks(p) !== lvl) problems.push('L' + lvl + ' ranks ' + sumRanks(p));
+          for (const id in p.skills) {
+            const s = SK[id];
+            if (!s || s.classId !== cid) problems.push('L' + lvl + ' foreign ' + id);
+            else {
+              if (p.skills[id] > s.maxRank || p.skills[id] < 1) problems.push('L' + lvl + ' rank ' + id);
+              if (s.reqLevel > lvl) problems.push('L' + lvl + ' early ' + id);
+              if (s.requires && !(p.skills[s.requires] > 0)) problems.push('L' + lvl + ' prereq ' + id);
+            }
+          }
+          const bar = p.skillBar.filter(Boolean);
+          if (new Set(bar).size !== bar.length) problems.push('L' + lvl + ' dup bar');
+          for (const id of bar) if (!(p.skills[id] > 0) || SK[id].kind !== 'active') problems.push('L' + lvl + ' bad bar ' + id);
+          const actives = Object.keys(p.skills).filter(function (id) { return SK[id].kind === 'active'; }).length;
+          if (bar.length !== Math.min(4, actives)) problems.push('L' + lvl + ' bar ' + bar.length + '/' + actives);
+          if (lvl === 1) firstAttackOk = bar.length === 1 && (SK[bar[0]].tags.indexOf('single') >= 0 || SK[bar[0]].tags.indexOf('aoe') >= 0);
+          if (lvl === 10) defAt10 = Object.keys(p.skills).some(function (id) { return SK[id].tags.indexOf('defense') >= 0; });
+          if (!fullBarAt && bar.length === 4) fullBarAt = lvl;
+        }
+        const prim = p.attrs[cls.primaryStat] - cls.baseAttrs[cls.primaryStat], vit = p.attrs.vit - cls.baseAttrs.vit;
+        if (prim + vit !== 177 || prim !== 118 || vit !== 59) problems.push('attr split ' + prim + '/' + vit);
+        let tagPts = { single: 0, aoe: 0 };
+        for (const id in p.skills) { if (SK[id].kind === 'active') { if (SK[id].tags.indexOf('single') >= 0) tagPts.single += p.skills[id]; if (SK[id].tags.indexOf('aoe') >= 0) tagPts.aoe += p.skills[id]; } }
+        finals[cid + mode] = { skills: JSON.stringify(p.skills), bar: p.skillBar.slice(), tagPts: tagPts };
+        ok(!problems.length && firstAttackOk && defAt10 && fullBarAt > 0 && fullBarAt <= 12,
+          cid + '/' + mode + ': all points spent legally at every level; attack at L1, defense by L10, full bar at L' + fullBarAt + ' → [' + p.skillBar.join(', ') + ']',
+          problems.slice(0, 5).join('; ') + ' atk1=' + firstAttackOk + ' def10=' + defAt10 + ' bar=' + fullBarAt);
+      }
+      const f = finals;
+      ok(f[cid + 'single'].skills !== f[cid + 'aoe'].skills && f[cid + 'single'].bar.join() !== f[cid + 'aoe'].bar.join() &&
+        f[cid + 'single'].tagPts.single > f[cid + 'aoe'].tagPts.single && f[cid + 'aoe'].tagPts.aoe > f[cid + 'single'].tagPts.aoe,
+        cid + ': single favours single-target actives, aoe favours group actives (single ' + JSON.stringify(f[cid + 'single'].tagPts) + ' vs aoe ' + JSON.stringify(f[cid + 'aoe'].tagPts) + ')');
+    }
+    // determinism
+    p = fresh('sorcerer', true); game.setAutoBuild('balanced'); toLevel(p, 37); const a1 = JSON.stringify([S.player.skills, S.player.skillBar, S.player.attrs]);
+    p = fresh('sorcerer', true); toLevel(p, 37); game.setAutoBuild('balanced'); const a2 = JSON.stringify([S.player.skills, S.player.skillBar, S.player.attrs]);
+    ok(a1 === a2, 'auto-build is deterministic (level-by-level == all at once at L37)');
+
+    section('Mode switching & respec');
+    p = fresh('necromancer', true); game.setAutoBuild('single'); p = toLevel(p, 30);
+    const sSingle = JSON.stringify(p.skills);
+    game.setAutoBuild('aoe');
+    ok(JSON.stringify(p.skills) !== sSingle && sumRanks(p) === 30 && p.skillPoints === 0 && p.autoBuild === 'aoe' && p.skillBar.every(Boolean), 'switching single → aoe re-plans all 30 points', JSON.stringify(p.skills));
+    game.setAutoBuild('single');
+    ok(JSON.stringify(p.skills) === sSingle, 'switching back reproduces the original build exactly');
+    game.setAutoBuild(null);
+    ok(p.autoBuild === null && JSON.stringify(p.skills) === sSingle, 'manual mode keeps the build untouched');
+    p.gold = 0;
+    ok(game.respec() === false && sumRanks(p) === 30, 'respec refused without gold (cost ' + game.getRespecCost() + ')');
+    p.gold = 10000;
+    let goldEv = null; const o4 = G.on('gold:changed', function (e) { goldEv = e; });
+    const cost = game.getRespecCost();
+    ok(game.respec() === true && p.gold === 10000 - cost && goldEv && goldEv.delta === -cost && sumRanks(p) === 0 && p.skillPoints === 30 && p.attrPoints === 87 &&
+      JSON.stringify(p.attrs) === JSON.stringify(CL.necromancer.baseAttrs) && p.skillBar.every(function (s) { return s === null; }), 'manual respec refunds every skill and attribute point for gold');
+    ok(game.getRespecCost() > 0 && cost === 25 * 30, 'respec cost scales with level');
+    game.learnSkill('bone_spear'); game.learnSkill('bone_spear'); game.spendAttr('vit');
+    game.setAutoBuild('balanced');
+    ok(p.skills.bone_spear >= 2 && p.skillPoints === 0 && p.attrPoints === 0 && sumRanks(p) === 30, 'manual → auto keeps hand-placed points and spends the rest');
+    game.respec();
+    ok(p.skillPoints === 0 && p.attrPoints === 0 && sumRanks(p) === 30 && p.autoBuild === 'balanced', 'respec while a mode is set re-allocates automatically');
+    o4();
+    p = fresh("necromancer", true); game.setAutoBuild("single"); p = toLevel(p, 4);
+    step(0.2); game.useSkill(p.skillBar.indexOf('raise_skeleton')); step(0.3);
+    const minionsBefore = S.entities.filter(function (e) { return e.faction === 'player'; }).length;
+    p.gold = 1000; game.respec();
+    ok(minionsBefore >= 2 && S.entities.filter(function (e) { return e.faction === 'player'; }).length === 0, 'respec dismisses minions (' + minionsBefore + ' raised)');
+
+    // ------------------------------------------------------------------
+    section('Map population');
+    p = fresh('warrior', false, 1);
+    let mons = S.entities.filter(function (e) { return e.type === 'monster'; });
+    ok(mons.length >= 15 && mons.length <= 81 && mons.every(function (e) { return e.level >= 1 && e.faction === 'enemy' && game.THEME_POOLS.crypt.indexOf(e.monsterId) >= 0 && game.W.walkable(e.x, e.y); }),
+      'depth 1: ' + mons.length + ' crypt monsters from pack/monster/elite spawns, all on walkable tiles');
+    ok(mons.some(function (e) { return e.rarity === 'champion' && e.affixes.length === 1 && game.AFFIXES[e.affixes[0]]; }), 'elite spawn at shallow depth → champion with a named affix');
+    ok(S.entities.every(jsonable), 'all spawned entities are plain JSON-able data');
+    const need = ['id', 'type', 'name', 'x', 'y', 'radius', 'facing', 'sprite', 'anim', 'animT', 'hitFlash', 'dead', 'level', 'hp', 'mp', 'stats', 'effects', 'monsterId', 'rarity', 'affixes'];
+    ok(mons.every(function (e) { return need.every(function (k) { return e[k] !== undefined; }) && C.STATS.every(function (k) { return typeof e.stats[k] === 'number'; }); }), 'monster entities carry every contract field + full stats');
+    G.scenes.enterDungeon(12);
+    mons = S.entities.filter(function (e) { return e.type === 'monster'; });
+    const elite = mons.filter(function (e) { return e.rarity !== 'normal'; });
+    const tierOk2 = elite.length > 0 && elite.every(function (e) { return e.rarity === 'champion' ? e.affixes.length === 1 && e.level === 13 : e.rarity === 'rare' ? e.affixes.length >= 2 && e.affixes.length <= 3 && e.level === 14 : e.rarity === 'legendary' ? e.affixes.length >= 4 && e.level === 15 : e.isSplit; });
+    ok(mons.every(function (e) { return game.MONSTERS[e.monsterId].theme === 'inferno'; }) && tierOk2, 'depth 12: inferno pool; elites ' + elite.map(function (e) { return e.rarity + ' "' + e.name + '" [' + e.affixes.join(', ') + ']'; }).join('; '));
+    const sk1 = game.createMonster('skeleton', 0, 0, 1), sk30 = game.createMonster('skeleton', 0, 0, 30), sk100 = game.createMonster('skeleton', 0, 0, 100);
+    ok(sk30.stats.hpMax > sk1.stats.hpMax * 20 && sk100.stats.hpMax > sk30.stats.hpMax * 20 && sk30.dmgMax > sk1.dmgMax * 5 && sk30.xp > sk1.xp, 'monsters scale with depth: skeleton hp ' + sk1.stats.hpMax + ' / ' + sk30.stats.hpMax + ' / ' + sk100.stats.hpMax);
+    for (const depth of [5, 10, 15, 20, 25]) {
+      G.scenes.enterDungeon(depth);
+      const b = S.entities.filter(function (e) { return e.rarity === 'boss'; });
+      ok(b.length === 1 && b[0].monsterId === game.bossForDepth(depth).id && b[0].level === depth + 2, 'depth ' + depth + ' boss: ' + (b[0] && b[0].name) + ' (hp ' + (b[0] && b[0].stats.hpMax) + ')');
+    }
+    G.scenes.enterTown();
+    const npcs = S.entities.filter(function (e) { return e.type === 'npc'; });
+    ok(S.entities.length === C.NPC_ROLES.length && npcs.length === C.NPC_ROLES.length && C.NPC_ROLES.every(function (r) { return npcs.some(function (n) { return n.role === r && n.name && n.name !== r; }); }),
+      'town: one named NPC per role, no monsters — ' + npcs.map(function (n) { return n.name; }).join(', '));
+    const big = G.world.generateDungeon(3, 99);
+    for (let i = 0; i < 60; i++) big.spawns.push({ x: 20 + (i % 10), y: 5 + ((i / 10) | 0), kind: 'pack', count: 6 });
+    S.map = big; S.entities = [];
+    game.spawnMapEntities(big);
+    ok(S.entities.filter(function (e) { return e.type === 'monster'; }).length <= 81, 'monster cap holds on an over-stuffed map', S.entities.length);
+
+    // ------------------------------------------------------------------
+    section('Player controller');
+    p = fresh('warrior', true);
+    H.visCalls = 0;
+    step(0.1);
+    ok(H.visCalls === 1, 'visibility computed once on arrival', H.visCalls);
+    step(1);
+    ok(H.visCalls === 1, 'no visibility recompute while standing still', H.visCalls);
+    const x0 = p.x;
+    G.emit('input:tap', { x: p.x + 6.4, y: p.y + 3.3 });
+    const tx = x0 + 6.4, ty = p.y + 3.3;
+    step(4);
+    ok(Math.hypot(p.x - tx, p.y - ty) < 0.3 && p.anim === 'idle', 'tap on floor → walks there and stops', Math.hypot(p.x - tx, p.y - ty).toFixed(2));
+    ok(H.visCalls >= 5 && H.visCalls <= 14, 'visibility only recomputed on tile changes (' + H.visCalls + ' calls for ~7 tiles)');
+    G.emit('input:tap', { x: p.x - 8, y: p.y });
+    step(0.5);
+    const midX = p.x;
+    G.input.move.x = 0; G.input.move.y = 1;
+    step(0.5);
+    ok(Math.abs(p.x - midX) < 0.05 && p.y > ty + 1.5 && p.anim === 'walk', 'joystick overrides tap-to-move');
+    G.input.move.y = 0;
+    step(0.2);
+    ok(p.anim === 'idle' && Math.abs(p.x - midX) < 0.05, 'releasing the stick stops (tap destination was cancelled)');
+    // speed
+    const y1 = p.y; G.input.move.x = 1; step(1); G.input.move.x = 0;
+    ok(Math.abs((p.x - midX) - 4.2) < 0.3 && Math.abs(p.y - y1) < 0.01, 'base move speed ≈ 4.2 tiles/s', (p.x - midX).toFixed(2));
+    // tap a monster → attack until dead
+    let killed = null; const o5 = G.on('monster:killed', function (e) { killed = e; });
+    const drops0 = H.drops, xp0 = p.xp;
+    m = game.createMonster('skeleton', p.x + 5, p.y, 1); m.speed = 0; m.dmgMin = m.dmgMax = 0; S.entities.push(m);
+    step(0.1);
+    G.emit('input:tap', { x: m.x + 0.2, y: m.y - 0.2 });
+    step(12, function () { return !m.dead; });
+    ok(m.dead && killed && killed.monster === m && typeof killed.x === 'number' && Math.hypot(p.x - m.x, p.y - m.y) < 2, 'tap on a monster → attack-move until it dies; monster:killed {monster, x, y}');
+    ok(H.drops === drops0 + 1 && H.lastDrop.source === 'monster' && H.lastDrop.level === 1 && typeof H.lastDrop.magicFind === 'number' && typeof H.lastDrop.goldFind === 'number' && (p.xp > xp0 || p.level > 1),
+      'kill → G.items.dropLoot(x, y, {source, level, magicFind, goldFind}) + XP');
+    step(1.5);
+    ok(S.groundItems.length === 0 && p.gold > 0, 'gold within pickupRadius is collected automatically', S.groundItems.length + ' piles left, gold ' + p.gold);
+    ok(S.entities.indexOf(m) >= 0 && m.anim === 'die', 'corpse lingers (for Corpse Explosion)');
+    step(9);
+    ok(S.entities.indexOf(m) < 0, 'corpse removed after a few seconds');
+    // hold-to-attack + auto target
+    const mA = game.createMonster("skeleton", p.x + 1.5, p.y, 1), mB = game.createMonster("skeleton", p.x - 3.5, p.y, 1);
+    [mA, mB].forEach(function (e) { e.speed = 0; e.dmgMin = e.dmgMax = 0; S.entities.push(e); });
+    step(0.1);
+    G.input.attackHeld = true;
+    step(8, function () { return !mA.dead; });
+    ok(mA.dead && !mB.dead, 'hold attack → auto-targets the nearest enemy first');
+    step(12, function () { return !mB.dead; });
+    G.input.attackHeld = false;
+    ok(mB.dead, 'hold attack keeps chaining to the next enemy');
+    o5();
+    // input:attack once
+    m = game.createMonster('ghoul', p.x + 1.2, p.y, 1); m.speed = 0; m.dmgMin = m.dmgMax = 0; m.stats.hpMax = m.hp = 1e6; S.entities.push(m);
+    step(0.5);
+    G.emit('input:attack', {});
+    step(3);
+    const lost = 1e6 - m.hp;
+    ok(lost > 0 && lost < 20, 'input:attack → exactly one basic attack (' + lost + ' dmg)');
+    // skills via input:skill
+    game.learnSkill('bash');
+    const mp0 = p.mp = p.stats.mpMax; m.hp = 1e6;
+    G.emit('input:skill', { slot: 0 });
+    step(0.3);
+    ok(m.hp < 1e6 && p.mp < mp0, 'input:skill casts the slotted skill at the auto-target and spends mana');
+    p.mp = 0;
+    ok(game.useSkill(0) === false, 'useSkill fails without mana');
+    ok(game.useSkill(2) === false, 'useSkill on an empty slot → false');
+    m.dead = true; m.ai.corpse = 0;
+    // ranged class fires projectiles that stop at walls
+    p = fresh('ranger', false, 1);
+    S.entities = S.entities.filter(function (e) { return e.type !== 'monster'; });
+    p.x = 13.5; p.y = 8.5;                       // wall column at x = 15
+    m = dummy(17.5, 8.5, 500);
+    game.learnSkill('aimed_shot');
+    step(0.1);
+    p.facing = 0;
+    game.K.shoot(p, 0, { pct: 100, shape: 'arrow', color: '#fff', speed: 15 });
+    ok(S.projectiles.length === 1 && C.PROJECTILE_SHAPES.indexOf(S.projectiles[0].shape) >= 0 && typeof S.projectiles[0].vx === 'number' && jsonable(S.projectiles[0]), 'projectile entity shape (JSON-able)');
+    step(1);
+    ok(S.projectiles.length === 0 && m.hp === 500, 'projectiles collide with walls');
+    ok(game.pickTarget(10) === null, 'auto-target ignores enemies that are not visible');
+    p.x = 13.5; p.y = 14.5; m.x = 19.5; m.y = 14.5;
+    game.onPlayerMoved(true); step(0.1);
+    G.input.attackHeld = true; step(1.5); G.input.attackHeld = false;
+    ok(m.hp < 500 && Math.abs(p.x - 13.5) < 0.01, 'ranged basic attack hits from range without walking in', 500 - m.hp);
+
+    section('Interactables, NPCs, stairs');
+    p = fresh('warrior', false, 1);
+    S.entities = S.entities.filter(function (e) { return e.type !== 'monster'; });
+    const chest = S.map.props[0], barrel = S.map.props[1], shrine = S.map.props[2];
+    const inter = []; const o6 = G.on('object:interact', function (e) { inter.push(e); });
+    let d0 = H.drops;
+    G.emit('input:tap', { x: 8.5, y: 5.5 }); step(6);
+    ok(chest.used === true && chest.type === 'chest_open' && H.drops === d0 + 1 && H.lastDrop.source === 'chest' && inter.length === 1 && inter[0].type === 'chest' && inter[0].prop === chest,
+      'tap chest → walk, open (chest_open, used), dropLoot source "chest", object:interact {type:"chest", prop}');
+    G.emit('input:tap', { x: 8.5, y: 5.5 }); step(1);
+    ok(H.drops === d0 + 1 && inter.length === 1, 'an opened chest cannot be looted twice');
+    d0 = H.drops;
+    G.emit('input:tap', { x: 9.5, y: 5.5 }); step(4);
+    ok(barrel.used && barrel.solid === false && S.map.props.indexOf(barrel) < 0 && H.drops === d0 + 1 && H.lastDrop.source === 'barrel', 'tap barrel → smashed (removed, no longer solid), dropLoot source "barrel"');
+    G.emit('input:tap', { x: 10.5, y: 5.5 }); step(4);
+    const sh = game.getEffect(p, 'shrine');
+    ok(shrine.used && sh && sh.mods && sh.t > 60 && inter[inter.length - 1].type === 'shrine', 'tap shrine → timed buff (' + (sh && sh.name) + '), object:interact {type:"shrine"}');
+    p.effects = []; game.recomputeStats(p);
+    // stairs: need a way to observe without leaving the map → temporarily intercept
+    let sceneChanges = 0; const o7 = G.on('scene:changed', function () { sceneChanges++; });
+    G.emit('input:tap', { x: 43.5, y: 15.5 });
+    step(20, function () { return S.depth === 1; });
+    ok(S.depth === 2 && inter.some(function (e) { return e.type === 'stairs_down'; }) && sceneChanges === 1, 'tap stairs down → walk across the map (around walls), object:interact stairs_down → depth 2');
+    S.entities = S.entities.filter(function (e) { return e.type !== 'monster'; });
+    p = S.player;
+    step(0.2);
+    G.emit('input:attack', {});          // nothing to fight: attack button interacts with the nearest thing (the up stairs we stand on)
+    step(1.5);
+    ok(S.depth === 1 && inter.some(function (e) { return e.type === 'stairs_up'; }), 'attack button with no enemies → interacts with the nearest object (stairs up)');
+    o7();
+    G.scenes.enterTown(); p = S.player;
+    let npcEv = null; const o8 = G.on('npc:interact', function (e) { npcEv = e; });
+    const healer = S.entities.filter(function (e) { return e.role === 'healer'; })[0];
+    G.emit('input:tap', { x: healer.x, y: healer.y }); step(8);
+    ok(npcEv && npcEv.role === 'healer' && npcEv.entity === healer && Math.hypot(p.x - healer.x, p.y - healer.y) <= 1.7, 'tap NPC → walk + npc:interact {role, entity}');
+    G.input.attackHeld = true; step(0.5); G.input.attackHeld = false;
+    ok(healer.hp === 1 && !healer.dead, 'NPCs are never attacked');
+    inter.length = 0;
+    G.emit('input:tap', { x: 20.5, y: 10.5 }); step(10);
+    ok(inter.length === 1 && inter[0].type === 'dungeon_entrance' && inter[0].prop, 'tap dungeon entrance → object:interact {type:"dungeon_entrance", prop}');
+    inter.length = 0;
+    G.emit('input:tap', { x: 6.5, y: 10.5 }); step(10);
+    ok(inter.length === 1 && inter[0].type === 'stash', 'tap stash (solid prop) → walks next to it, object:interact stash');
+    o6(); o8();
+    S.paused = true; const px = p.x; G.emit('input:tap', { x: p.x + 5, y: p.y }); S.paused = false; step(0.5);
+    ok(p.x === px, 'input ignored while paused');
+
+    section('Potions, death, revive, heal');
+    p = fresh('sorcerer', true);
+    p.hp = 10; p.potions.hp = 2;
+    ok(game.usePotion('hp') && p.hp > 10 && p.potions.hp === 1, 'hp potion heals and is consumed');
+    ok(game.usePotion('hp') === false && p.potions.hp === 1 && game.getPotionCooldown('hp') > 0, 'short potion cooldown');
+    step(3.2); p.hp = 10;
+    ok(game.usePotion('hp') && p.potions.hp === 0, 'usable again after the cooldown');
+    step(3.2);
+    ok(game.usePotion('hp') === false, 'no potions → false');
+    p.mp = 0; p.potions.mp = 1;
+    ok(game.usePotion('mp') && p.mp > 0 && p.potions.mp === 0 && !game.usePotion('xx'), 'mp potion restores mana');
+    step(3.5);
+    let died = 0, dmgEv = null; const o9 = G.on('player:died', function () { died++; }); const o10 = G.on('player:damaged', function (e) { dmgEv = e; });
+    m = game.createMonster('ghoul', p.x + 0.8, p.y, 30); S.entities.push(m);
+    step(6, function () { return !p.dead; });
+    ok(p.dead && p.hp === 0 && died === 1 && p.anim === 'die' && dmgEv && dmgEv.amount > 0 && dmgEv.source === m, 'lethal damage → dead, player:died once, player:damaged {amount, source}');
+    const pos = p.x; G.input.move.x = 1; step(1); G.input.move.x = 0;
+    ok(p.x === pos && died === 1 && game.useSkill(0) === false && game.usePotion('mp') === false, 'a dead player cannot move, cast or drink');
+    G.scenes.respawn(); p = S.player;
+    ok(!p.dead && p.hp === p.stats.hpMax && p.mp === p.stats.mpMax && S.scene === 'town' && p.effects.length === 0, 'G.scenes.respawn → revivePlayer: alive, full life, in town');
+    p.hp = 1; p.mp = 0; game.addEffect(p, { id: 'poison', t: 10, dps: 5, dtype: 'poison' });
+    game.healPlayer();
+    ok(p.hp === p.stats.hpMax && p.mp === p.stats.mpMax && !game.getEffect(p, 'poison'), 'healPlayer() → full life/mana, ailments cured');
+    p.hp = 1; game.healPlayer(false);
+    ok(p.hp > 1 && p.hp < p.stats.hpMax, 'healPlayer(false) → partial heal');
+    o9(); o10();
+
+    // ------------------------------------------------------------------
+    section('Monster AI');
+    p = fresh('warrior', true);
+    p.stats.hpMax = p.hp = 1e7;
+    let hurtN = 0; const oHurt = G.on('player:damaged', function () { hurtN++; });
+    const far = game.createMonster('skeleton', p.x + 14, p.y, 1); S.entities.push(far);
+    step(1);
+    ok(far.ai.st === 'sleep' && far.x === p.x + 14, 'monsters outside aggro range sleep');
+    far.x = p.x + 6; step(0.6);
+    ok(far.ai.st === 'chase', 'aggro when the player comes into view');
+    const dist0 = Math.hypot(far.x - p.x, far.y - p.y); step(1);
+    ok(Math.hypot(far.x - p.x, far.y - p.y) < dist0 - 1.5, 'chases the player');
+    step(4);
+    ok(hurtN > 0 && Math.hypot(far.x - p.x, far.y - p.y) < 1.3, 'melee monster closes in and hits');
+    far.dead = true; far.ai.corpse = 0;
+    const arch = game.createMonster('skeleton_archer', p.x + 5, p.y, 1); S.entities.push(arch);
+    let sawShot = false; hurtN = 0;
+    step(5, function () { if (S.projectiles.some(function (q) { return q.faction === 'enemy'; })) sawShot = true; });
+    ok(sawShot && hurtN > 0 && Math.hypot(arch.x - p.x, arch.y - p.y) > 2.5, 'ranged monster shoots from a distance');
+    arch.x = p.x + 1.2; arch.y = p.y; const dA = 1.2; step(1.2);
+    ok(Math.hypot(arch.x - p.x, arch.y - p.y) > dA + 0.8, 'ranged monster kites when the player closes in', Math.hypot(arch.x - p.x, arch.y - p.y).toFixed(2));
+    arch.dead = true; arch.ai.corpse = 0; oHurt();
+    // pack separation
+    const packM = [];
+    for (let i = 0; i < 8; i++) { const e = game.createMonster('grave_rat', p.x + 6 + Math.random() * 0.2, p.y + Math.random() * 0.2, 1); e.dmgMin = e.dmgMax = 0; S.entities.push(e); packM.push(e); }
+    step(4);
+    let minD = 9;
+    for (let i = 0; i < 8; i++) for (let j = i + 1; j < 8; j++) minD = Math.min(minD, Math.hypot(packM[i].x - packM[j].x, packM[i].y - packM[j].y));
+    ok(minD > 0.2 && packM.every(function (e) { return Math.hypot(e.x - p.x, e.y - p.y) < 2.2; }), 'a pack of 8 surrounds the player without stacking (closest pair ' + minD.toFixed(2) + ' tiles)');
+    // waking one alerts neighbours; leash
+    packM.forEach(function (e) { e.dead = true; e.ai.corpse = 0; });
+    step(0.1);
+    const s1 = game.createMonster('skeleton', p.x + 12, p.y, 1), s2 = game.createMonster('skeleton', p.x + 13, p.y + 1, 1);
+    S.entities.push(s1, s2); step(0.5);
+    game.applyHit(s1, { phys: 1 }, { src: p });
+    ok(s1.ai.st === 'chase' && s2.ai.st === 'chase', 'damaging a sleeping monster wakes it and its neighbours');
+    s1.speed = s2.speed = 0; p.x -= 6; game.onPlayerMoved(true); step(1);
+    ok(s1.ai.st === 'sleep', 'leash: monsters give up when the player gets far away');
+    s1.dead = s2.dead = true; s1.ai.corpse = s2.ai.corpse = 0;
+    // pathing around a wall
+    p = fresh('warrior', false, 1);
+    S.entities = S.entities.filter(function (e) { return e.type !== 'monster'; });
+    p.stats.hpMax = p.hp = 1e7; p.x = 13.5; p.y = 8.5; game.onPlayerMoved(true);
+    const chaser = game.createMonster('skeleton', 17.5, 8.5, 1); chaser.ai.st = 'chase'; S.entities.push(chaser);
+    H.pathCalls = 0;
+    step(8, function () { return Math.hypot(chaser.x - p.x, chaser.y - p.y) > 1.2; });
+    ok(Math.hypot(chaser.x - p.x, chaser.y - p.y) <= 1.3 && H.pathCalls >= 1 && H.pathCalls <= 12, 'monster paths around a wall via G.world.findPath (throttled: ' + H.pathCalls + ' path calls)');
+    // champions / rares with every affix run without errors
+    p = fresh('warrior', true); p.stats.hpMax = p.hp = 1e7;
+    const errA = H.errors.length;
+    game.AFFIX_IDS.forEach(function (af, i) {
+      const e = game.createMonster(i % 2 ? 'skeleton' : 'bone_mage', p.x + 3 + (i % 4), p.y - 3 + (i % 5), 3, 'champion');
+      e.affixes = [af]; game.AFFIXES[af].apply(e); e.ai.st = 'chase'; S.entities.push(e);
+    });
+    step(12);
+    ok(H.errors.length === errA && p.hp < 1e7, 'all ' + game.AFFIX_IDS.length + ' affixes simulate cleanly');
+    const fe = game.createMonster('skeleton', p.x + 2, p.y, 3, 'champion'); fe.affixes = ['Fire Enchanted']; S.entities.push(fe); game.live.foes.push(fe);
+    const z0 = game.zones.length; game.applyHit(fe, { phys: 1e6 }, { src: p });
+    ok(fe.dead && game.zones.length === z0 + 1 && game.zones[game.zones.length - 1].faction === 'enemy' && game.zones[game.zones.length - 1].delay > 0, 'Fire Enchanted elite leaves a telegraphed death blast');
+    // every monster type fights
+    const errM = H.errors.length; let hurtBy = {};
+    const oH = G.on('player:damaged', function (e) { if (e.source && e.source.monsterId) hurtBy[e.source.monsterId] = 1; });
+    const ids = Object.keys(MO).filter(function (id) { return MO[id].theme !== 'minion' && !MO[id].boss; });
+    for (let i = 0; i < ids.length; i += 6) {
+      p = fresh('warrior', true); p.stats.hpMax = p.hp = 1e7;
+      ids.slice(i, i + 6).forEach(function (id, k) { const e = game.createMonster(id, p.x + 3, p.y - 3 + k * 1.2, 2); S.entities.push(e); });
+      step(9);
+    }
+    oH();
+    ok(H.errors.length === errM && ids.every(function (id) { return hurtBy[id]; }), 'each of the ' + ids.length + ' monster types wakes, attacks and damages the player', ids.filter(function (id) { return !hurtBy[id]; }).join());
+
+    section('Bosses');
+    for (const bid of game.BOSS_ORDER) {
+      p = fresh('warrior', true, 5); p.stats.hpMax = p.hp = 1e9;
+      const b = game.createMonster(bid, p.x + 5, p.y, 7, 'boss'); S.entities.push(b);
+      const used = {}; let teleg = 0, adds = 0;
+      const oT = G.on('fx:text', function (e) { if (findBossMove(bid, e.text)) used[e.text] = 1; });
+      const oR = G.on('fx:spawn', function (e) { if (e.type === 'ring' && e.duration >= 0.4) teleg++; });
+      const errB = H.errors.length;
+      step(14);
+      p.x = b.x - 8; p.y = b.y; game.onPlayerMoved(true); step(6);      // stand off so the gap-closers come out too
+      const p1 = Object.keys(used).length;
+      b.hp = b.stats.hpMax * 0.55; step(16);
+      const ph2 = b.ai.phase;
+      b.hp = b.stats.hpMax * 0.25; step(18);
+      adds = S.entities.filter(function (e) { return e.bossAdd === b.id; }).length;
+      oT(); oR();
+      const all = [].concat.apply([], MO[bid].phases.map(function (ph) { return ph.moves.map(function (mv) { return mv.id; }); }));
+      ok(H.errors.length === errB && p1 >= 2 && ph2 === 1 && b.ai.phase === 2 && b.ai.enraged && all.every(function (id) { return used[id]; }) && teleg >= 6 && adds >= 3 && p.hp < 1e9,
+        MO[bid].n + ': 3 phases, enrage, all ' + all.length + ' moves used with telegraphs (' + Object.keys(used).join(', ') + '), ' + adds + ' adds',
+        'p1=' + p1 + ' ph2=' + ph2 + ' ph=' + b.ai.phase + ' used=' + Object.keys(used).join() + ' teleg=' + teleg + ' adds=' + adds);
+      let bk = null; const oK = G.on('monster:killed', function (e) { if (e.monster === b) bk = e; });
+      const wp0 = S.flags.waypoints.length;
+      game.applyHit(b, { phys: 1e12 }, { src: p });
+      oK();
+      if (bid === game.BOSS_ORDER[0]) ok(b.dead && bk && H.lastDrop.source === 'boss' && S.flags.waypoints.length === wp0 + 1, 'boss kill → loot source "boss", monster:killed (core unlocks the next waypoint)');
+    }
+    function findBossMove(bid, text) { return MO[bid].phases.some(function (ph) { return ph.moves.some(function (mv) { return mv.id === text; }); }); }
+
+    // ------------------------------------------------------------------
+    section('Every active skill casts');
+    for (const cid of classIds) {
+      const errS = H.errors.length; const failedCasts = [], noEffect = [];
+      const actives = [];
+      CL[cid].trees.forEach(function (tr) { tr.skills.forEach(function (id) { if (SK[id].kind === 'active') actives.push(id); }); });
+      for (const id of actives) {
+        p = fresh(cid, true); p = toLevel(p, 30);
+        CL[cid].trees.forEach(function (tr) { tr.skills.forEach(function (sid) { p.skills[sid] = 3; }); });
+        game.recomputeStats(p); p.stats.mpMax = p.mp = 1e6; p.stats.hpMax = 1e6; p.hp = 5e5;
+        const foes = [];
+        for (let i = 0; i < 4; i++) { const e = dummy(p.x + 2.2 + (i % 2) * 0.9, p.y - 0.5 + (i >> 1) * 0.9, 1e7, 30); foes.push(e); }
+        const corpse = game.createMonster('skeleton', p.x + 2.5, p.y, 30); S.entities.push(corpse); game.kill(corpse, p);
+        p.skillBar = [id, null, null, null];
+        step(0.15);
+        p.facing = 0;
+        const before = snapshot(p, foes);
+        const res = game.useSkill(0);
+        if (!res) failedCasts.push(id);
+        step(2.5);
+        if (res && snapshot(p, foes) === before) noEffect.push(id);
+      }
+      ok(H.errors.length === errS && !failedCasts.length && !noEffect.length, cid + ': all ' + actives.length + ' actives cast and visibly do something', 'failed: ' + failedCasts.join() + ' no effect: ' + noEffect.join());
+    }
+    function snapshot(p, foes) {
+      return JSON.stringify([Math.round(p.x * 10), Math.round(p.y * 10), p.effects.map(function (e) { return e.id; }), foes.map(function (e) { return [Math.round(e.hp), e.effects.map(function (f) { return f.id; })]; }),
+        S.entities.filter(function (e) { return e.faction === 'player'; }).length, game.zones.length, Math.round(p.hp / 100)]);
+    }
+
+    section('Selected skill mechanics');
+    p = fresh('warrior', true); p = toLevel(p, 30); p.skills = { cleave: 1, whirlwind: 1, bash: 1, charge: 1, leap: 1 }; p.skillBar = ['cleave', 'whirlwind', 'charge', 'leap']; game.recomputeStats(p); p.mp = p.stats.mpMax = 1e5;
+    p.facing = 0;
+    let front = [dummy(p.x + 1.2, p.y - 0.6, 1e6), dummy(p.x + 1.2, p.y + 0.6, 1e6)], back = dummy(p.x - 1.4, p.y, 1e6);
+    step(0.1); game.ctl.targetId = front[0].id; game.useSkill(0); step(0.2);
+    ok(front[0].hp < 1e6 && front[1].hp < 1e6 && back.hp === 1e6, 'Cleave hits everything in the frontal arc, nothing behind');
+    step(0.8); game.useSkill(1); step(1.5);
+ok(back.hp < 1e6 && front[0].hp < 1e6 && front[1].hp < 1e6, 'Whirlwind hits all around');
+    front.concat(back).forEach(function (e) { e.dead = true; e.ai.corpse = 0; });
+    step(0.1);
+    let tgt = dummy(p.x + 6, p.y, 1e6); step(0.1);
+    game.useSkill(2); step(0.2);
+    ok(Math.hypot(p.x - tgt.x, p.y - tgt.y) < 1.8 && tgt.hp < 1e6 && game.isStunned(tgt) && p.cooldowns.charge > 5, 'Charge dashes to the target, hits, stuns, goes on cooldown');
+    ok(game.useSkill(2) === false, 'skills on cooldown cannot be used');
+    step(9); ok(p.cooldowns.charge === 0, 'cooldowns tick down');
+    p = fresh('ranger', true); p = toLevel(p, 30); p.skills = { multishot: 5, piercing_shot: 1, aimed_shot: 1, spike_trap: 1, dodge_roll: 1 }; p.skillBar = ['multishot', 'piercing_shot', 'spike_trap', 'dodge_roll']; game.recomputeStats(p); p.mp = p.stats.mpMax = 1e5;
+    tgt = dummy(p.x + 4, p.y, 1e6); const behind = dummy(p.x + 6, p.y, 1e6); step(0.1);
+    game.useSkill(0);
+    ok(S.projectiles.filter(function (q) { return q.faction === 'player'; }).length === 5, 'Multishot rank 5 → 5 arrows');
+    step(1); S.projectiles.length = 0; tgt.hp = behind.hp = 1e6;
+    game.useSkill(1); step(1);
+    ok(tgt.hp < 1e6 && behind.hp < 1e6, 'Piercing Shot passes through the first target and hits the one behind');
+    tgt.dead = behind.dead = true; step(0.1);
+    game.useSkill(2);
+    ok(game.zones.length === 1 && game.zones[0].trap, 'Spike Trap is placed');
+    const walker = dummy(p.x + 5, p.y, 1e6); step(1.5);
+    ok(game.zones.length === 1 && walker.hp === 1e6, 'trap waits');
+    walker.x = p.x + 0.5; step(0.3);
+    ok(game.zones.length === 0 && walker.hp < 1e6 && game.getEffect(walker, 'slow'), 'trap springs when an enemy steps on it (damage + slow)');
+    const ca0 = game.getClassAction();
+    ok(ca0 && ca0.id === 'dash' && ca0.name && ca0.desc && C.ICON_SHAPES.indexOf(ca0.icon.shape) >= 0 && Math.abs(ca0.cooldown - 2.75) < 1e-9 && ca0.cdRemaining === 0, 'R4.4 getClassAction(): Ranger Dash, cooldown improved by Acrobatics (' + (ca0 && ca0.cooldown) + ' s)');
+    const rx = p.x; G.input.move.x = -1; G.emit('input:classaction', {}); G.input.move.x = 0;
+    ok(Math.abs((rx - p.x) - 3.3) < 0.15 && game.getEffect(p, 'invuln') && game.getClassAction().cdRemaining > 2.5, 'input:classaction dashes ~3 tiles along the stick with brief invulnerability', (rx - p.x).toFixed(2));
+    const rx2 = p.x; G.emit('input:classaction', {});
+    ok(p.x === rx2, 'Dash respects its cooldown');
+    step(3); const foeD = dummy(p.x + 1.5, p.y, 1e6); step(0.1); const rx3 = p.x; G.emit('input:classaction', {});
+    ok(p.x < rx3 - 2.5 && Math.hypot(p.x - foeD.x, p.y - foeD.y) > 4, 'idle Dash goes away from the nearest enemy');
+    ok(['warrior', 'sorcerer', 'necromancer'].every(function (c) { fresh(c, true); return game.getClassAction() === null; }) && !game.SKILLS.dodge_roll.cast && game.SKILLS.dodge_roll.kind === 'passive', 'other classes have no class action; Dodge Roll became the Acrobatics passive');
+    p = fresh('sorcerer', true); p = toLevel(p, 30); p.skills = { fire_bolt: 1, fireball: 1, chain_lightning: 5, frost_nova: 1, teleport: 1, meteor: 1 }; p.skillBar = ['fireball', 'chain_lightning', 'frost_nova', 'teleport']; game.recomputeStats(p); p.mp = p.stats.mpMax = 1e5;
+    const grp = [dummy(p.x + 5, p.y, 1e6), dummy(p.x + 5.8, p.y + 0.6, 1e6), dummy(p.x + 5.6, p.y - 0.7, 1e6)]; const lone = dummy(p.x + 5, p.y + 7, 1e6); step(0.1);
+    game.ctl.targetId = grp[0].id; game.useSkill(0); step(1.2);
+    ok(grp.every(function (e) { return e.hp < 1e6; }) && lone.hp === 1e6, 'Fireball explodes on impact and damages the whole group');
+    grp.forEach(function (e) { e.hp = 1e6; }); game.useSkill(1); step(0.1);
+    ok(grp.every(function (e) { return e.hp < 1e6; }), 'Chain Lightning arcs between nearby enemies');
+    grp.forEach(function (e, i) { e.x = p.x + 1.5; e.y = p.y - 1 + i; e.hp = 1e6; e.effects = []; }); step(0.7);
+    game.useSkill(2); step(0.05);
+    ok(grp.every(function (e) { return e.hp < 1e6 && game.isStunned(e); }), 'Frost Nova damages and freezes everything nearby');
+    step(0.8);
+    const tx0 = p.x; p.facing = Math.PI; G.input.move.x = -1; game.useSkill(3); G.input.move.x = 0;
+    ok(tx0 - p.x > 5, 'Teleport blinks ~6 tiles', (tx0 - p.x).toFixed(2));
+    p.skillBar[0] = 'meteor'; grp.forEach(function (e) { e.x = p.x + 6; e.y = p.y; e.hp = 1e6; e.effects = []; }); step(0.7);
+    game.ctl.targetId = grp[0].id; game.useSkill(0); step(0.5);
+    ok(grp[0].hp === 1e6 && game.zones.length === 1 && game.zones[0].delay > 0, 'Meteor is telegraphed (lands after a delay)');
+    step(0.7);
+    ok(grp[0].hp < 1e6, 'Meteor lands');
+    p = fresh('necromancer', true); p = toLevel(p, 30); p.skills = { raise_skeleton: 5, skeletal_mage: 3, golem: 1, corpse_explosion: 1, life_drain: 1, amplify_damage: 1 }; p.skillBar = ['raise_skeleton', 'skeletal_mage', 'golem', 'corpse_explosion']; game.recomputeStats(p); p.mp = p.stats.mpMax = 1e5;
+    step(0.1); game.useSkill(0); step(0.7); game.useSkill(1); step(0.7); game.useSkill(2); step(0.2);
+    const mins = S.entities.filter(function (e) { return e.faction === 'player'; });
+    ok(mins.length === 4 + 2 + 1 && mins.every(function (e) { return e.type === 'monster' && e.summon && jsonable(e); }) && p.minions.raise_skeleton === 4, 'summons: 4 skeletons + 2 mages + golem, flagged faction "player"', mins.length);
+    const victim = game.createMonster('ghoul', p.x + 5, p.y, 20); S.entities.push(victim);
+    const xpB = p.xp, lvB = p.level;
+    step(25, function () { return !victim.dead; });
+    ok(victim.dead && (p.xp > xpB || p.level > lvB), 'minions fight alongside the player and their kills grant XP');
+    step(0.3);
+    const bystander = dummy(victim.x + 1, victim.y, 1e6); step(0.1);
+    ok(game.useSkill(3) === true, 'Corpse Explosion finds the corpse'); step(0.2);
+    ok(bystander.hp < 1e6 && victim.exploded, 'Corpse Explosion damages enemies near the corpse and consumes it');
+    step(1.2); ok(game.useSkill(3) === false, 'Corpse Explosion with no corpse → false');
+    bystander.dead = true;
+    step(4);
+    G.scenes.descend(); p = S.player; step(0.2);
+    ok(S.entities.filter(function (e) { return e.faction === 'player'; }).length === 7, 'minions are re-raised beside the player on the next floor');
+    G.scenes.enterTown();
+    ok(S.entities.filter(function (e) { return e.faction === 'player'; }).length === 0, 'no minions in town');
+
+    // ------------------------------------------------------------------
+    section('Save round-trip mid-fight');
+    for (const cid of classIds) {
+      p = fresh(cid, false, 3); game.setAutoBuild('balanced'); p = toLevel(p, 14);
+      p.stats.hpMax = 1e6; p.hp = 1e6;
+      p.x = 22.5; p.y = 15.5; game.onPlayerMoved(true);
+      G.input.attackHeld = true;
+      let slot = 0;
+      const errR = H.errors.length;
+      step(4, function () { if (Math.random() < 0.2) game.useSkill(slot++ % 4); });
+      const snap = JSON.stringify(S.player);
+      const okJson = jsonable(S.player) && S.entities.every(jsonable) && S.projectiles.every(jsonable) && jsonable(game.zones);
+      S.player = JSON.parse(snap);
+      S.entities = JSON.parse(JSON.stringify(S.entities));
+      S.projectiles = JSON.parse(JSON.stringify(S.projectiles));
+      const same = JSON.stringify(S.player) === snap;
+      const killsBefore = S.flags.kills;
+      for (let i = 0; i < 5; i++) { const e = game.createMonster("skeleton", S.player.x + 3 + i * 0.5, S.player.y - 2 + i, 3); e.ai.st = "chase"; S.entities.push(e); }
+      step(10, function () { S.player.hp = 1e6; if (Math.random() < 0.2) game.useSkill(slot++ % 4); });
+      G.input.attackHeld = false;
+      ok(okJson && same && H.errors.length === errR && S.flags.kills > killsBefore && S.player !== p,
+        cid + ': player/entities/projectiles survive JSON.parse(JSON.stringify()) and the fight goes on (' + (S.flags.kills - killsBefore) + ' kills after reload)',
+        'json=' + okJson + ' same=' + same + ' errs=' + (H.errors.length - errR) + ' kills=' + (S.flags.kills - killsBefore));
+    }
+    // a save that predates derived fields
+    p = fresh('warrior', true); const bare = JSON.parse(JSON.stringify(p)); delete bare.bonus; delete bare.minions; bare.stats = {}; S.player = bare;
+    let threwLoad = false;
+    try { game.recomputeStats(S.player); step(0.5); } catch (e) { threwLoad = true; H.errors.push(String(e)); }
+    ok(!threwLoad && S.player.stats.hpMax > 0, 'continueGame path: recomputeStats rebuilds derived data on a loaded player');
+
+    rev2Tests();
+    rev3Tests();
+
+    // ------------------------------------------------------------------
+    section('Event vocabulary');
+    ok(!seen.badFx.length, 'every fx:spawn type is in G.C.FX_TYPES (used: ' + Object.keys(seen.fx).join(', ') + ')', seen.badFx.join());
+    ok(!seen.badSfx.length, 'every sfx name is in the contract list (used: ' + Object.keys(seen.sfx).join(', ') + ')', seen.badSfx.join());
+
+    section('Performance (80 monsters awake around the player)');
+    p = fresh('sorcerer', true); p.stats.hpMax = p.hp = 1e9;
+    const pool = game.THEME_POOLS.crypt;
+    for (let i = 0; i < 80; i++) { const e = game.createMonster(pool[i % pool.length], p.x + 3 + (i % 10) * 1.1, p.y - 5 + ((i / 10) | 0) * 1.3, 3); e.ai.st = 'chase'; e.stats.hpMax = e.hp = 1e7; S.entities.push(e); }
+    step(2);
+    const tA = performance.now();
+    step(10);
+    const ms = (performance.now() - tA) / 300;
+    ok(ms < 2.5, 'game.update with 80 active monsters: ' + ms.toFixed(3) + ' ms/frame on this machine (budget 16.6)');
+    S.entities = S.entities.filter(function (e) { return e.type !== 'monster'; });
+    for (let i = 0; i < 80; i++) { const e = game.createMonster(pool[i % pool.length], 30 + (i % 10), 3 + ((i / 10) | 0), 3); S.entities.push(e); }
+    p.x = 3.5; p.y = 26.5; game.onPlayerMoved(true);
+    step(1);
+    const tB = performance.now();
+    step(10);
+    const ms2 = (performance.now() - tB) / 300;
+    ok(game.live.foes.length === 0 && ms2 < 0.3, '80 monsters outside the active radius are not simulated: ' + ms2.toFixed(3) + ' ms/frame');
+  }
+
+  // =====================================================================================================
+  // Revision 3 assertions
+  // =====================================================================================================
+  function rev3Tests() {
+    const A = game.AFFIXES, U = game.U, SK = game.SKILLS, CL = game.CLASSES;
+    const realChance = U.chance, realRand = U.rand;
+    const fixRolls = function () { U.rand = function (a, b) { return (a + b) / 2; }; U.chance = function () { return false; }; };
+    const freeRolls = function () { U.chance = realChance; U.rand = realRand; };
+    const noMonsters = function () { S.entities = S.entities.filter(function (e) { return e.type !== 'monster'; }); game.live.foes.length = 0; };
+    const god = function (p) { H.mods = { hpMax: 1e7 }; game.recomputeStats(p); p.hp = p.stats.hpMax; };
+    let p;
+
+    section('R3.6 monster tiers & modifiers');
+    const common = game.AFFIX_IDS, legend = game.LEGEND_AFFIXES;
+    ok(common.length >= 20 && legend.length >= 6 && common.concat(legend).every(function (k) { return A[k].tell && /^#[0-9a-f]{6}$/i.test(A[k].color); }),
+      common.length + ' common + ' + legend.length + ' legendary-only modifiers, each with a colour and a readable tell');
+    const rng = G.rng.create(7);
+    let tierOk = true;
+    for (let i = 0; i < 60; i++) {
+      const c = game.createMonster('skeleton', 5, 5, 6, 'champion', rng), r = game.createMonster('skeleton', 5, 5, 6, 'rare', rng), l = game.createMonster('skeleton', 5, 5, 16, 'legendary', rng);
+      const lOnly = l.affixes.filter(function (a) { return A[a].legendary; }).length;
+      if (c.affixes.length !== 1 || r.affixes.length < 2 || r.affixes.length > 3 || l.affixes.length < 4 || l.affixes.length > 5 || lOnly !== 1 ||
+        r.affixes.some(function (a) { return A[a].legendary; }) || new Set(l.affixes).size !== l.affixes.length) tierOk = false;
+    }
+    ok(tierOk, 'champion 1 modifier, rare 2–3, legendary 4–5 including exactly one legendary-only (never on lesser tiers)');
+    const L = game.createMonster('ghoul', 5, 5, 9, 'legendary', G.rng.create(3));
+    const N = game.createMonster('ghoul', 5, 5, 9, 'normal');
+    ok(L.rarity === 'legendary' && /, /.test(L.name) && L.sprite.accent === '#ff8a2b' && L.stats.hpMax > N.stats.hpMax * 6 && L.xp > N.xp * 10 && jsonable(L),
+      'legendary: generated name + title ("' + L.name + '"), orange accent, much tougher (' + L.stats.hpMax + ' vs ' + N.stats.hpMax + ' hp)');
+    // spawn rules on the stub map (elite spawn at (37,17))
+    let legFloors = 0, early = 0, packs = 0, shared = 0;
+    for (let s = 0; s < 40; s++) {
+      const m = G.world.generateDungeon(9, 1000 + s); S.map = m; S.entities = []; game.spawnMapEntities(m);
+      if (S.entities.some(function (e) { return e.rarity === 'legendary'; })) legFloors++;
+      const ch = S.entities.filter(function (e) { return e.rarity === 'champion' && !e.isSplit; });
+      if (ch.length >= 2) { packs++; if (new Set(ch.map(function (e) { return e.affixes[0]; })).size < ch.length) shared++; }
+      const m2 = G.world.generateDungeon(2, 2000 + s); S.map = m2; S.entities = []; game.spawnMapEntities(m2);
+      if (S.entities.some(function (e) { return e.rarity === 'legendary'; })) early++;
+    }
+    ok(legFloors >= 10 && legFloors <= 32 && early === 0, 'legendary on ' + legFloors + '/40 depth-9 floors (≈1 per 2–3), never before depth 3');
+    ok(packs >= 10 && shared === packs, 'champions come in packs of 2–4 sharing one modifier (' + packs + ' packs)');
+    // announcement
+    p = fresh('warrior', true, 6); god(p);
+    let toast = null, sfx = 0; const oT = G.on('ui:toast', function (e) { if (/—/.test(e.text)) toast = e; }); const oS = G.on('sfx', function (e) { if (e.name === 'shrine') sfx++; });
+    const lg = game.createMonster('skeleton', p.x + 5, p.y, 9, 'legendary', G.rng.create(11)); lg.ai.st = 'chase'; S.entities.push(lg);
+    step(0.5); oT(); oS();
+    ok(toast && toast.text.indexOf(lg.name.split(',')[0]) === 0 && lg.affixes.every(function (a) { return toast.text.indexOf(a) > 0; }) && sfx >= 1 && lg.seen, 'first sight of a legendary: ui:toast with its name and modifiers + sfx');
+    const d0 = H.drops; game.applyHit(lg, { phys: 1e12 }, { src: p });
+    ok(lg.dead && H.drops > d0 && H.lastDrop.source === 'legendary', 'a slain legendary drops with loot source "legendary"');
+    // every modifier does something
+    const probe = function (name, cls, setup, check, secs) {
+      p = fresh(cls || 'warrior', true, 6); god(p); p.mp = p.stats.mpMax;
+      const e = game.createMonster(A[name].legendary ? 'skeleton' : 'skeleton_archer', p.x + 3, p.y, 6, 'normal');
+      e.affixes = [name]; A[name].apply(e); e.ai.st = 'chase'; e.stats.hpMax = e.hp = 1e6; S.entities.push(e);
+      const ctx = { e: e, p: p };
+      if (setup) setup(ctx);
+      const err0 = H.errors.length;
+      step(secs || 12, function () { if (ctx.watch) ctx.watch(ctx); });
+      return H.errors.length === err0 && check(ctx);
+    };
+    const zonesBy = function (ctx, f) { return function (c) { for (const z of game.zones) if (z.srcId === c.e.id && f(z)) c.hit = true; }; };
+    const res = {};
+    res.Mortar = probe('Mortar', null, function (c) { c.watch = zonesBy(c, function (z) { return z.dtype === 'fire' && z.r < 2; }); }, function (c) { return c.hit; });
+    res.Jailer = probe('Jailer', null, function (c) { c.watch = function (c2) { if (game.getEffect(c2.p, 'slow')) c2.hit = true; }; }, function (c) { return c.hit; });
+    res.Molten = probe('Molten', null, function (c) { c.p.x += 4; c.watch = zonesBy(c, function (z) { return !!z.linger || z.every; }); }, function (c) { return c.hit; });
+    res.Plagued = probe('Plagued', null, function (c) { c.watch = zonesBy(c, function (z) { return z.dtype === 'poison'; }); }, function (c) { return c.hit; });
+    res.Frenzied = probe('Frenzied', null, function (c) { c.cd0 = c.e.atkCd; c.e.hp = c.e.stats.hpMax * 0.4; }, function (c) { return c.e.atkCd < c.cd0 * 0.8; }, 1);
+    res['Aura of Might'] = probe('Aura of Might', null, function (c) { const o = game.createMonster('skeleton', c.e.x, c.e.y + 1, 6); o.ai.st = 'chase'; S.entities.push(o); c.o = o; }, function (c) { return !!game.getEffect(c.o, 'aura_might'); }, 1.2);
+    res['Aura of Haste'] = probe('Aura of Haste', null, function (c) { const o = game.createMonster('skeleton', c.e.x, c.e.y + 1, 6); o.ai.st = 'chase'; S.entities.push(o); c.o = o; }, function (c) { return game.speedMult(c.o) > 1.2; }, 1.2);
+    res['Mana Burn'] = probe('Mana Burn', 'sorcerer', function (c) { c.p.stats.mpRegen = 0; c.mp0 = c.p.mp; c.e.x = c.p.x + 1; }, function (c) { return c.p.mp < c.mp0 - 1; }, 6);
+    res.Knockback = probe('Knockback', null, function (c) {
+      const sk2 = game.createMonster('skeleton', c.p.x + 1, c.p.y, 6); sk2.affixes = ['Knockback']; sk2.ai.st = 'chase'; S.entities.push(sk2); c.x0 = c.p.x;
+      c.watch = function (c2) { if (Math.abs(c2.p.x - c2.x0) > 1) c2.hit = true; };
+    }, function (c) { return c.hit; }, 6);
+    res.Volley = probe('Volley', null, function (c) { c.watch = function (c2) { if (S.projectiles.filter(function (q) { return q.srcId === c2.e.id && q.vol; }).length >= 3) c2.hit = true; }; }, function (c) { return c.hit; });
+    res.Evasive = probe('Evasive', null, function (c) { c.e.speed = 0; c.e.dmgMin = c.e.dmgMax = 0; let dodges = 0; for (let i = 0; i < 400; i++) if (game.playerHit(c.e, { pct: 100, type: 'phys', skill: false }) === 0) dodges++; c.dodges = dodges; },
+      function (c) { return c.dodges > 60 && c.dodges < 140; }, 0.1);
+    res.Armoured = probe('Armoured', null, null, function (c) { return game.armorReduction(c.e.stats.armor, 10) > 0.4; }, 0.1);
+    res.Splitting = probe('Splitting', null, function (c) { c.e.hp = 1; c.e.stats.hpMax = 100; game.applyHit(c.e, { phys: 10 }, { src: c.p }); }, function (c) { return S.entities.filter(function (e) { return e.isSplit && !e.dead; }).length === 2; }, 0.1);
+    res.Nova = probe('Nova', null, function (c) { c.watch = zonesBy(c, function (z) { return z.r > 3; }); }, function (c) { return c.hit; });
+    res.Reflecting = probe('Reflecting', 'ranger', function (c) {
+      c.e.speed = 0; c.e.dmgMin = c.e.dmgMax = 0; c.e.x = c.p.x + 5;
+      c.watch = function (c2) { if (game.getEffect(c2.e, 'reflect') && !c2.shot) { c2.shot = true; game.K.shoot(c2.p, 0, { pct: 100, shape: 'arrow', speed: 15 }); }
+        if (S.projectiles.some(function (q) { return q.faction === 'enemy' && q.srcId === c2.e.id && q.vx < 0; })) c2.hit = true; };
+    }, function (c) { return c.hit; });
+    res.Vortex = probe('Vortex', null, function (c) { c.e.speed = 0; c.e.x = c.p.x + 6; c.watch = function (c2) { if (Math.hypot(c2.p.x - c2.e.x, c2.p.y - c2.e.y) < 2.5) c2.hit = true; }; }, function (c) { return c.hit; });
+    res.Enraging = probe('Enraging', null, function (c) { c.d0 = c.e.dmgMax; c.e.hp = c.e.stats.hpMax * 0.2; }, function (c) { return c.e.dmgMax > c.d0 * 1.3; }, 1);
+    res.Shadecaller = probe('Shadecaller', null, null, function (c) { return S.entities.filter(function (e) { return e.bossAdd === c.e.id; }).length >= 2; });
+    const failedMods = Object.keys(res).filter(function (k) { return !res[k]; });
+    ok(!failedMods.length, 'each new modifier has a visible effect: ' + Object.keys(res).join(', '), failedMods.join(', '));
+    // every modifier on a real elite simulates cleanly
+    p = fresh('warrior', true, 6); god(p);
+    const errA = H.errors.length;
+    common.concat(legend).forEach(function (af, i) {
+      const e = game.createMonster(['skeleton', 'bone_mage', 'ghoul'][i % 3], p.x + 3 + (i % 5), p.y - 3 + (i % 6), 6, 'rare', null);
+      e.affixes = [af]; A[af].apply(e); e.ai.st = 'chase'; S.entities.push(e);
+    });
+    step(15);
+    ok(H.errors.length === errA && S.entities.every(jsonable) && jsonable(game.zones), 'all ' + (common.length + legend.length) + ' modifiers fight together cleanly; state stays JSON-able');
+
+    section('R3.7 floor modifiers');
+    const FM = game.FLOOR_MODS;
+    ok(game.FLOOR_MOD_IDS.length >= 10 && game.FLOOR_MOD_IDS.every(function (k) { const r = FM[k].reward; return FM[k].name && FM[k].desc && r && (r.magicFind || r.goldFind || r.xpGain); }),
+      game.FLOOR_MOD_IDS.length + ' floor modifiers, each with a name, description and reward');
+    let detOk = true, shallow = 0, deep2 = 0, deepN = 0, bossMods = 0;
+    for (let s = 0; s < 60; s++) {
+      const a = G.world.generateDungeon(14, 500 + s), b = G.world.generateDungeon(14, 500 + s);
+      S.map = a; S.entities = []; game.spawnMapEntities(a); S.map = b; S.entities = []; game.spawnMapEntities(b);
+      if (JSON.stringify(a.mods) !== JSON.stringify(b.mods)) detOk = false;
+      if (a.mods.length === 2) deep2++;
+      deepN += a.mods.length;
+      const sh = G.world.generateDungeon(3, 900 + s); S.map = sh; S.entities = []; game.spawnMapEntities(sh); shallow += sh.mods.length;
+      const bf = G.world.generateDungeon(10, 700 + s); S.map = bf; S.entities = []; game.spawnMapEntities(bf); bossMods += bf.mods.length;
+    }
+    ok(detOk && shallow === 0 && bossMods === 0 && deep2 > 5 && deepN > 40, 'mods roll deterministically from map.seed; none before depth 4 or on boss floors; 0–2 deeper (' + (deepN / 60).toFixed(2) + ' avg at depth 14)');
+    const onFloor = function (mods, cls) {
+      p = fresh(cls || 'warrior', true, 6);
+      S.map.mods = mods; S.map._reward = null; noMonsters();
+      return p;
+    };
+    let toasts = []; const oF = G.on('ui:toast', function (e) { toasts.push(e.text); });
+    p = fresh('warrior', true, 6); toasts.length = 0;
+    const fm = G.world.generateDungeon(6, 4242); fm.mods = ['hasted', 'volatile'];
+    G.scenes.enterDungeon(6);          // a fresh roll — then force a known pair through the arrival toast path
+    G.emit('scene:changed', { scene: 'dungeon', depth: 6, map: fm }); oF();
+    ok(toasts.some(function (t) { return /Quickened/.test(t) && /XP/.test(t); }) && toasts.some(function (t) { return /Volatile Dead/.test(t) && /gold/.test(t); }), 'arrival toasts name each modifier and its reward');
+    p = onFloor(['hasted', 'bloodlust', 'armoured']);
+    const hm = game.createMonster('skeleton', p.x + 3, p.y, 6), base = game.MONSTERS.skeleton;
+    S.map.mods = []; const plain = game.createMonster('skeleton', p.x + 3, p.y, 6); S.map.mods = ['hasted', 'bloodlust', 'armoured'];
+    ok(hm.speed === base.spd * 1.25 && Math.abs(hm.dmgMax / plain.dmgMax - 1.25) < 1e-9 && Math.abs(hm.stats.hpMax / plain.stats.hpMax - 1.4) < 0.02, 'Quickened / Bloodlust / Ironhide change monster stats');
+    const mn = game.createMinion('minion_skeleton', p.x, p.y, p, 1);
+    ok(mn.speed === game.MONSTERS.minion_skeleton.spd, 'player minions are untouched by floor modifiers');
+    p = onFloor(['burning', 'frostbite', 'leeching']); god(p);
+    const fe = game.createMonster('skeleton', p.x + 1, p.y, 6); fe.ai.st = 'chase'; fe.hp = fe.stats.hpMax * 0.5; S.entities.push(fe);
+    step(4);
+    ok(game.getEffect(p, 'burn') && game.getEffect(p, 'chill') && fe.hp > fe.stats.hpMax * 0.5, 'Emberstorm burns, Frostbite chills, Blood Mist heals the attacker');
+    p = onFloor(['volatile']);
+    const vm = dummy(p.x + 3, p.y, 10); const z0 = game.zones.length; game.applyHit(vm, { phys: 100 }, { src: p });
+    ok(game.zones.length === z0 + 1 && game.zones[game.zones.length - 1].faction === 'enemy', 'Volatile Dead: slain monsters leave a delayed blast');
+    p = onFloor(['no_regen']); p.hp = 10; p.mp = 0; step(2);
+    ok(p.hp === 10 && p.mp === 0, 'Withering Air: no life or mana regeneration');
+    p = onFloor(['darkness']); H.visRadius = []; p.x += 1.2; game.onPlayerMoved(true); step(0.2);
+    ok(H.visRadius.length && H.visRadius[H.visRadius.length - 1] === 5, 'Lightless: sight radius shrinks to 5 tiles');
+    p = onFloor([]); const xpA = dummy(p.x + 2, p.y, 1); xpA.xp = 100; let gained = 0; const oX = G.on('player:xp', function (e) { gained = e.gained; });
+    game.applyHit(xpA, { phys: 10 }, { src: p }); const g0 = gained;
+    S.map.mods = ['bloodlust', 'darkness']; S.map._reward = null;
+    const xpB = dummy(p.x + 2, p.y, 1); xpB.xp = 100; game.applyHit(xpB, { phys: 10 }, { src: p }); oX();
+    ok(gained === Math.round(g0 * 1.3) && H.lastDrop.magicFind === p.stats.magicFind + 35, 'kills on a modded floor pay the reward: +30% XP (Bloodlust), +35% magic find (Lightless)', g0 + ' → ' + gained);
+    p = onFloor(['cursed']); const shrine = S.map.props.filter(function (q) { return q.interact === 'shrine'; })[0];
+    if (!shrine) S.map.props.push({ type: 'shrine', x: Math.floor(p.x) + 2, y: Math.floor(p.y), solid: true, interact: 'shrine' });
+    const sh2 = S.map.props.filter(function (q) { return q.interact === 'shrine'; })[0];
+    G.emit('input:tap', { x: sh2.x + 0.5, y: sh2.y + 0.5 }); step(8, function () { return !sh2.used; }); step(0.1);
+    ok(sh2.used && game.getEffect(p, 'shrine') && S.entities.filter(function (e) { return e.rarity === 'champion' && e.ai.st === 'chase'; }).length === 3, 'Cursed Shrines: the blessing lands and a champion pack of 3 rises');
+
+    section('R3.8 skill synergies');
+    let synOk = true, bad = [];
+    for (const id in SK) {
+      const s = SK[id];
+      if (s.kind !== 'active') continue;
+      if (!Array.isArray(s.synergies) || s.synergies.length < 1 || s.synergies.length > 2) { synOk = false; bad.push(id); continue; }
+      for (const y of s.synergies) if (!SK[y.from] || SK[y.from].classId !== s.classId || y.from === id || !y.desc) { synOk = false; bad.push(id + '←' + y.from); }
+    }
+    ok(synOk, 'every active skill has 1–2 synergies from another skill of the same class', bad.join(', '));
+    let crossTree = 0;
+    for (const id in SK) for (const y of SK[id].synergies) if (SK[y.from].tree !== SK[id].tree) crossTree++;
+    ok(crossTree >= 20, crossTree + ' synergies cross trees');
+    ok(Object.keys(CL).every(function (cid) { return Object.keys(SK).some(function (id) { return SK[id].classId === cid && SK[id].synergies.some(function (y) { return y.combo && SK[y.from].tree !== SK[id].tree; }); }); }),
+      'each class has a behaviour-changing cross-tree combo');
+    p = fresh('warrior', true); toLevel(p, 20); p.skills = { bash: 1, charge: 1 }; game.recomputeStats(p);
+    let info = game.getSkillInfo('bash');
+    ok(info.synergies.length === 2 && info.synergies[0].from === 'charge' && info.synergies[0].name === 'Charge' && info.synergies[0].active === true && info.synergies[1].active === false,
+      'getSkillInfo → synergies [{ from, name, desc, active }]: ' + info.synergies.map(function (y) { return y.desc + (y.active ? ' ✓' : ''); }).join(' | '));
+    // numeric synergy changes damage
+    p.skillBar = ['bash', null, null, null]; H.mods = { dmgMin: 100, dmgMax: 100 }; game.recomputeStats(p); p.mp = p.stats.mpMax = 1e5;
+    const tb = dummy(p.x + 1, p.y, 1e9); step(0.1); fixRolls();
+    game.useSkill(0); const lo = 1e9 - tb.hp; step(2);
+    p.skills.charge = 5; tb.hp = 1e9; game.useSkill(0); const hi = 1e9 - tb.hp; freeRolls();
+    ok(Math.abs(hi / lo - 1.2 / 1.04) < 0.02, 'Bash gets +4% damage per rank of Charge', lo + ' → ' + hi);
+    // combos
+    p = fresh('warrior', true); toLevel(p, 20); p.skills = { cleave: 1, bash: 1, rend: 1 }; p.skillBar = ['cleave', null, null, null]; game.recomputeStats(p); p.mp = 1e4;
+    const cv = dummy(p.x + 1.2, p.y, 1e6); step(0.1); p.facing = 0; game.useSkill(0);
+    ok(!!game.getEffect(cv, 'bleed'), 'Warrior combo: Cleave + Rend → cleaved enemies bleed');
+    p = fresh('ranger', true); toLevel(p, 20); p.skills = { multishot: 1, aimed_shot: 1, poison_arrow: 1 }; p.skillBar = ['multishot', null, null, null]; game.recomputeStats(p); p.mp = 1e4;
+    const mv = dummy(p.x + 4, p.y, 1e6); step(0.1); game.useSkill(0); step(0.6);
+    ok(!!game.getEffect(mv, 'poison'), 'Ranger combo: Multishot + Poison Arrow → poisoned arrows');
+    p = fresh('sorcerer', true); toLevel(p, 20); p.skills = { fire_bolt: 1 }; game.recomputeStats(p); H.mods = { dmgMin: 100, dmgMax: 100 }; game.recomputeStats(p);
+    const fz = dummy(p.x + 3, p.y, 1e9), fz2 = dummy(p.x + 3.8, p.y, 1e9); step(0.05); fixRolls();
+    game.applyStatus(fz, 'freeze', 5); const f0 = game.playerHit(fz, { pct: 100, type: 'fire' });
+    p.skills.frost_nova = 1; game.recomputeStats(p);
+    const f1 = game.playerHit(fz, { pct: 100, type: 'fire' }); step(0.1); freeRolls();
+    ok(Math.abs(f1 / f0 - 1.5) < 0.02 && !game.getEffect(fz, 'freeze') && fz2.hp < 1e9, 'Sorcerer combo: with Frost Nova learned, fire shatters frozen enemies (+50% and a frost burst)', f0 + ' → ' + f1);
+    p = fresh('necromancer', true); toLevel(p, 20); p.skills = { corpse_explosion: 1, amplify_damage: 1 }; p.skillBar = ['corpse_explosion', null, null, null]; game.recomputeStats(p); p.mp = 1e4;
+    const cx = game.createMonster('skeleton', p.x + 3, p.y, 6); S.entities.push(cx); game.kill(cx, p); const nb = dummy(p.x + 3.5, p.y + 0.5, 1e9); step(0.1);
+    game.useSkill(0);
+    ok(!!game.getEffect(nb, 'amp'), 'Necromancer combo: Corpse Explosion + Amplify Damage → survivors are cursed');
+    // auto-build takes the pairs
+    const learned = function (cid, mode, lvl, ids) { const q = fresh(cid, true); game.setAutoBuild(mode); toLevel(q, lvl); return ids.every(function (id) { return S.player.skills[id] > 0; }); };
+    ok(learned('warrior', 'aoe', 14, ['cleave', 'rend']) && learned('ranger', 'aoe', 16, ['multishot', 'poison_arrow']) && learned('sorcerer', 'aoe', 8, ['fireball', 'frost_nova']) &&
+      learned('necromancer', 'aoe', 10, ['corpse_explosion', 'amplify_damage']), 'auto-build (group mode) picks up each class\'s combo partner');
+    H.mods = null;
+
+    section('R3.9 tuning hooks');
+    p = fresh('necromancer', true); game.learnSkill('raise_skeleton'); toLevel(p, 10); p.skills.skeletal_mage = 1; H.fx = { legion: true }; game.recomputeStats(p); p.mp = 1e4;
+    p.skillBar = ['raise_skeleton', 'skeletal_mage', null, null]; step(0.1); game.useSkill(0); step(0.8); game.useSkill(1); step(0.2);
+    ok(S.entities.filter(function (e) { return e.summonOf === 'raise_skeleton'; }).length === 4 && S.entities.filter(function (e) { return e.summonOf === 'skeletal_mage'; }).length === 2, 'legion: +2 skeleton warriors, +1 skeletal mage');
+    H.fx = null;
+    p = fresh('warrior', true); p.stats.armor = 0; p.stats.hpMax = p.hp = 1e6; game.applyHit(p, { fire: 1000 }, {});
+    ok(1e6 - p.hp === 1000 - CL.warrior.dr * 10, 'Warrior innate damage reduction ' + CL.warrior.dr + '%');
+    p = fresh('ranger', true); step(0.2);
+    ok(S.targetId === null, 'G.state.targetId is null with nothing to fight');
+    const tg = dummy(p.x + 4, p.y, 1e6); step(0.3);
+    ok(S.targetId === tg.id, 'G.state.targetId follows the auto-target');
+    tg.dead = true; step(0.3);
+    ok(S.targetId === null, '…and clears when it dies');
+  }
+
+  // =====================================================================================================
+  // Revision 2 assertions
+  // =====================================================================================================
+  function rev2Tests() {
+    const T = C.TILE, U = game.U;
+    const realChance = U.chance, realRand = U.rand;
+    const fixRolls = function (crit) { U.rand = function (a, b) { return (a + b) / 2; }; U.chance = function () { return !!crit; }; };
+    const freeRolls = function () { U.chance = realChance; U.rand = realRand; };
+    const noMonsters = function () { S.entities = S.entities.filter(function (e) { return e.type !== 'monster'; }); game.live.foes.length = 0; };
+    const withFx = function (p, id) { H.fx = {}; if (id) H.fx[id] = true; game.recomputeStats(p); };
+    let p, m;
+
+    section('R2.1 shallow water / lava');
+    p = fresh('warrior', false, 1); noMonsters();
+    ok(C.WALKABLE[T.WATER] && C.WALKABLE[T.LAVA] && game.W.walkable(31.5, 21.5) && game.W.walkable(20.5, 26.5), 'shallow WATER and LAVA are walkable');
+    p.x = 30.1; p.y = 21.5; game.onPlayerMoved(true); step(0.1);
+    let x0 = p.x, hp0 = p.hp; G.input.move.x = 1; step(0.5); G.input.move.x = 0;
+    ok(Math.abs((p.x - x0) - 4.2 * C.SLOW_TILE_SPEED * 0.5) < 0.15 && p.hp === hp0, 'wading through water: speed × ' + C.SLOW_TILE_SPEED + ', no damage', (p.x - x0).toFixed(2));
+    p.x = 18.5; p.y = 26.5; game.onPlayerMoved(true); step(0.1); p.x = 19.6; p.stats.hpMax = p.hp = 1000; p.stats.hpRegen = 0;
+    let lavaHits = 0; const oL = G.on('player:damaged', function () { lavaHits++; });
+    step(2.05);
+    let lost = (p.stats.hpMax - p.hp) / p.stats.hpMax * 100;
+    ok(lavaHits === 4 && Math.abs(lost - 2 * C.LAVA_DPS_PCT) < 2.5, 'standing in lava: ' + C.LAVA_DPS_PCT + '% max life per second as fire, ticking twice a second', lavaHits + ' ticks, ' + lost.toFixed(1) + '%');
+    p.stats.resFire = 75; p.hp = p.stats.hpMax; step(2.05);
+    ok((p.stats.hpMax - p.hp) / p.stats.hpMax * 100 < lost * 0.4, 'fire resistance reduces lava damage');
+    x0 = p.x; G.input.move.x = 1; step(0.5); G.input.move.x = 0; oL();
+    ok(Math.abs((p.x - x0) - 4.2 * C.SLOW_TILE_SPEED * 0.5) < 0.15, 'lava slows as well');
+    p.x = 10.5; p.y = 15.5; game.onPlayerMoved(true); p.stats.hpMax = p.hp = 1e7;
+    const imp = game.createMonster('imp', 20.5, 26.5, 1), sk = game.createMonster('skeleton', 21.5, 26.5, 1), hound = game.createMonster('hellhound', 22.5, 26.5, 1), wr = game.createMonster('wraith', 30.5, 21.5, 1);
+    [imp, sk, hound, wr].forEach(function (e) { e.speed = 0; e.ai.st = 'chase'; e.lockdown = true; e.dmgMin = e.dmgMax = 0; S.entities.push(e); });
+    step(2.2);
+    ok(imp.hp === imp.stats.hpMax && game.terrain(imp, imp.ai, 0) === 1 && game.terrain(wr, wr.ai, 0) === 1, 'flyers and wraiths ignore lava and water entirely');
+    ok(hound.hp === hound.stats.hpMax && game.terrain(hound, hound.ai, 0) === C.SLOW_TILE_SPEED, 'inferno natives take no lava damage (still slowed)');
+    ok(sk.hp < sk.stats.hpMax || sk.dead, 'other monsters burn in lava', sk.hp + '/' + sk.stats.hpMax);
+    noMonsters();
+    p.x = 21.5; p.y = 24.5; game.onPlayerMoved(true);
+    const walker = game.createMonster('skeleton', 21.5, 28.5, 1); walker.ai.st = 'chase'; walker.dmgMin = walker.dmgMax = 0; S.entities.push(walker);
+    let waded = 0;      // frames spent on lava (a clipped tile corner is tolerated, wading is not)
+    step(10, function () { if (game.W.tile(walker.x, walker.y) === T.LAVA) waded++; return Math.hypot(walker.x - p.x, walker.y - p.y) > 1.2; });
+    ok(waded <= 4 && walker.hp === walker.stats.hpMax && Math.hypot(walker.x - p.x, walker.y - p.y) <= 1.3, 'a lava-vulnerable monster paths around the lava instead of chasing through it', 'waded=' + waded + ' hp=' + walker.hp + '/' + walker.stats.hpMax + ' d=' + Math.hypot(walker.x - p.x, walker.y - p.y).toFixed(2) + ' st=' + walker.ai.st);
+    noMonsters();
+    const hh = game.createMonster('hellhound', 21.5, 28.5, 1); hh.ai.st = 'chase'; hh.dmgMin = hh.dmgMax = 0; S.entities.push(hh);
+    waded = 0;
+    step(6, function () { if (game.W.tile(hh.x, hh.y) === T.LAVA) waded++; return Math.hypot(hh.x - p.x, hh.y - p.y) > 1.2; });
+    ok(waded > 10, 'an inferno native takes the direct route through lava');
+
+    section('R2.2 mythic effects');
+    p = fresh('ranger', true); H.mods = { dmgMin: 50, dmgMax: 50 };
+    withFx(p, 'split_shot');
+    ok(game.fxOf(p).split_shot === true && jsonable(p), 'effects are read from G.items.getActiveEffects and cached on recomputeStats (JSON-able)');
+    const savedGet = G.items.getActiveEffects;
+    G.items.getActiveEffects = function () { throw new Error('boom'); }; let thr = false;
+    try { game.recomputeStats(p); } catch (e) { thr = true; }
+    ok(!thr && !game.fxOf(p).split_shot, 'a throwing / missing getActiveEffects is tolerated');
+    G.items.getActiveEffects = savedGet; withFx(p, 'split_shot');
+    // split_shot
+    m = dummy(p.x + 4, p.y, 1e6); const side = dummy(p.x + 5.2, p.y + 0.7, 1e6); step(0.1);
+    game.K.shoot(p, 0, { pct: 100, shape: 'arrow', color: '#fff', speed: 15 });
+    let kids = [];
+    step(0.6, function () { if (m.hp < 1e6 && !kids.length) kids = S.projectiles.filter(function (q) { return q.child; }).map(function (q) { return q.spec.pct; }); });
+    ok(kids.length === 2 && kids[0] === 50 && kids[1] === 50 && side.hp < 1e6, 'split_shot: first hit splits into 2 extra projectiles at 50% damage', JSON.stringify(kids));
+    step(1);
+    ok(S.projectiles.length === 0, 'split projectiles do not split again');
+    // corpse_blast
+    p = fresh('warrior', true); H.mods = { dmgMin: 50, dmgMax: 50 }; withFx(p, 'corpse_blast');
+    const a = dummy(p.x + 2, p.y, 1), b = dummy(p.x + 3.5, p.y, 1e6), c2 = dummy(p.x + 2, p.y + 2, 100), d2 = dummy(p.x + 2, p.y + 4.2, 1e6);
+    a.stats.hpMax = 1000; c2.stats.hpMax = 400; step(0.05);
+    let booms = 0; const oB = G.on('fx:spawn', function (e) { if (e.type === 'explosion') booms++; });
+    game.playerHit(a, { pct: 100, type: 'phys' }); step(0.2);
+    ok(a.dead && 1e6 - b.hp === 250 && c2.dead, 'corpse_blast: a kill explodes for 25% of its max life as fire within 2.5 tiles', (1e6 - b.hp));
+    step(0.3); oB();
+    ok(1e6 - d2.hp === 100 && booms >= 2, 'corpse_blast chains through enemies it kills', (1e6 - d2.hp) + ' / booms ' + booms);
+    // chain_spark
+    p = fresh('warrior', true); H.mods = { dmgMin: 100, dmgMax: 100 }; withFx(p, 'chain_spark');
+    m = dummy(p.x + 1, p.y, 1e6); const near = [dummy(p.x + 2, p.y + 1, 1e6), dummy(p.x + 2, p.y - 1, 1e6), dummy(p.x + 3, p.y, 1e6), dummy(p.x + 3, p.y + 2, 1e6)];
+    step(0.05); fixRolls(true);
+    const dealtCs = game.playerHit(m, { pct: 100, type: 'phys', skill: false });
+    freeRolls();
+    const arcs = near.map(function (e) { return 1e6 - e.hp; });
+    ok(arcs.filter(function (v) { return v === Math.round(dealtCs * 0.4); }).length === 3 && arcs.filter(function (v) { return v === 0; }).length === 1, 'chain_spark: arcs lightning to 3 nearby enemies for 40% of the hit', dealtCs + ' → ' + arcs.join());
+    fixRolls(false); near.forEach(function (e) { e.hp = 1e6; }); game.playerHit(m, { pct: 100, type: 'phys', skill: false }); freeRolls();
+    ok(near.every(function (e) { return e.hp === 1e6; }), 'chain_spark only procs on its 25% roll');
+    // second_wind
+    p = fresh('sorcerer', true); withFx(p, 'second_wind');
+    m = dummy(p.x + 2, p.y, 1e6); step(0.05);
+    let deaths = 0, deathEv = null; const oD = G.on('player:died', function (e) { deaths++; deathEv = e; });
+    p.hp = 5; game.applyHit(p, { phys: 1e5 }, {});
+    ok(!p.dead && deaths === 0 && Math.abs(p.hp - p.stats.hpMax * 0.5) <= 1 && game.isStunned(m) && game.getEffect(p, 'second_wind_cd').t > 110, 'second_wind: fatal damage heals to 50% and stuns nearby enemies; 120 s cooldown');
+    step(1.3); game.applyHit(p, { phys: 1e5 }, {});
+    ok(p.dead && deaths === 1 && deathEv.noRetrieve === false, 'second_wind does not trigger again while on cooldown');
+    oD();
+    // echo_cast
+    p = fresh('sorcerer', true); game.learnSkill('fire_bolt'); withFx(p, 'echo_cast');
+    m = dummy(p.x + 6, p.y, 1e6); step(0.1); p.mp = p.stats.mpMax; const mpE = p.mp;
+    fixRolls(true); game.useSkill(0); freeRolls();
+    ok(S.projectiles.length === 2 && Math.round(mpE - p.mp) === game.getSkillInfo('fire_bolt').mpCost, 'echo_cast: the skill fires a second time for free', S.projectiles.length + ' projectiles, mana ' + (mpE - p.mp));
+    step(1); fixRolls(false); game.useSkill(0); const nNo = S.projectiles.length; freeRolls();
+    ok(nNo === 1, 'echo_cast only on its 25% roll');
+    // blood_price
+    p = fresh('sorcerer', true); game.learnSkill('fire_bolt'); H.mods = { dmgMin: 100, dmgMax: 100 }; withFx(p, null);
+    m = dummy(p.x + 3, p.y, 1e9); step(0.05); fixRolls(false);
+    const base = game.playerHit(m, { pct: 100, type: 'fire' }), basic0 = game.playerHit(m, { pct: 100, type: 'fire', skill: false });
+    withFx(p, 'blood_price');
+    const boosted = game.playerHit(m, { pct: 100, type: 'fire' }), basic1 = game.playerHit(m, { pct: 100, type: 'fire', skill: false });
+    ok(Math.abs(boosted / base - 1.4) < 0.01 && basic1 === basic0, 'blood_price: skills deal 40% more damage (basic attacks unchanged)', base + ' → ' + boosted);
+    step(1); p.mp = 0; p.hp = p.stats.hpMax; p.stats.hpRegen = 0; const hpBp = p.hp, costBp = game.getSkillInfo('fire_bolt').mpCost;
+    ok(game.useSkill(0) === true && p.mp === 0 && hpBp - p.hp === costBp, 'blood_price: skills cost life instead of mana (' + costBp + ' hp)');
+    step(1); p.hp = costBp;
+    ok(game.useSkill(0) === false && p.hp === costBp, 'blood_price: cannot cast yourself to death');
+    freeRolls();
+    // midas
+    p = fresh('warrior', true); H.mods = null; withFx(p, 'midas');
+    const dp0 = p.stats.dmgPct; p.hp = Math.round(p.stats.hpMax * 0.5);
+    const hpM = p.hp;
+    G.items.dropLoot(p.x + 0.5, p.y, { level: 1 }); step(0.3);
+    let mid = game.getEffect(p, 'midas');
+    ok(mid && mid.stacks === 1 && p.stats.dmgPct === dp0 + 5 && p.hp > hpM + p.stats.hpMax * 0.015, 'midas: gold pickup heals 2% and grants +5% damage');
+    for (let i = 0; i < 12; i++) { G.items.dropLoot(p.x + 0.5, p.y, { level: 1 }); step(0.3); }
+    mid = game.getEffect(p, 'midas');
+    ok(mid && mid.stacks === 10 && p.stats.dmgPct === dp0 + 50, 'midas stacks to 10 (+50%)', mid && mid.stacks);
+    step(6.3);
+    ok(!game.getEffect(p, 'midas') && p.stats.dmgPct === dp0, 'midas expires 6 s after the last pickup');
+    // frozen_wake
+    p = fresh('warrior', true); H.mods = { dmgMin: 50, dmgMax: 50 }; withFx(p, 'frozen_wake');
+    m = dummy(p.x + 2, p.y, 1e6); step(0.1);
+    ok(game.zones.length === 0, 'frozen_wake: nothing while standing still');
+    G.input.move.x = 1; step(1); G.input.move.x = 0;
+    ok(game.zones.length >= 4 && game.zones.every(function (z) { return z.dtype === 'cold' && z.faction === 'player'; }), 'frozen_wake: moving leaves a frost trail', game.zones.length);
+    step(1);
+    ok(m.hp < 1e6 && game.getEffect(m, 'chill'), 'frozen_wake: enemies standing in the trail are damaged and chilled');
+    step(3);
+    ok(game.zones.length === 0, 'the trail melts after 3 s');
+    // legion
+    p = fresh('necromancer', true); game.learnSkill('raise_skeleton'); withFx(p, null); step(0.1);
+    p.mp = p.stats.mpMax; game.useSkill(0); const nBase = S.entities.filter(function (e) { return e.faction === 'player'; }).length;
+    withFx(p, 'legion'); step(4.2); p.mp = p.stats.mpMax; game.useSkill(0);
+    const nLegion = S.entities.filter(function (e) { return e.faction === 'player'; }).length;
+    ok(nBase === 2 && nLegion === 4, 'legion: +2 maximum summons', nBase + ' → ' + nLegion);
+    p = fresh('warrior', true); H.mods = { dmgMin: 100, dmgMax: 100 }; withFx(p, null);
+    m = dummy(p.x + 1, p.y, 1e9); step(0.1); fixRolls(false);
+    G.emit('input:attack', {}); step(0.6); const one = 1e9 - m.hp;
+    withFx(p, 'legion'); m.hp = 1e9; step(0.5);
+    G.emit('input:attack', {}); step(0.6); const two = 1e9 - m.hp;
+    freeRolls();
+    ok(Math.abs(two / one - 170 / 120) < 0.02, 'legion without summons: a spectral double repeats basic attacks for 50% damage', one + ' → ' + two);
+    // thunderstep
+    p = fresh('warrior', true); H.mods = { dmgMin: 100, dmgMax: 100 }; withFx(p, 'thunderstep');
+    m = dummy(p.x + 1, p.y, 1e9); const splash = dummy(p.x + 2.2, p.y, 1e9); step(0.1); fixRolls(false);
+    const perHit = [];
+    for (let i = 0; i < 8; i++) { const h0 = m.hp; G.emit('input:attack', {}); step(1); perHit.push(h0 - m.hp); }
+    freeRolls();
+    const baseHit = Math.min.apply(null, perHit), big = perHit.map(function (v, i) { return v > baseHit ? i : -1; }).filter(function (i) { return i >= 0; });
+    ok(big.length === 2 && big[1] - big[0] === 4 && Math.abs(perHit[big[0]] / baseHit - (120 + 200) / 120) < 0.02 && perHit.filter(function (v) { return v === baseHit; }).length === 6 && splash.hp < 1e9,
+      'thunderstep: every 4th basic attack adds a 200% lightning strike in 1.5 tiles', perHit.join());
+    // executioner
+    p = fresh('warrior', true); H.mods = { dmgMin: 20, dmgMax: 20 }; withFx(p, 'executioner'); fixRolls(false);
+    m = dummy(p.x + 1, p.y, 1000); const healthy = dummy(p.x + 1, p.y + 1, 1000); const bossE = game.createBoss(5, p.x + 3, p.y); S.entities.push(bossE); game.live.foes.push(bossE);
+    m.hp = 170; healthy.hp = 900; bossE.hp = Math.round(bossE.stats.hpMax * 0.12); step(0.05);
+    game.playerHit(m, { pct: 100, type: 'phys', skill: false }); game.playerHit(healthy, { pct: 100, type: 'phys', skill: false }); game.playerHit(bossE, { pct: 100, type: 'phys', skill: false });
+    ok(m.dead && !healthy.dead && !bossE.dead, 'executioner: enemies below 15% life die when hit; healthy ones and a boss at 12% do not');
+    bossE.hp = Math.round(bossE.stats.hpMax * 0.052); game.playerHit(bossE, { pct: 100, type: 'phys', skill: false });
+    ok(bossE.dead, 'executioner: bosses below 5%');
+    freeRolls();
+    // hoarder
+    p = fresh('warrior', true); H.mods = null; withFx(p, null); const dpH = p.stats.dmgPct;
+    withFx(p, 'hoarder');
+    ok(p.stats.dmgPct === dpH, 'hoarder: nothing with empty pockets');
+    p.gold = 2550; G.emit('gold:changed', { gold: p.gold, delta: 2550 });
+    ok(p.stats.dmgPct === dpH + 25, 'hoarder: +1% damage per 100 gold carried (refreshes on gold:changed)', p.stats.dmgPct - dpH);
+    p.gold = 999999; G.emit('gold:changed', { gold: p.gold, delta: 1 });
+    ok(p.stats.dmgPct === dpH + 60, 'hoarder caps at +60%');
+    // all at once, in a real fight, stays serialisable
+    p = fresh('sorcerer', false, 3); game.setAutoBuild('balanced'); p = toLevel(p, 20);
+    H.fx = {}; ['split_shot', 'corpse_blast', 'chain_spark', 'second_wind', 'echo_cast', 'blood_price', 'midas', 'frozen_wake', 'legion', 'thunderstep', 'executioner', 'hoarder'].forEach(function (id) { H.fx[id] = true; });
+    game.recomputeStats(p); p.x = 22.5; p.y = 15.5; game.onPlayerMoved(true);
+    const errFx = H.errors.length, kills0 = S.flags.kills; let slotFx = 0;
+    G.input.attackHeld = true;
+    step(12, function (t) { S.player.hp = S.player.stats.hpMax; G.input.move.x = Math.sin(t) > 0.6 ? 1 : 0; if (Math.random() < 0.2) game.useSkill(slotFx++ % 4); });
+    G.input.attackHeld = false; G.input.move.x = 0;
+    ok(H.errors.length === errFx && S.flags.kills > kills0 && jsonable(S.player) && S.projectiles.every(jsonable) && jsonable(game.zones) && S.entities.every(jsonable),
+      'all 12 effects active together in a live fight: no errors, state stays JSON-able (' + (S.flags.kills - kills0) + ' kills)');
+    H.fx = null; H.mods = null;
+
+    section('R2.3 any class, any weapon');
+    H.wtype = 'bow'; p = fresh('warrior', true); game.learnSkill('bash');
+    m = dummy(p.x + 6, p.y, 1e6); step(0.1);
+    ok(p.bonus.w.type === 'bow' && p.bonus.w.ranged === 1, 'a Warrior can hold a bow');
+    const wx = p.x;
+    G.emit('input:attack', {}); step(0.1);
+    ok(S.projectiles.length === 1 && S.projectiles[0].shape === 'arrow' && Math.abs(p.x - wx) < 0.01, 'Warrior + bow: basic attack shoots from range');
+    step(1); const hpBow = m.hp; p.mp = p.stats.mpMax;
+    ok(game.useSkill(0) === true, 'melee skill with a bow is still usable…'); step(3);
+    ok(m.hp < hpBow && Math.hypot(p.x - m.x, p.y - m.y) < 1.6, '…the Warrior closes in and Bashes with it');
+    H.wtype = 'sword'; p = fresh('ranger', true); game.learnSkill('aimed_shot');
+    m = dummy(p.x + 5, p.y, 1e6); step(0.1); p.mp = p.stats.mpMax;
+    game.useSkill(0);
+    ok(S.projectiles.length === 1 && S.projectiles[0].shape === 'shard', 'Ranger + sword: arrow skills still fire (as thrown blades)');
+    step(1); const hpSw = m.hp; G.emit('input:attack', {}); step(3);
+    ok(m.hp < hpSw && Math.hypot(p.x - m.x, p.y - m.y) < 1.6 && S.projectiles.length === 0, 'Ranger + sword: basic attack is a melee swing');
+    H.wtype = 'dagger'; p = fresh('sorcerer', true); game.learnSkill('fire_bolt'); m = dummy(p.x + 5, p.y, 1e6); step(0.1);
+    ok(game.useSkill(0) === true && S.projectiles.length === 1 && S.projectiles[0].shape === 'fireball', 'Sorcerer + dagger: spells unaffected');
+    ok(!/weapon/i.test(game.canLearn('ice_shard').reason || ''), 'no skill is locked because of the weapon held');
+    H.wtype = null;
+
+    section('R2.4 death payload & unresolved props');
+    const dieWith = function (setup) {
+      p = fresh('warrior', false, 5); let ev = null; const o = G.on('player:died', function (e) { ev = e; });
+      setup(); game.applyHit(p, { phys: 1e9 }, {}); o(); return ev;
+    };
+    let ev = dieWith(function () {});
+    ok(ev && ev.noRetrieve === false && G.scenes.getDeathPenalty().retrievable === true, 'ordinary death (sleeping boss elsewhere): player:died { noRetrieve: false } → corpse is retrievable');
+    ev = dieWith(function () { S.entities.filter(function (e) { return e.rarity === 'boss'; })[0].ai.st = 'chase'; });
+    ok(ev && ev.noRetrieve === true && G.scenes.getDeathPenalty().retrievable === false, 'death while a boss is aggroed: { noRetrieve: true }');
+    ev = dieWith(function () { S.flags.sealed = true; });
+    ok(ev && ev.noRetrieve === true, 'death inside a sealed room: { noRetrieve: true }');
+    p = fresh('warrior', true); p.gold = 500;
+    game.applyHit(p, { phys: 1e9 }, {});
+    ok(p.gold === 500, 'the game module takes no gold on death (core owns the penalty)');
+    G.scenes.respawn(); G.scenes.enterDungeon(1); p = S.player; noMonsters();
+    const body = S.map.props.filter(function (q) { return q.type === 'corpse'; })[0];
+    const got = []; const oI = G.on('object:interact', function (e) { got.push(e); });
+    ok(!!body && S.flags.corpse && S.flags.corpse.gold === 500 && p.gold === 0, 'core left a corpse prop with the gold on the floor we died on');
+    if (body) { G.emit('input:tap', { x: body.x + 0.5, y: body.y + 0.5 }); step(15, function () { return !got.length; }); }
+    ok(got.length === 1 && got[0].type === 'corpse' && got[0].prop === body && p.gold === 500 && !S.flags.corpse, 'tap the corpse → object:interact { type: "corpse", prop } → belongings reclaimed');
+    S.map.props.push({ type: 'crystal', x: Math.floor(p.x) + 2, y: Math.floor(p.y), solid: true, interact: 'mystery_thing' }); got.length = 0;
+    G.emit('input:tap', { x: Math.floor(p.x) + 2.5, y: Math.floor(p.y) + 0.5 }); step(3);
+    ok(got.length === 1 && got[0].type === 'mystery_thing' && got[0].prop, 'any interactable prop we do not resolve is forwarded as object:interact { type: prop.interact, prop }');
+    oI();
+    H.invalidates = 0; const barrel = S.map.props.filter(function (q) { return q.interact === 'barrel'; })[0];
+    G.emit('input:tap', { x: barrel.x + 0.5, y: barrel.y + 0.5 }); step(12, function () { return !barrel.used; });
+    ok(barrel.used && S.map.props.indexOf(barrel) < 0 && H.invalidates >= 1, 'broken barrel is removed from map.props and G.world.invalidate(map) is called');
+
+    section('R2.5 lockdown rooms');
+    p = fresh('warrior', false, 2); noMonsters(); H.mods = { dmgMin: 5000, dmgMax: 5000, hpMax: 1e6 }; game.recomputeStats(p); p.hp = p.stats.hpMax;
+    const room = S.map.rooms.filter(function (r) { return r.type === 'lockdown'; })[0];
+    const chest = S.map.props.filter(function (q) { return q.locked; })[0];
+    const evs = []; const oR1 = G.on('room:locked', function (e) { evs.push(['locked', e.room]); }); const oR2 = G.on('room:cleared', function (e) { evs.push(['cleared', e.room]); });
+    p.x = 37.5; p.y = 10.5; game.onPlayerMoved(true); step(0.3);
+    ok(!S.flags.sealed && evs.length === 0, 'nothing happens outside the room');
+    p.x = 37.5; p.y = 8.5; game.onPlayerMoved(true); step(0.4);
+    ok(!S.flags.sealed, 'standing on the door tile does not trigger the lockdown');
+    H.invalidates = 0;
+    G.emit('input:tap', { x: 37.5, y: 6.5 }); step(3, function () { return !S.flags.sealed; });
+    const gate = S.map.props.filter(function (q) { return q.type === 'gate'; });
+    ok(S.flags.sealed === true && evs.length === 1 && evs[0][0] === 'locked' && evs[0][1] === room && gate.length === 1 && gate[0].x === 37 && gate[0].y === 8 && gate[0].solid === true && H.invalidates >= 1 &&
+      !G.world.isWalkable(S.map, 37, 8), 'stepping inside: gate props on every door (solid), world invalidated, room:locked { room }, flags.sealed = true');
+    ok(game.isNoRetrieve() === true && game.inSealedRoom(10, 10) === false && game.inSealedRoom(36.5, 5.5) === true, 'while sealed: death is noRetrieve; blinks cannot leave the room');
+    G.emit('input:tap', { x: 37.5, y: 4.5 }); step(2);
+    ok(chest.locked === true && !chest.used, 'the reward chest stays locked during the fight');
+    step(1.5);
+    let wave = S.entities.filter(function (e) { return e.lockdown && !e.dead; });
+    ok(room.wave === 1 && wave.length >= 3 && wave.every(function (e) { return e.x >= 34 && e.x < 41 && e.y >= 3 && e.y < 8 && e.ai.st !== 'sleep' && e.rarity === 'normal'; }), 'wave 1 spawns inside the room, awake (' + wave.length + ' monsters)');
+    G.input.attackHeld = true;
+    step(30, function () { return room.wave < 2; });
+    ok(room.wave === 2 && evs.length === 1, 'the next wave comes only when the previous one is dead');
+    step(0.1);
+    wave = S.entities.filter(function (e) { return e.lockdown && !e.dead; });
+    ok(wave.filter(function (e) { return e.rarity === 'rare'; }).length === 1 && wave.length >= 4, 'the last wave includes a rare monster (' + (wave.filter(function (e) { return e.rarity === 'rare'; })[0] || {}).name + ')');
+    step(70, function () { return S.flags.sealed; });
+    G.input.attackHeld = false;
+    ok(S.flags.sealed === false && evs.length === 2 && evs[1][0] === 'cleared' && evs[1][1] === room && !S.map.props.some(function (q) { return q.type === 'gate'; }) && G.world.isWalkable(S.map, 37, 8) &&
+      chest.locked === false && room.cleared === true, 'all waves dead: gates removed, chest unlocked, room:cleared { room }, flags.sealed = false');
+    const dr0 = H.drops; S.groundItems.length = 0;
+    G.emit('input:tap', { x: 37.5, y: 4.5 }); step(4, function () { return !chest.used; }); step(0.1);
+    const rareDrop = S.groundItems.filter(function (g) { return g.item.rarity && C.RARITY[g.item.rarity].order >= C.RARITY.rare.order; }).length;
+    ok(chest.used && chest.type === 'chest_open' && H.drops - dr0 === 2 && H.lastDrop.source === 'chest' && rareDrop >= 1, 'reward chest: loot source "chest" rolled twice + a guaranteed rare-or-better', (H.drops - dr0) + ' rolls, ' + rareDrop + ' rare+');
+    p.x = 37.5; p.y = 10.5; game.onPlayerMoved(true); step(0.3); p.x = 37.5; p.y = 6.5; game.onPlayerMoved(true); step(1);
+    ok(!S.flags.sealed && evs.length === 2, 'a cleared room does not lock again');
+    G.scenes.enterDungeon(2); p = S.player; noMonsters();
+    p.x = 37.5; p.y = 6.5; game.onPlayerMoved(true); step(0.5);
+    ok(S.flags.sealed === true, 'a fresh floor has a fresh lockdown');
+    G.scenes.enterTown();
+    ok(S.flags.sealed === false, 'leaving the floor always clears flags.sealed');
+    oR1(); oR2(); H.mods = null;
+  }
+
+  // =====================================================================================================
+  // Balance bot: plays with hold-attack + skills off cooldown + potions, sidesteps telegraphs, ranged classes back off.
+  // =====================================================================================================
+  function botStep(st) {
+    const p = S.player;
+    if (p.dead) return;
+    const ranged = p.bonus.w.ranged;
+    let near = null, nd = 1e9, best = 1e9;
+    for (const e of S.entities) {
+      if (e.type !== "monster" || e.dead || e.faction !== "enemy") continue;
+      if (S.flags.sealed && !e.lockdown) continue;                       // locked in: only the waves matter
+      const d = Math.hypot(e.x - p.x, e.y - p.y);
+      const score = d - (d < 12 && game.W.visible(e.x, e.y) ? 100 : 0) - (e.id === st.tid ? 30 : 0);      // what we can see comes first; otherwise stick with the current quarry
+      if (score < best) { best = score; nd = d; near = e; }
+    }
+    st.tid = near ? near.id : 0;
+    let mx = 0, my = 0;
+    // 1. get out of telegraphed circles
+    for (const z of game.zones) {
+      if (z.faction !== 'enemy') continue;
+      const d = Math.hypot(p.x - z.x, p.y - z.y);
+      if (d < z.r + 0.6) { const k = d || 1; mx += (p.x - z.x) / k || 1; my += (p.y - z.y) / k; }
+    }
+    const fighting = near && nd < (ranged ? 7.8 : 6.5) && game.W.visible(near.x, near.y);
+    if (!mx && !my) {
+      if (fighting) {
+        if (ranged && nd < 3 && near.rarity !== "boss" && game.W.shotClear(p.x, p.y, near.x, near.y)) { mx = (p.x - near.x) / nd; my = (p.y - near.y) / nd; }      // kite
+        else if (ranged && nd < 3.5 && near.rarity === 'boss') { mx = (p.x - near.x) / nd; my = (p.y - near.y) / nd; }
+      } else if (near) {
+        st.pt -= 1 / 30;
+        if (st.pt <= 0 || !st.path) { st.path = G.world.findPath(S.map, p.x, p.y, near.x, near.y) || [{ x: near.x, y: near.y }]; st.pt = 0.5; }
+        const n = st.path[0];
+        if (n) { const d = Math.hypot(n.x - p.x, n.y - p.y); if (d < 0.3) st.path.shift(); else { mx = (n.x - p.x) / d; my = (n.y - p.y) / d; } }
+      }
+    }
+    const mag = Math.hypot(mx, my);
+    G.input.move.x = mag ? mx / mag : 0; G.input.move.y = mag ? my / mag : 0;
+    const ca = game.getClassAction();          // R4.4: dash out of melee range or out of a telegraph
+    if (ca && ca.cdRemaining <= 0 && near && (nd < 2.2 || (mag && game.zones.some(function (z) { return z.faction === "enemy" && z.delay > 0 && Math.hypot(p.x - z.x, p.y - z.y) < z.r + 0.4; })))) { G.emit("input:classaction", {}); st.dashes = (st.dashes || 0) + 1; }
+    G.input.attackHeld = !!fighting;
+    st.t -= 1 / 30;
+    if (fighting && st.t <= 0) {
+      st.t = 0.2;
+      for (let i = 0; i < 4; i++) {
+        const id = p.skillBar[(i + st.rot) % 4];
+        if (!id || (p.cooldowns[id] || 0) > 0) continue;
+        const sk = game.SKILLS[id];
+        if (sk.tags.indexOf('summon') >= 0 && p.minions[id] >= 1 && S.entities.filter(function (e) { return e.summonOf === id && !e.dead; }).length >= p.minions[id]) continue;
+        if ((sk.tg === 'self' && sk.tags.indexOf('aoe') >= 0 && !sk.tags.includes('summon')) && nd > 3) continue;
+        if (sk.tags.indexOf('mobility') >= 0 && sk.tags.indexOf('single') < 0 && sk.tags.indexOf('aoe') < 0) continue;
+        if (game.useSkill((i + st.rot) % 4)) { st.rot++; break; }
+      }
+    }
+    if (p.hp < p.stats.hpMax * 0.45 && game.usePotion('hp')) st.potions++;
+    if (p.mp < p.stats.mpMax * 0.15 && game.usePotion('mp')) st.potions++;
+    st.minHp = Math.min(st.minHp, p.hp / p.stats.hpMax);
+  }
+
+  function simRun(classId, mode, opts) {
+    H.gear = opts.gear;
+    G.input.move.x = 0; G.input.move.y = 0; G.input.attackHeld = false;
+    G.scenes.startNewGame(classId, 'Bot');
+    game.setAutoBuild(mode);
+    while (S.player.level < opts.level) game.gainXp(S.player.xpNext);
+    H.arena = !!opts.boss;
+    G.scenes.enterDungeon(opts.depth);
+    H.arena = false;
+    const p0 = S.player;
+    p0.potions.hp = opts.potions; p0.potions.mp = 3;
+    p0.hp = p0.stats.hpMax; p0.mp = p0.stats.mpMax;
+    if (opts.boss) S.entities.push(game.createBoss(opts.depth, p0.x + 9, p0.y));
+    const st = { t: 0, rot: 0, potions: 0, minHp: 1, pt: 0, path: null };
+    let t = 0;
+    const dt = 1 / 30, limit = opts.limit || 400;
+    const alive = function () { return S.entities.some(function (e) { return e.type === 'monster' && e.faction === 'enemy' && !e.dead && !e.bossAdd; }); };
+    while (t < limit && !S.player.dead && alive()) { botStep(st); S.time += dt; game.update(dt); t += dt; }
+    G.input.move.x = 0; G.input.move.y = 0; G.input.attackHeld = false;
+    return { win: !S.player.dead && !alive(), dead: S.player.dead, time: t, minHp: st.minHp, potions: st.potions, level: S.player.level, hp: S.player.hp / S.player.stats.hpMax };
+  }
+
+  function runSim() {
+    simulating = true;
+    const lines = ['\nBALANCE SIM (bot: hold attack, skills off cooldown, potion < 45% hp, sidesteps telegraphs)\n'];
+    const pad = function (s, n) { s = String(s); return s + ' '.repeat(Math.max(1, n - s.length)); };
+    const res = { depth1: {}, boss: {} };
+    lines.push('Depth 1 full clear — fresh level-1 character, starter gear, 4 hp potions (≈30 monsters incl. a champion pack)');
+    lines.push(pad('class/mode', 24) + pad('result', 8) + pad('time', 8) + pad('min hp', 9) + pad('potions', 9) + 'end lvl');
+    for (const cid of Object.keys(game.CLASSES)) for (const mode of ['single', 'aoe', 'balanced']) {
+      let wins = 0, time = 0, minHp = 1, pots = 0, lvl = 0, deaths = 0;
+      const N = 4;
+      for (let i = 0; i < N; i++) { const r = simRun(cid, mode, { depth: 1, level: 1, gear: 1, potions: 4 }); wins += r.win ? 1 : 0; deaths += r.dead ? 1 : 0; time += r.time; minHp = Math.min(minHp, r.minHp); pots += r.potions; lvl = r.level; }
+      res.depth1[cid + '/' + mode] = { wins: wins, n: N, time: time / N, minHp: minHp, potions: pots / N };
+      lines.push(pad(cid + '/' + mode, 24) + pad(wins + '/' + N, 8) + pad((time / N).toFixed(0) + 's', 8) + pad(Math.round(minHp * 100) + '%', 9) + pad((pots / N).toFixed(1), 9) + pad(lvl, 8) + (deaths ? deaths + " died" : "") + (N - wins - deaths ? (N - wins - deaths) + " timed out" : ""));
+    }
+    lines.push('\nDepth 5 boss (Morgrath, level 7) — level-7 character, 6 hp potions. UNDER-GEARED stress case: stub weapon + armour only, no affixes (real-drop results: runProgression in ?real=1 mode)');
+    lines.push(pad('class/mode', 24) + pad('result', 8) + pad('time', 8) + pad('min hp', 9) + pad('potions', 9) + 'hp left');
+    for (const cid of Object.keys(game.CLASSES)) for (const mode of ['single', 'aoe', 'balanced']) {
+      let wins = 0, time = 0, minHp = 1, pots = 0, hp = 0;
+      const N = 5;
+      for (let i = 0; i < N; i++) { const r = simRun(cid, mode, { depth: 5, level: 7, gear: 5, potions: 6, boss: true, limit: 300 }); wins += r.win ? 1 : 0; time += r.time; minHp = Math.min(minHp, r.minHp); pots += r.potions; hp += r.hp; }
+      res.boss[cid + '/' + mode] = { wins: wins, n: N, time: time / N, minHp: minHp, potions: pots / N };
+      lines.push(pad(cid + '/' + mode, 24) + pad(wins + '/' + N, 8) + pad((time / N).toFixed(0) + 's', 8) + pad(Math.round(minHp * 100) + '%', 9) + pad((pots / N).toFixed(1), 9) + Math.round(hp / N * 100) + '%');
+    }
+    simulating = false;
+    window.__sim = { text: lines.join('\n'), res: res };
+    log('info', lines.join('\n'));
+    flush();
+    H.gear = +$('gear').value;
+    fresh('warrior', false, +$('depth').value || 1);
+    return window.__sim;
+  }
+  // =====================================================================================================
+  // Integration mode (tests/combat.html?real=1): the REAL world + items modules instead of the stubs.
+  // runProgression plays auto-build characters floor by floor with a bot that fights, drinks, loots,
+  // equips upgrades (G.items.isUpgrade), sells the rest and buys potions — gear is whatever really dropped.
+  // =====================================================================================================
+  function lootAndGear(st) {
+    const p = S.player, I = G.items;
+    for (let i = S.groundItems.length - 1; i >= 0; i--) {
+      const g = S.groundItems[i];
+      if (g && Math.hypot(g.x - p.x, g.y - p.y) < 14) { try { I.pickup(g.id); } catch (e) { H.errors.push('pickup ' + e); } }
+    }
+    for (let i = 0; i < p.inventory.length; i++) {
+      const it = p.inventory[i];
+      if (!it) continue;
+      try {
+        if (it.slot && I.isUpgrade(it) && I.equip(i)) { st.equips++; continue; }
+      } catch (e) { H.errors.push('equip ' + e); }
+    }
+    for (let i = 0; i < p.inventory.length; i++) {          // vendor trip stand-in: everything left is sold
+      const it = p.inventory[i];
+      if (!it) continue;
+      p.gold += Math.max(1, it.value | 0) * (it.qty || 1);
+      p.inventory[i] = null;
+    }
+  }
+
+  function shop() {
+    const p = S.player, I = G.items;
+    for (let k = 0; k < 20 && p.potions.hp < 6; k++) { const pr = I.potionPrice('hp'); if (p.gold < pr) break; p.gold -= pr; p.potions.hp++; }
+    for (let k = 0; k < 20 && p.potions.mp < 3; k++) { const pr = I.potionPrice('mp'); if (p.gold < pr) break; p.gold -= pr; p.potions.mp++; }
+  }
+
+  function gearSummary(p) {
+    const w = p.bonus.w;
+    return Math.round((w.min + w.max) / 2 * w.aps * 10) / 10 + 'dps ' + w.type + ', armor ' + p.stats.armor + ', hp ' + p.stats.hpMax;
+  }
+
+  async function runProgression(opts) {
+    opts = opts || {};
+    const classes = opts.classes || Object.keys(game.CLASSES), mode = opts.mode || 'balanced', maxDepth = opts.maxDepth || 20;
+    const dt = 1 / 30, rows = [];
+    simulating = true;
+    for (const cid of classes) {
+      G.input.move.x = 0; G.input.move.y = 0; G.input.attackHeld = false;
+      G.scenes.startNewGame(cid, 'Bot');
+      game.setAutoBuild(mode);
+      let totalDeaths = 0;
+      for (let depth = opts.startDepth || 1; depth <= maxDepth; depth++) {
+        shop();
+        G.scenes.enterDungeon(depth);
+        const st = { t: 0, rot: 0, potions: 0, minHp: 1, pt: 0, path: null, equips: 0, lastX: 0, lastY: 0, stuckT: 0, unstuck: 0 };
+        const total = S.entities.filter(function (e) { return e.type === 'monster' && e.faction === 'enemy'; }).length;
+        let t = 0, deaths = 0, bossT0 = -1, bossTime = -1, bossDeaths = 0, n = 0, lvl0 = S.player.level;
+        const left = function () { let c = 0; for (const e of S.entities) if (e.type === 'monster' && e.faction === 'enemy' && !e.dead && !e.bossAdd) c++; return c; };
+        const cap = opts.floorCap || 480;
+        while (t < cap && left() > 0 && deaths < 6) {
+          const p = S.player;
+          if (p.dead) {
+            deaths++; totalDeaths++;
+            if (bossT0 >= 0 && bossTime < 0) bossDeaths++;
+            game.revivePlayer(); shop();
+            p.potions.hp = Math.max(p.potions.hp, 3);          // a town trip always nets a few potions
+            // back to the stairs, monsters reset (as a real corpse run would find them)
+            p.x = S.map.spawn.x + 0.5; p.y = S.map.spawn.y + 0.5; game.onPlayerMoved(true);
+            for (const e of S.entities) if (e.type === 'monster' && e.faction === 'enemy' && !e.dead) { e.hp = e.stats.hpMax; e.ai.st = 'sleep'; e.effects = []; e.ai.cast = null; }
+            game.zones.length = 0; S.projectiles.length = 0; bossT0 = -1;
+            continue;
+          }
+          botStep(st);
+          S.time += dt; game.update(dt); t += dt; n++;
+          const boss = bossT0 < 0 || bossTime < 0 ? S.entities.find(function (e) { return e.rarity === 'boss'; }) : null;
+          if (boss) {
+            if (bossT0 < 0 && !boss.dead && boss.ai.st !== "sleep") { bossT0 = t; st.bossPots = st.potions; st.minHp = 1; }
+            if (bossT0 >= 0 && boss.dead && bossTime < 0) { bossTime = t - bossT0; st.bossMin = st.minHp; st.bossPots = st.potions - st.bossPots; }
+          }
+          if (n % 45 === 0) {
+            lootAndGear(st);
+            // unstick: the bot is not a pathing test — if it makes no progress for 8 s, drop it next to the nearest enemy
+            let hpSum = 0; for (const e of S.entities) if (e.type === "monster" && e.faction === "enemy" && !e.dead) hpSum += e.hp;
+            if (Math.hypot(p.x - st.lastX, p.y - st.lastY) < 0.5 && hpSum === st.hpSum) st.stuckT += 1.5; else st.stuckT = 0;
+            st.hpSum = hpSum;
+            st.lastX = p.x; st.lastY = p.y;
+            if (st.stuckT >= 8 && !S.flags.sealed) {
+              st.stuckT = 0; st.unstuck++;
+              let near = null, nd = 1e9;
+              for (const e of S.entities) { if (e.type !== 'monster' || e.dead || e.faction !== 'enemy') continue; const d = Math.hypot(e.x - p.x, e.y - p.y); if (d < nd) { nd = d; near = e; } }
+              if (near) { const spot = G.world.findFreeTileNear(S.map, Math.floor(near.x) + 3, Math.floor(near.y), 4); if (spot) { p.x = spot.x + 0.5; p.y = spot.y + 0.5; game.onPlayerMoved(true); } }
+            }
+          }
+          if (n % 2400 === 0) await new Promise(function (r) { setTimeout(r, 0); });
+        }
+        lootAndGear(st);
+        const p = S.player;
+        const row = { cls: cid, mode: mode, depth: depth, theme: S.map.theme, monsters: total, left: left(), time: Math.round(t), deaths: deaths, potions: st.potions, minHp: Math.round(st.minHp * 100),
+          level: p.level, gained: p.level - lvl0, boss: bossTime >= 0 ? Math.round(bossTime) : (depth % C.BOSS_EVERY === 0 ? 'not killed' : ''), bossDeaths: bossDeaths, bossMin: st.bossMin !== undefined ? Math.round(st.bossMin * 100) : "", bossPots: bossTime >= 0 ? st.bossPots : "", equips: st.equips, unstuck: st.unstuck, gear: gearSummary(p), gold: p.gold };
+        rows.push(row);
+        if (opts.onRow) opts.onRow(row);
+        window.__prog = { rows: rows, done: false, errors: H.errors.slice() };
+        if (deaths >= 6) break;          // a wall: stop this class here
+        await new Promise(function (r) { setTimeout(r, 0); });
+      }
+    }
+    simulating = false;
+    G.input.move.x = 0; G.input.move.y = 0; G.input.attackHeld = false;
+    window.__prog = { rows: rows, done: true, errors: H.errors.slice() };
+    return rows;
+  }
+  window.runProgression = runProgression; window.botStep = botStep;
+
+  window.runTests = runTests; window.runSim = runSim; window.simRun = simRun;
+
+  // ---------------- go ----------------
+  if (H.real) {
+    $('results').textContent = 'Integration mode: real world + items modules. The scripted assertions need the stub map — open without ?real=1.\nRun runProgression({ classes, mode, maxDepth }) from the console (results in window.__prog).';
+    G.scenes.startNewGame('warrior', 'Tester'); G.scenes.enterDungeon(1);
+  } else {
+    try { runTests(); } catch (err) { console.error(err); $('results').textContent = 'Harness failed: ' + err; }
+  }
+  requestAnimationFrame(frame);
+};
+</script>
+</body>
+</html>

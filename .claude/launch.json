@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    { "name": "game",   "runtimeExecutable": "powershell", "runtimeArgs": ["-ExecutionPolicy", "Bypass", "-File", "serve.ps1", "-Port", "8377"], "port": 8377 },
+    { "name": "engine", "runtimeExecutable": "powershell", "runtimeArgs": ["-ExecutionPolicy", "Bypass", "-File", "serve.ps1", "-Port", "8381"], "port": 8381 },
+    { "name": "world",  "runtimeExecutable": "powershell", "runtimeArgs": ["-ExecutionPolicy", "Bypass", "-File", "serve.ps1", "-Port", "8382"], "port": 8382 },
+    { "name": "items",  "runtimeExecutable": "powershell", "runtimeArgs": ["-ExecutionPolicy", "Bypass", "-File", "serve.ps1", "-Port", "8383"], "port": 8383 },
+    { "name": "combat", "runtimeExecutable": "powershell", "runtimeArgs": ["-ExecutionPolicy", "Bypass", "-File", "serve.ps1", "-Port", "8384"], "port": 8384 },
+    { "name": "ui",     "runtimeExecutable": "powershell", "runtimeArgs": ["-ExecutionPolicy", "Bypass", "-File", "serve.ps1", "-Port", "8385"], "port": 8385 }
+  ]
+}

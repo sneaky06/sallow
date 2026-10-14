@@ -1,0 +1,54 @@
+# UI & Meta — hand-over notes (from the ui-meta session)
+
+Status (2026-10-13, Revision 2 pass): section 5 + R2.2–R2.7 implemented and verified in `tests/ui.html` (stubs) and the real
+`index.html` at 375x667 and 667x375. Art is frozen: no further visual work. No git repo in the folder, so nothing is committed.
+
+## What the UI reads / calls from Revision 2 (all guarded)
+- `G.scenes.getDeathPenalty()`, `state.flags.corpse`, `state.flags.sealed`, `object:interact { type:'corpse' }` (core handles it).
+- `room:locked { room }`, `room:cleared { room }`. **Wave counter:** there is no per-wave event in the contract, so the banner reads
+  `room.wave` (1-based, polled 5x/s) and also listens for an optional `room:wave { room, wave }`. With neither it shows "N waves".
+- `G.items.getBuyback()`, `buyback(i)`, `unsocketGem(target, socketIndex)`, `unsocketCost(item, socketIndex)`, `EFFECTS`, item `effects`.
+- Bloodstone test before socketing: `G.items.data.isPermanentGem(gem)` if present, else `gem.permanent`, else baseId containing "blood".
+
+## Behaviour other teams may trip over
+- `G.ui` stops propagation of pointer/touch/mouse/click/wheel events at `#ui`, and of key events whose target is an `<input>`.
+- Mythic effect lines: any `getTooltip` line containing an `EFFECTS[id].name` or `.desc` of the item is shown on a dark plate in full
+  mythic colour; if no line matches, the UI appends name + desc itself. Other tooltip line colours are darkened to ink on the bone page.
+- New bounty kind `lockdown` ("Break the Seal"), counted on `room:cleared`, only offered once `flags.maxDepth >= 2`.
+- Kill/elite/boss quest counters and the boss bar ignore entities whose `faction` is set and is not `'enemy'`.
+- `state.settings.junkRarity` (`'common'|'magic'|'rare'`): Sell Junk calls `sellAllBelow` with the next rarity up; the items module toasts the sale.
+- `meta.load()` forces `flags.sealed = false`, validates `flags.corpse`, resets transient player fields, pads inventory/stash.
+- Saves: before the first write of a page load the previous save is copied to `emberdeep.save.prev`; a save this build cannot read is
+  copied to `emberdeep.save.unreadable` instead of being overwritten. Delete Save removes the save and `.prev`.
+- Failure feedback: when a `G.items.*` action returns false the UI only plays `sfx error`; the items module toasts the reason.
+
+## Offline / releases (sw.js)
+- **Bump `VERSION` in sw.js on every deploy** (now `emberdeep-v3`). That is the only release switch.
+- Install precaches: shell + icons + `src/core/*` + every file in each `src/<team>/manifest.js` + `assets/assets.js` + every path it lists
+  (comments ignored). Missing files are skipped and reported; the menu shows "Offline ready" or "N files missing" with a retry button.
+- First install takes control at once. An update downloads into its own cache and waits; it activates on the next cold launch, or
+  immediately when the player taps "Update now" in the menu (saves, then reloads). Old caches are deleted on activation.
+- Network-first on localhost / 127.0.0.1 / *.localhost / *.test so dev edits always show; cache-first everywhere else.
+- If a team adds a top-level script that is not listed in a manifest (or a new core file), add it to `SHELL` in sw.js.
+
+## Revision 3 (2026-10-14)
+- Uses: items.verdict / isJunk / processJunk / salvagePreview / gemUpgradeCost+upgradeGem / rerollCost+rerollAffix,
+  getTooltip().headline {label,value,delta,pct}; socketGem(gemIndex, target, { confirmPermanent: true }) only after the UI confirm;
+  item:picked { salvaged: true, materials } -> one grey feed line; state.targetId drives the target bar; map.mods + game.FLOOR_MODS
+  listed next to the gold line (no toast — the game toasts); getSkillInfo().synergies.
+- Old settings.junkRarity is deleted on load; settings.junk comes from state.js defaults when a save has none.
+- Vendors: Buyback is now a strip at the top of every Sell tab (one tap = bought back); the separate Buyback tab is gone.
+  Mystic has a "Reroll" tab; blacksmith Forge also lists cut gems ("Improve" with gem dust).
+- An 'up'-verdict pickup is a 44px tappable feed line that opens the item tooltip directly.
+- sw.js VERSION is emberdeep-v4.
+
+## Revision 4 (2026-10-14)
+- New src/ui/story.js: premise, Elder lines per main step (played on accept / turn-in via quest:updated / quest:completed),
+  boss intro/death banners keyed by monsterId, ending after main_8, G.meta.LORE (16 pages), Journal panel ('journal').
+  state.flags.storySeen = [keys], state.flags.loreFound = [indices]; both validated on load.
+- Lore: listens to lore:found { loreIndex } and item:picked with item.type 'lore' (deduped); shows the page once.
+- Main boss steps match monster.monsterId (boss_gravelord / boss_broodmother / boss_tyrant / boss_hollow); names from getMonsterInfo.
+  "Marked for Death" counts champion, rare, legendary and boss kills.
+- Dash button from G.game.getClassAction(), emits input:classaction; lockdown counter reads G.game.getLockdown().
+- Player-facing name comes from G.ui.GAME_NAME (style.js) = 'Sallow'. Save key 'emberdeep.save' and cache prefix 'emberdeep-' unchanged.
+  sw.js VERSION emberdeep-v5. manifest.webmanifest name/short_name are 'Sallow' (static JSON cannot read the constant).

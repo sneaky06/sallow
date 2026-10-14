@@ -1,0 +1,529 @@
+// Loot & Economy — gold sinks and sources: selling, salvage, blacksmith upgrades, vendors, gambling, potions.
+// item.value is the gold SELL price; vendors charge BUY_MULT times that; buyback costs 2.5x what was paid.
+(function () {
+  'use strict';
+  const G = window.G;
+  const I = G.items;
+  const D = I.data;
+  const C = G.C;
+
+  const BUY_MULT = 6;
+  function P() { return D.ensure(G.state.player); }
+  function rord(r) { return (C.RARITY[r] || C.RARITY.common).order; }
+  function invChanged() { G.emit('inventory:changed', {}); }
+  function plevel() { const p = G.state.player; return Math.max(1, (p && p.level) || 1); }
+
+  // ---- selling ----
+  function sellValue(item) { return Math.max(0, Math.round((item.value || 0) * (item.qty || 1))); }
+
+  // ---- gem dust (R3.2): gems socketed in gear that is sold, salvaged or junked are ground to dust ----
+  function gemDustOf(gem) {
+    const g = gem && D.GEMS[gem.baseId];
+    if (!g) return 0;
+    return g.family === 'blood' ? D.BLOOD_DUST[g.tier] : D.GEM_DUST[g.tier];
+  }
+  // Empties the item's sockets into player.materials.gemdust -> { gems, gemdust }
+  function grindGems(p, item) {
+    const out = { gems: 0, gemdust: 0 };
+    if (!item || !item.sockets) return out;
+    for (let i = 0; i < item.sockets.length; i++) {
+      const g = item.sockets[i];
+      if (!g) continue;
+      out.gems++;
+      out.gemdust += gemDustOf(g);
+      item.sockets[i] = null;
+    }
+    if (out.gemdust) p.materials.gemdust = (p.materials.gemdust || 0) + out.gemdust;
+    return out;
+  }
+  function socketedCount(item) {
+    let n = 0;
+    for (const g of (item && item.sockets) || []) if (g) n++;
+    return n;
+  }
+
+  // Sets and both Legendary sub-tiers are never junk and never touched by a bulk action (R3.1 / R3.9).
+  function protectedItem(item) {
+    const r = C.RARITY[item.rarity] || {};
+    return item.rarity === 'set' || r.tier === 'legendary';
+  }
+  D.protectedItem = protectedItem;
+
+  // Sell one bag cell (no toast). -> { gold, gems, gemdust }
+  function sellAt(p, i) {
+    const item = p.inventory[i];
+    const gold = sellValue(item);
+    const ground = D.isEquip(item) ? grindGems(p, item) : { gems: 0, gemdust: 0 };
+    p.inventory[i] = null;
+    remember(item, gold);
+    return { gold: gold, gems: ground.gems, gemdust: ground.gemdust };
+  }
+
+  I.sell = function (invIndex) {
+    const p = P();
+    const item = p && p.inventory[invIndex];
+    if (!item) return 0;
+    const r = sellAt(p, invIndex);
+    D.addGold(p, r.gold, 'sell');
+    invChanged();
+    return r.gold;
+  };
+
+  // Sells every piece of equipment in the bag whose rarity is strictly below `rarity` (gems/consumables are kept).
+  // Sets and Legendary Elite/Mythic are never sold, whatever the threshold.
+  I.sellAllBelow = function (rarity) {
+    const p = P();
+    if (!p) return 0;
+    const limit = rord(rarity);
+    let gold = 0, n = 0;
+    for (let i = 0; i < C.INV_SIZE; i++) {
+      const it = p.inventory[i];
+      if (it && D.isEquip(it) && !protectedItem(it) && rord(it.rarity) < limit) {
+        gold += sellAt(p, i).gold;
+        n++;
+      }
+    }
+    if (n) {
+      D.addGold(p, gold, 'sell');
+      D.toast('Sold ' + n + ' item' + (n > 1 ? 's' : '') + ' for ' + gold + ' gold', '#ffd94a');
+      invChanged();
+    }
+    return gold;
+  };
+
+  // ---- junk rules (R3.1) ----
+  const JUNK_DEFAULT = { maxRarity: 'common', action: 'sell', auto: false, keepUpgrades: true, keepSocketed: true };
+  function junkRules() {
+    const s = G.state.settings || (G.state.settings = {});
+    if (!s.junk) s.junk = Object.assign({}, JUNK_DEFAULT);
+    return s.junk;
+  }
+
+  I.isJunk = function (item) {
+    if (!D.isEquip(item) || protectedItem(item)) return false;
+    const rules = junkRules();
+    if (!rules.maxRarity || rules.maxRarity === 'none' || !C.RARITY[rules.maxRarity]) return false;
+    if (rord(item.rarity) > rord(rules.maxRarity)) return false;
+    if (Array.isArray(G.state.stash) && G.state.stash.indexOf(item) >= 0) return false;
+    if (rules.keepSocketed && socketedCount(item) > 0) return false;
+    if (rules.keepUpgrades && I.verdict && I.verdict(item) === 'up') return false;
+    return true;
+  };
+
+  function emptyMats() { return { dust: 0, shard: 0, essence: 0, gemdust: 0 }; }
+
+  // Salvage an item quietly (wherever it is). -> { materials, gems }
+  function salvageItem(p, item) {
+    const y = I.salvageYield(item);
+    for (const k in y) if (y[k]) p.materials[k] = (p.materials[k] || 0) + y[k];
+    const ground = grindGems(p, item);
+    return { materials: { dust: y.dust, shard: y.shard, essence: y.essence, gemdust: ground.gemdust }, gems: ground.gems };
+  }
+  D.salvageItem = salvageItem;
+  function salvageAt(p, i) {
+    const r = salvageItem(p, p.inventory[i]);
+    p.inventory[i] = null;
+    return r;
+  }
+
+  // Sells (in town only) or salvages (anywhere) every junk item in the backpack. -> { count, gold, materials }
+  I.processJunk = function (quiet) {
+    const p = P();
+    const res = { count: 0, gold: 0, materials: emptyMats() };
+    if (!p) return res;
+    const rules = junkRules();
+    const sell = rules.action !== 'salvage';
+    if (sell && G.state.scene !== 'town') return res;
+    for (let i = 0; i < C.INV_SIZE; i++) {
+      const it = p.inventory[i];
+      if (!it || !I.isJunk(it)) continue;
+      res.count++;
+      if (sell) {
+        const r = sellAt(p, i);
+        res.gold += r.gold;
+        res.materials.gemdust += r.gemdust;
+      } else {
+        const r = salvageAt(p, i);
+        for (const k in r.materials) res.materials[k] += r.materials[k];
+      }
+    }
+    if (res.count) {
+      if (res.gold) D.addGold(p, res.gold, 'sell');
+      if (!quiet) {
+        D.toast((sell ? 'Sold ' : 'Salvaged ') + res.count + ' junk item' + (res.count > 1 ? 's' : '') +
+          (sell ? ' for ' + res.gold + ' gold' : ''), '#ffd94a');
+      }
+      invChanged();
+    }
+    return res;
+  };
+
+  // auto + sell: junk is sold on arriving in town, one summary toast.
+  G.on('scene:changed', function (e) {
+    if (!e || e.scene !== 'town' || !G.state.player) return;
+    const rules = junkRules();
+    if (rules.auto && rules.action !== 'salvage') I.processJunk();
+  });
+
+  // ---- buyback (R2.7): the last 12 things sold, newest first, at 2.5x what the vendor paid; forgotten on entering a dungeon ----
+  const BUYBACK_MAX = 12, BUYBACK_MULT = 2.5;
+  let buybackList = [];
+  function remember(item, paid) {
+    buybackList.unshift({ item: item, price: Math.max(1, Math.ceil(paid * BUYBACK_MULT)) });
+    if (buybackList.length > BUYBACK_MAX) buybackList.length = BUYBACK_MAX;
+  }
+  G.on('scene:changed', function (e) { if (e && e.scene === 'dungeon') buybackList = []; });
+
+  I.getBuyback = function () { return buybackList; };
+
+  I.buyback = function (index) {
+    const p = P();
+    const e = buybackList[index];
+    if (!p || !e) return false;
+    if (p.gold < e.price) return D.fail('Not enough gold');
+    if (!I.addToInventory(e.item)) return D.fail('Inventory full');
+    buybackList.splice(index, 1);
+    D.addGold(p, -e.price, 'buy');
+    return true;
+  };
+
+  // ---- unsocketing (R2.6): cut gems come back out for gold; bloodstones never do ----
+  function socketHost(p, target) { return typeof target === 'number' ? p.inventory[target] : p.equipment[target]; }
+
+  // -> gold, or null when there is nothing removable in that socket (empty, or a permanent bloodstone)
+  I.unsocketCost = function (item, socketIndex) {
+    const gem = item && item.sockets && item.sockets[socketIndex];
+    if (!gem || D.isPermanentGem(gem)) return null;
+    return Math.round(20 + (gem.value || 0) * 1.5 + (item.ilvl || 1) * 4);
+  };
+
+  I.unsocketGem = function (target, socketIndex) {
+    const p = P();
+    const item = p && socketHost(p, target);
+    const gem = item && item.sockets && item.sockets[socketIndex];
+    if (!gem) return false;
+    const cost = I.unsocketCost(item, socketIndex);
+    if (cost === null) return D.fail('Bloodstones are fused permanently');
+    if (p.gold < cost) return D.fail('Not enough gold');
+    if (!I.addToInventory(gem)) return D.fail('Inventory full');
+    item.sockets[socketIndex] = null;
+    D.addGold(p, -cost, 'buy');
+    D.toast(gem.name + ' removed', (C.RARITY[gem.rarity] || C.RARITY.common).color);
+    if (typeof target !== 'number') D.equipChanged(p);
+    return true;
+  };
+
+  // ---- salvage ----
+  // Extension: what salvaging would give -> { dust, shard, essence }
+  I.salvageYield = function (item) {
+    const y = { dust: 0, shard: 0, essence: 0 };
+    if (!D.isEquip(item)) return y;
+    const t = 1 + Math.floor(item.ilvl / 20);
+    switch (item.rarity) {
+      case 'common': y.dust = t; break;
+      case 'magic': y.dust = 2 * t; break;
+      case 'rare': y.dust = 2 * t; y.shard = 1 + Math.floor(item.ilvl / 30); break;
+      case 'epic': y.dust = 3 * t; y.shard = 3 + Math.floor(item.ilvl / 20); break;
+      case 'mythic': y.shard = 15; y.essence = 5; break;
+      default: y.shard = 5; y.essence = 1;      // elite, set
+    }
+    return y;
+  };
+
+  I.salvage = function (invIndex) {
+    const p = P();
+    const item = p && p.inventory[invIndex];
+    if (!item) return false;
+    if (!D.isEquip(item)) return D.fail('Cannot salvage that');
+    const m = salvageAt(p, invIndex).materials;
+    const parts = [];
+    for (const k in m) if (m[k]) parts.push('+' + m[k] + ' ' + (k === 'gemdust' ? 'gem dust' : k));
+    D.toast('Salvaged: ' + parts.join(', '), '#8fb4ff');
+    G.emit('sfx', { name: 'click' });
+    invChanged();
+    return true;
+  };
+
+  // R3.2: what salvaging (or, for gems/gemdust, selling) this bag item would do. -> { materials, gems, gemdust }
+  // `gems` > 0 means the UI should warn that socketed gems will be ground to dust.
+  I.salvagePreview = function (invIndex) {
+    const p = G.state.player;
+    const item = p && p.inventory && p.inventory[invIndex];
+    const out = { materials: { dust: 0, shard: 0, essence: 0 }, gems: 0, gemdust: 0 };
+    if (!D.isEquip(item)) return out;
+    const y = I.salvageYield(item);
+    out.materials = { dust: y.dust, shard: y.shard, essence: y.essence };
+    for (const g of item.sockets || []) if (g) { out.gems++; out.gemdust += gemDustOf(g); }
+    return out;
+  };
+
+  // ---- gem dust sinks ----
+  // Blacksmith: cut a gem one tier higher. Target is a bag index holding a cut gem (one gem of a stack is cut).
+  // -> { gemdust, gold } or null (not a cut gem / already perfect).
+  I.gemUpgradeCost = function (target) {
+    const p = G.state.player;
+    const gem = typeof target === 'object' ? target : p && p.inventory && p.inventory[target];
+    const g = gem && D.GEMS[gem.baseId];
+    if (!g || g.family !== 'cut' || g.tier >= D.GEM_TIERS.length - 1) return null;
+    return { gemdust: D.GEM_UP_DUST[g.tier], gold: D.GEM_VALUE[g.tier + 1] };
+  };
+
+  I.upgradeGem = function (invIndex) {
+    const p = P();
+    const gem = p && p.inventory[invIndex];
+    const cost = I.gemUpgradeCost(gem || -1);
+    if (!gem || !cost) return D.fail(gem && D.isPermanentGem(gem) ? 'Bloodstones cannot be cut further' : 'Cannot cut that');
+    if ((p.materials.gemdust || 0) < cost.gemdust) return D.fail('Not enough gem dust');
+    if (p.gold < cost.gold) return D.fail('Not enough gold');
+    const g = D.GEMS[gem.baseId];
+    const next = D.makeMisc('gem_' + g.kind + '_' + (g.tier + 2), 1, 1);
+    const stackLeft = (gem.qty || 1) - 1;
+    if (stackLeft > 0) gem.qty = stackLeft; else p.inventory[invIndex] = null;
+    if (!I.addToInventory(next)) {
+      if (stackLeft > 0) gem.qty = stackLeft + 1; else p.inventory[invIndex] = gem;
+      return D.fail('Inventory full');
+    }
+    p.materials.gemdust -= cost.gemdust;
+    D.addGold(p, -cost.gold, 'buy');
+    G.emit('sfx', { name: 'equip' });
+    D.toast('Cut ' + next.name, (C.RARITY[next.rarity] || C.RARITY.common).color);
+    return true;
+  };
+
+  // Mystic: reroll one affix on a rare-or-better item. Target = bag index or equipment slot; modIndex indexes item.mods.
+  // Implicits and the hand-authored mods of uniques/sets are fixed; their random extras can be rerolled. The flat-damage
+  // affix (dmgMin + dmgMax) counts as one. Each reroll of the same item costs more.
+  function rerollable(item, modIndex) {
+    if (!D.isEquip(item) || rord(item.rarity) < rord('rare')) return false;
+    const m = item.mods[modIndex];
+    if (!m || m.implicit) return false;
+    if (item.uniqueId && D.UNIQUES[item.uniqueId]) {
+      let fixed = D.UNIQUES[item.uniqueId].mods.length, seen = 0;
+      for (let i = 0; i <= modIndex; i++) {
+        if (item.mods[i].implicit) continue;
+        if (++seen <= fixed && i === modIndex) return false;
+      }
+    }
+    return true;
+  }
+
+  // -> { gemdust, gold } or null if that mod cannot be rerolled
+  I.rerollCost = function (target, modIndex) {
+    const p = G.state.player;
+    const item = typeof target === 'object' ? target : p && socketHost(p, target);
+    if (!item || !rerollable(item, modIndex)) return null;
+    const n = item.rerolls || 0;
+    const tierK = { rare: 1, epic: 2, set: 3, legendary: 3, mythic: 5 }[item.rarity] || 1;
+    return { gemdust: (4 + Math.floor(item.ilvl / 10)) * tierK * (n + 1), gold: Math.round((item.value || 1) * 0.5 * (n + 1)) };
+  };
+
+  I.rerollAffix = function (target, modIndex) {
+    const p = P();
+    const item = p && socketHost(p, target);
+    const cost = item ? I.rerollCost(item, modIndex) : null;
+    if (!cost) return D.fail('That property cannot be rerolled');
+    if ((p.materials.gemdust || 0) < cost.gemdust) return D.fail('Not enough gem dust');
+    if (p.gold < cost.gold) return D.fail('Not enough gold');
+    const old = item.mods[modIndex];
+    const pair = old.stat === 'dmgMin' || old.stat === 'dmgMax';
+    item.mods = item.mods.filter(function (m, i) {
+      return i !== modIndex && !(pair && !m.implicit && (m.stat === 'dmgMin' || m.stat === 'dmgMax'));
+    });
+    const used = {};
+    for (const m of item.mods) used[m.stat] = true;
+    used[old.stat] = true;                                    // always a different property
+    if (pair) { used.dmgMin = true; used.dmgMax = true; }
+    D.setRollClass(D.classProfile(p));
+    const before = item.mods.length;
+    D.rollAffixes(item, 1, 9, G.rng.global, D.QUALITY[item.rarity] || D.QUALITY.rare, used);
+    if (item.mods.length === before) item.mods.push(old);     // nothing else fits this base: keep the old roll
+    item.rerolls = (item.rerolls || 0) + 1;
+    item.value = D.itemValue(item);
+    p.materials.gemdust -= cost.gemdust;
+    D.addGold(p, -cost.gold, 'buy');
+    G.emit('sfx', { name: 'loot_rare' });
+    invChanged();
+    if (typeof target !== 'number') D.equipChanged(p);
+    return true;
+  };
+
+  // ---- blacksmith upgrade: +1 … +5. Each step: +10% base damage/armor and one random affix grows ~8%. ----
+  // Extension: cost of the next upgrade -> { gold, dust, shard, essence } or null if it cannot be upgraded.
+  I.upgradeCost = function (item) {
+    if (!D.isEquip(item) || (item.plus || 0) >= D.MAX_PLUS) return null;
+    const n = item.plus || 0;
+    const t = 1 + Math.floor(item.ilvl / 20);
+    return {
+      gold: Math.round((item.value || 1) * (3 + 2 * n)) + 25 * (n + 1),
+      dust: 4 * (n + 1) * t,
+      shard: n >= 2 ? (n - 1) * 2 : 0,
+      essence: n >= 4 ? 1 : 0,
+    };
+  };
+
+  I.upgrade = function (target) {
+    const p = P();
+    if (!p) return false;
+    const equipped = typeof target !== 'number';
+    const item = equipped ? p.equipment[target] : p.inventory[target];
+    if (!item) return false;
+    const cost = I.upgradeCost(item);
+    if (!cost) return D.fail(D.isEquip(item) ? 'Already fully upgraded' : 'Cannot upgrade that');
+    if (p.gold < cost.gold) return D.fail('Not enough gold');
+    for (const k of ['dust', 'shard', 'essence']) {
+      if ((p.materials[k] || 0) < cost[k]) return D.fail('Not enough ' + k);
+    }
+    for (const k of ['dust', 'shard', 'essence']) p.materials[k] -= cost[k];
+
+    const plus = (item.plus || 0) + 1;
+    if (!item.base0) item.base0 = Object.assign({}, item.base);
+    for (const k of ['dmgMin', 'dmgMax', 'armor']) {
+      if (item.base0[k]) item.base[k] = Math.max(item.base[k] + 1, Math.round(item.base0[k] * (1 + 0.1 * plus)));
+    }
+    const growable = item.mods.filter(function (m) { return !m.implicit && m.stat !== 'allSkills' && m.stat !== 'pickupRadius'; });
+    if (growable.length) {
+      const m = G.rng.global.pick(growable);
+      m.value = Math.max(m.value + 1, Math.round(m.value * 1.08));
+    }
+    item.plus = plus;
+    item.name = item.name.replace(/ \+\d+$/, '') + ' +' + plus;
+    item.value = D.itemValue(item);
+
+    D.addGold(p, -cost.gold);
+    G.emit('sfx', { name: 'equip' });
+    G.emit('fx:spawn', { type: 'spark', x: p.x || 0, y: p.y || 0, color: '#ffd94a' });
+    D.toast(item.name + ' forged', (C.RARITY[item.rarity] || C.RARITY.common).color);
+    invChanged();
+    if (equipped) D.equipChanged(p);
+    return true;
+  };
+
+  // ---- vendors ----
+  const stock = {};
+  let stockLevel = 0;
+  C.NPC_ROLES.forEach(function (r) { stock[r] = []; });
+
+  // Extension: what a vendor charges for an item.
+  I.buyPrice = function (item) { return Math.max(1, Math.ceil((item.value || 1) * BUY_MULT)); };
+
+  function entry(item, infinite) {
+    const e = { item: item, price: I.buyPrice(item) };
+    if (infinite) e.infinite = true;
+    return e;
+  }
+
+  // Vendors never sell better than rare.
+  function vendorItem(level, slot, weights, family) {
+    const rng = G.rng.global;
+    const u = rng.next() * (weights[0] + weights[1] + weights[2]);
+    const rarity = u < weights[0] ? 'common' : u < weights[0] + weights[1] ? 'magic' : 'rare';
+    return I.rollItem({ level: level + rng.int(0, 1), rarity: rarity, slot: slot, _family: family });
+  }
+
+  I.refreshVendors = function (level) {
+    const rng = G.rng.global;
+    level = Math.max(1, Math.round(level || plevel()));
+    stockLevel = level;
+    C.NPC_ROLES.forEach(function (r) { stock[r] = []; });
+
+    // merchant: general goods
+    const anySlots = ['weapon', 'offhand', 'helm', 'chest', 'gloves', 'boots', 'belt', 'ring'];
+    for (let i = 0; i < 8; i++) stock.merchant.push(entry(vendorItem(level, rng.pick(anySlots), [55, 40, 5])));
+    stock.merchant.push(entry(D.makeMisc('flask_rejuv', level, 1), true));
+    stock.merchant.push(entry(D.makeMisc('tome_xp', level, 1)));
+    if (rng.chance(0.35)) stock.merchant.push(entry(D.makeMisc('chisel', level, 1)));
+
+    // blacksmith: weapons + armour
+    for (let i = 0; i < 6; i++) stock.blacksmith.push(entry(vendorItem(level, 'weapon', [40, 46, 14])));
+    ['helm', 'chest', 'gloves', 'boots', 'belt', 'offhand'].forEach(function (s) {
+      stock.blacksmith.push(entry(vendorItem(level, s, [40, 46, 14], s === 'offhand' ? 'shield' : undefined)));
+    });
+
+    // mystic: jewellery, caster off-hands, gems
+    for (let i = 0; i < 3; i++) stock.mystic.push(entry(vendorItem(level, 'ring', [0, 72, 28])));
+    for (let i = 0; i < 2; i++) stock.mystic.push(entry(vendorItem(level, 'amulet', [0, 72, 28])));
+    stock.mystic.push(entry(vendorItem(level, 'offhand', [0, 72, 28], 'orb')));
+    stock.mystic.push(entry(vendorItem(level, 'offhand', [0, 72, 28], 'tome')));
+    for (let i = 0; i < 4; i++) stock.mystic.push(entry(D.rollGem(Math.max(1, Math.min(49, level - 10)), rng, true)));
+
+    // healer: restoratives (belt potions go through buyPotion)
+    stock.healer.push(entry(D.makeMisc('flask_rejuv', level, 1), true));
+  };
+
+  I.getVendorStock = function (role) {
+    if (!stockLevel) I.refreshVendors(plevel());
+    return stock[role] || [];
+  };
+
+  I.buy = function (role, index) {
+    const p = P();
+    const list = I.getVendorStock(role);
+    const e = list[index];
+    if (!p || !e) return false;
+    if (p.gold < e.price) return D.fail('Not enough gold');
+    const item = e.infinite ? Object.assign({}, e.item, { id: G.newId(), icon: Object.assign({}, e.item.icon), base: {}, mods: [] }) : e.item;
+    if (!I.addToInventory(item)) return D.fail('Inventory full');
+    if (!e.infinite) list.splice(index, 1);
+    D.addGold(p, -e.price, 'buy');
+    return true;
+  };
+
+  // ---- mystic gambling: pay for a magic-or-better item of the chosen slot; rarity is a surprise ----
+  // Extension: current price of one gamble.
+  I.gambleCost = function () { const l = plevel(); return 60 + l * l * 6; };
+
+  I.gamble = function (slot) {
+    const p = P();
+    if (!p) return null;
+    if (slot === 'ring1' || slot === 'ring2') slot = 'ring';
+    if (['weapon', 'offhand', 'helm', 'chest', 'gloves', 'boots', 'belt', 'amulet', 'ring'].indexOf(slot) < 0) return null;
+    const cost = I.gambleCost();
+    if (p.gold < cost) { D.fail('Not enough gold'); return null; }
+    if (p.inventory.indexOf(null) < 0) { D.fail('Inventory full'); return null; }
+    const item = I.rollItem({ level: plevel(), slot: slot, _boost: 3, _floor: 'magic' });
+    I.addToInventory(item);
+    D.addGold(p, -cost, 'buy');
+    const o = rord(item.rarity);
+    if (o >= rord('set')) G.emit('sfx', { name: 'loot_legendary' });
+    else if (o >= rord('rare')) G.emit('sfx', { name: 'loot_rare' });
+    D.toast('Gambled: ' + item.name, C.RARITY[item.rarity].color);
+    return item;
+  };
+
+  // ---- potions ----
+  I.potionPrice = function (kind) { return (kind === 'mp' ? 10 : 8) + plevel() * 3; };
+
+  I.buyPotion = function (kind) {
+    const p = P();
+    if (!p || (kind !== 'hp' && kind !== 'mp')) return false;
+    if ((p.potions[kind] || 0) >= D.POTION_CAP) return D.fail('Belt is full');
+    const price = I.potionPrice(kind);
+    if (p.gold < price) return D.fail('Not enough gold');
+    p.potions[kind] = (p.potions[kind] || 0) + 1;
+    D.addGold(p, -price, 'buy');
+    invChanged();
+    return true;
+  };
+
+  // ---- gems: extension — three of a kind combine into the next tier ----
+  I.combineGems = function (invIndex) {
+    const p = P();
+    const gem = p && p.inventory[invIndex];
+    const g = gem && D.GEMS[gem.baseId];
+    if (!g) return false;
+    if (g.family === 'blood') return D.fail('Bloodstones cannot be combined');
+    if (g.tier >= D.GEM_TIERS.length - 1) return D.fail('Already perfect');
+    if ((gem.qty || 1) < 3) return D.fail('Need three of the same gem');
+    gem.qty -= 3;
+    if (gem.qty <= 0) p.inventory[invIndex] = null;
+    const next = D.makeMisc('gem_' + g.kind + '_' + (g.tier + 2), 1, 1);
+    if (!I.addToInventory(next)) {
+      gem.qty += 3;
+      p.inventory[invIndex] = gem;
+      return D.fail('Inventory full');
+    }
+    G.emit('sfx', { name: 'equip' });
+    D.toast('Created ' + next.name, C.RARITY[next.rarity].color);
+    return true;
+  };
+})();

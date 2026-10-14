@@ -1,0 +1,318 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Emberdeep — engine harness</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #0b0a0f; overflow: hidden; overscroll-behavior: none;
+    -webkit-user-select: none; user-select: none; touch-action: none; font: 11px/1.3 monospace; color: #d8d0c0; }
+  #game { position: fixed; inset: 0; width: 100%; height: 100%; display: block; image-rendering: pixelated; }
+  #hud { position: fixed; right: 4px; top: 4px; text-align: right; pointer-events: none; text-shadow: 1px 1px 0 #000; }
+  #toggle { position: fixed; right: 4px; top: 34px; width: 44px; height: 44px; background: #2a2230; color: #ffd94a; border: 2px solid #6a5a3c; font: 16px monospace; }
+  #panel { position: fixed; right: 0; top: 82px; bottom: 0; width: min(300px, 86vw); overflow-y: auto; background: rgba(14,12,20,0.94);
+    border-left: 2px solid #6a5a3c; padding: 6px; display: none; touch-action: pan-y; box-sizing: border-box; }
+  #panel.open { display: block; }
+  #panel h4 { margin: 8px 0 3px; color: #ffd94a; font-size: 11px; }
+  #panel button { background: #2a2230; color: #d8d0c0; border: 1px solid #5a4c38; font: 10px monospace; margin: 1px; padding: 5px 5px; }
+  #panel button:active { background: #5a4c38; }
+  #panel img, #panel canvas { image-rendering: pixelated; margin: 1px; vertical-align: middle; }
+  #log { white-space: pre-wrap; color: #9fd0ff; min-height: 2.6em; }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<div id="hud"></div>
+<button id="toggle">≡</button>
+<div id="panel"></div>
+<script>
+window.G = { manifest: {} };
+(function () {
+  function load(src) {
+    return new Promise(function (res) {
+      var s = document.createElement('script');
+      s.src = src; s.async = false; s.onload = res;
+      s.onerror = function () { console.error('[harness] missing ' + src); res(); };
+      document.body.appendChild(s);
+    });
+  }
+  function seq(l) { return l.reduce(function (p, s) { return p.then(function () { return load(s); }); }, Promise.resolve()); }
+  seq(['constants.js', 'events.js', 'rng.js', 'state.js'].map(function (f) { return '../src/core/' + f; }))
+    .then(function () { return load('../src/engine/manifest.js'); })
+    .then(function () { return seq((G.manifest.engine || []).map(function (f) { return '../src/engine/' + f; })); })
+    .then(start);
+
+  function start() {
+    var C = G.C, T = C.TILE, S = G.state, E = G.engine;
+    var W = 46, H = 44;
+    var $ = function (id) { return document.getElementById(id); };
+    var logEl;
+    function log(s) { if (logEl) logEl.textContent = s; }
+
+    // ------------------------------------------------------------ stub map
+    function buildMap(theme) {
+      var town = theme === 'town';
+      var m = { w: W, h: H, kind: town ? 'town' : 'dungeon', depth: town ? 0 : 3, theme: theme, seed: 1,
+        tiles: new Uint8Array(W * H), explored: new Uint8Array(W * H), visible: new Uint8Array(W * H),
+        spawn: { x: 15, y: 23 }, rooms: [], spawns: [], props: [] };
+      var set = function (x, y, t) { if (x >= 0 && y >= 0 && x < W && y < H) m.tiles[y * W + x] = t; };
+      var fill = function (x0, y0, x1, y1, t) { for (var y = y0; y <= y1; y++) for (var x = x0; x <= x1; x++) set(x, y, t); };
+      fill(0, 0, W - 1, H - 1, T.WALL);
+      fill(0, 0, W - 1, 0, T.VOID); fill(0, 0, 0, H - 1, T.VOID);
+      fill(4, 4, 27, 25, T.FLOOR);                         // room A: the zoo
+      set(28, 12, T.DOOR); fill(29, 12, 31, 12, T.FLOOR);  // corridor east
+      fill(32, 5, 42, 20, T.FLOOR);                        // room B: hazards
+      fill(34, 7, 38, 10, T.WATER); fill(35, 8, 37, 9, T.DEEP_WATER); fill(34, 13, 39, 17, T.LAVA); fill(35, 16, 38, 17, T.DEEP_LAVA); fill(40, 13, 42, 15, T.CHASM); fill(34, 15, 39, 15, T.BRIDGE);
+      fill(40, 7, 41, 9, T.RUBBLE); set(33, 19, T.RUBBLE); set(36, 11, T.RUBBLE);
+      set(41, 18, T.STAIRS_DOWN); set(6, 23, T.STAIRS_UP);
+      set(14, 26, T.DOOR); fill(14, 27, 14, 28, T.FLOOR);  // corridor south
+      fill(4, 29, 30, 40, T.GRASS);                        // room C: outdoors
+      fill(4, 34, 30, 35, T.PATH); fill(14, 29, 15, 34, T.PATH);
+      fill(20, 30, 24, 32, T.WALL);                        // a house
+      fill(8, 12, 9, 12, T.WALL); set(20, 20, T.WALL); set(21, 20, T.WALL); set(21, 21, T.WALL);   // pillars of wall inside the zoo
+      var P = function (type, x, y, o) { m.props.push(Object.assign({ type: type, x: x, y: y, solid: true }, o || {})); };
+      C.PROP_TYPES.forEach(function (t, i) { P(t, 5 + (i % 11) * 2, 5 + ((i / 11) | 0) * 2, { solid: false }); });
+      P('not_a_prop', 27, 7, { solid: false });
+      P('shrine', 26, 9, { used: true });
+      P('torch', 4, 15); P('torch', 27, 20); P('torch', 32, 5); P('torch', 42, 12); P('torch', 13, 27, { light: 6 });
+      P('pillar', 33, 12); P('pillar', 41, 12); P('crystal', 42, 20); P('bones', 37, 19, { solid: false });
+      P('tree', 6, 30); P('tree', 9, 31); P('tree', 27, 30); P('tree', 28, 38); P('tree', 5, 38); P('bush', 11, 37); P('bush', 18, 31);
+      P('fountain', 12, 37); P('well', 18, 38); P('stall', 22, 37); P('sign', 16, 33); P('campfire', 26, 36); P('tombstone', 7, 36); P('tombstone', 8, 37);
+      if (town) m.explored.fill(1);
+      return m;
+    }
+
+    var ROLE_NAMES = { merchant: 'Odo the Merchant', blacksmith: 'Brenna', mystic: 'Vael', healer: 'Sister Ame', elder: 'Elder Torr', stashkeeper: 'Pim' };
+    var COLS = ['#8a4a3a', '#d8d2bc', '#7a6a5a', '#4ac85a', '#6a4a8a', '#3a3440', '#4a3a9a', '#6a8a4a', '#5a7a9a', '#a8281e'];
+    var ACCS = ['#e8c040', '#c82828', '#d8c8a0', '#b0f060', '#ff5a8a', '#e83a2a', '#3de0c8', '#d8a050', '#9fe0ff', '#ffb040'];
+    var ANIMS = ['idle', 'walk', 'attack', 'cast', 'hit', 'die'];
+    var zoo = [];
+    function ent(o) {
+      var e = Object.assign({ id: G.newId(), type: 'monster', name: 'Thing', x: 0, y: 0, radius: 0.3, facing: 0.78, anim: 'idle', animT: 0,
+        hitFlash: 0, dead: false, level: 1, hp: 100, mp: 0, stats: { hpMax: 100 }, effects: [], rarity: 'normal', affixes: [] }, o);
+      S.entities.push(e);
+      return e;
+    }
+    function populate() {
+      S.entities = []; S.projectiles = []; S.groundItems = []; zoo = [];
+      C.BODY_TYPES.forEach(function (b, i) {
+        // row 1: every body, cycling every animation, weapon varies
+        zoo.push({ e: ent({ name: b, x: 5.5 + i * 2.2, y: 10.5, sprite: { body: b, color: COLS[i], accent: ACCS[i], scale: 1, weapon: C.WEAPON_LOOKS[(i + 1) % C.WEAPON_LOOKS.length] } }), mode: 'cycle', off: i * 0.4 });
+        // row 2: elites, walking, turning
+        var rar = ['champion', 'rare', 'boss'][i % 3];
+        zoo.push({ e: ent({ name: (rar === 'boss' ? 'Lord ' : rar === 'rare' ? 'Dire ' : 'Fell ') + b, x: 5.5 + i * 2.2, y: 13.5, rarity: i === 4 || i === 9 ? 'legendary' : rar, affixes: ['Fast', 'Vampiric', 'Fire Enchanted', 'Splits on death', 'Teleporter'].slice(0, 1 + (i % 5)), hp: 30 + i * 7,
+          sprite: { body: b, color: COLS[(i + 3) % 10], accent: ACCS[(i + 5) % 10], scale: rar === 'boss' ? 1.8 : 1.3, weapon: C.WEAPON_LOOKS[(i + 4) % C.WEAPON_LOOKS.length] } }), mode: 'walk', off: i });
+      });
+      C.WEAPON_LOOKS.forEach(function (w, i) {
+        zoo.push({ e: ent({ name: w, x: 5.5 + i * 2.2, y: 16.5, hp: 60, sprite: { body: i % 2 ? 'skeleton' : 'humanoid', color: COLS[i], accent: ACCS[i], scale: 1, weapon: w } }), mode: w === 'staff' || w === 'wand' ? 'cast' : 'attack', off: i * 0.2 });
+      });
+      zoo.push({ e: ent({ name: 'fallback', x: 25.3, y: 16.5, sprite: { body: 'zzz', color: 'nope', accent: 7, scale: -3, weapon: 'banana' } }), mode: 'cycle', off: 0 });
+      zoo.push({ e: ent({ name: 'nosprite', x: 26.5, y: 18.5, sprite: null }), mode: 'cycle', off: 1 });
+      C.NPC_ROLES.forEach(function (r, i) {
+        ent({ type: 'npc', role: r, name: ROLE_NAMES[r], x: 6.5 + i * 3.4, y: 19.5, facing: 0.78 + i,
+          sprite: { body: i === 2 ? 'caster' : 'humanoid', color: ['#7a5a2a', '#5a5a66', '#5a2a8a', '#d8d8e8', '#8a8a8a', '#2a6a5a'][i], accent: ACCS[i], scale: 1, weapon: i === 1 ? 'mace' : i === 2 ? 'staff' : 'none' } });
+      });
+      Object.keys(C.RARITY).forEach(function (r, i) {
+        var shape = C.ICON_SHAPES[i * 3 % 23];
+        S.groundItems.push({ id: G.newId(), x: 5.5 + i * 3.2, y: 21.2 + (i % 2) * 1.4, item: { id: G.newId(), name: C.RARITY[r].name + ' ' + shape + ' of testing', type: 'weapon', rarity: r, icon: { shape: shape, color: C.RARITY[r].color } } });
+      });
+      S.groundItems.push({ id: G.newId(), x: 10.5, y: 23.5, item: { type: 'gold', qty: 137, name: 'Gold', rarity: 'common', icon: { shape: 'gold', color: '#ffd94a' } } });
+      S.groundItems.push({ id: G.newId(), x: 12.2, y: 23.7, item: { name: 'Health Potion', type: 'consumable', rarity: 'common', qty: 3, icon: { shape: 'potion', color: '#d8281e' } } });
+      S.groundItems.push({ id: G.newId(), x: 13.2, y: 24.4, item: { name: 'Broken thing', rarity: 'wat' } });
+      C.PROJECTILE_SHAPES.forEach(function (s, i) {
+        S.projectiles.push({ id: G.newId(), x: 22, y: 23, vx: 1, vy: 0, shape: s, color: ['#d8c8a0', '#ffe45b', '#b65bff', '#ff7a1e', '#8fd8ff', '#7ad84a'][i], radius: i === 3 ? 0.5 : 0.2, _a: i * 1.047, _r: 1.4 + (i % 2) * 0.8 });
+      });
+      S.projectiles.push({ id: G.newId(), x: 22, y: 23, vx: 0, vy: 1, shape: 'whatever', _a: 0, _r: 3 });
+    }
+
+    function setTheme(theme) {
+      S.map = buildMap(theme);
+      S.scene = theme === 'town' ? 'town' : 'dungeon';
+      S.depth = S.map.depth;
+      populate();
+      S.player.x = S.map.spawn.x + 0.5; S.player.y = S.map.spawn.y + 0.5;
+      G.emit('scene:changed', { scene: S.scene, depth: S.depth, map: S.map });
+    }
+
+    S.player = { id: G.newId(), type: 'player', name: 'Hero', x: 15.5, y: 23.5, radius: 0.3, facing: 0.78, anim: 'idle', animT: 0, hitFlash: 0, dead: false,
+      level: 1, hp: 100, mp: 50, stats: { hpMax: 100, mpMax: 50 }, effects: [], classId: 'warrior',
+      sprite: { body: 'humanoid', color: '#4a6aa8', accent: '#e8c040', scale: 1, weapon: 'sword' } };
+
+    // ------------------------------------------------------------ stub game logic
+    var props = null;
+    function blocked(x, y) {
+      var tx = Math.floor(x), ty = Math.floor(y);
+      if (tx < 0 || ty < 0 || tx >= W || ty >= H) return true;
+      if (!C.WALKABLE[S.map.tiles[ty * W + tx]]) return true;
+      for (var i = 0; i < S.map.props.length; i++) { var p = S.map.props[i]; if (p.solid && p.x === tx && p.y === ty) return true; }
+      return false;
+    }
+    function canStand(x, y) { var r = 0.28; return !blocked(x - r, y - r) && !blocked(x + r, y - r) && !blocked(x - r, y + r) && !blocked(x + r, y + r); }
+    function updateVis() {
+      var m = S.map;
+      if (m.kind === 'town') return;
+      m.visible.fill(0);
+      var px = S.player.x, py = S.player.y, R = 9;
+      for (var a = 0; a < 220; a++) {
+        var dx = Math.cos(a / 220 * 6.283), dy = Math.sin(a / 220 * 6.283);
+        for (var d = 0; d < R; d += 0.35) {
+          var tx = Math.floor(px + dx * d), ty = Math.floor(py + dy * d);
+          if (tx < 0 || ty < 0 || tx >= W || ty >= H) break;
+          var i = ty * W + tx;
+          m.visible[i] = 1; m.explored[i] = 1;
+          if (C.OPAQUE[m.tiles[i]]) break;
+        }
+      }
+    }
+    var moveTo = null, actT = 0;
+    function act(anim, dur) { S.player.anim = anim; S.player.animT = 0; actT = dur; }
+    G.on('input:tap', function (e) {
+      moveTo = { x: e.x, y: e.y };
+      G.emit('fx:spawn', { type: 'ring', x: e.x, y: e.y, radius: 0.4, color: '#ffe9a8', duration: 0.3 });
+      log('input:tap ' + e.x.toFixed(2) + ', ' + e.y.toFixed(2));
+    });
+    G.on('input:attack', function () {
+      var p = S.player; act('attack', 0.3);
+      G.emit('fx:spawn', { type: 'slash', x: p.x, y: p.y, angle: p.facing, radius: 1 }); G.emit('sfx', { name: 'swing' }); log('input:attack');
+    });
+    G.on('input:skill', function (e) {
+      var p = S.player; act('cast', 0.4);
+      var fx = ['nova', 'explosion', 'frost', 'teleport'][e.slot] || 'spark';
+      G.emit('fx:spawn', { type: fx, x: p.x + Math.cos(p.facing) * (e.slot === 1 ? 3 : 0), y: p.y + Math.sin(p.facing) * (e.slot === 1 ? 3 : 0) });
+      G.emit('sfx', { name: ['ice', 'fire', 'ice', 'cast'][e.slot] || 'cast' });
+      if (e.slot === 1) G.emit('fx:shake', { amount: 5, duration: 0.3 });
+      log('input:skill ' + JSON.stringify(e));
+    });
+    G.on('input:potion', function (e) { G.emit('fx:spawn', { type: 'heal', x: S.player.x, y: S.player.y, color: e.kind === 'mp' ? '#5b8cff' : '#ff5a6a' }); G.emit('sfx', { name: 'potion' }); log('input:potion ' + JSON.stringify(e)); });
+    G.on('input:ui', function (e) { log('input:ui ' + JSON.stringify(e)); });
+
+    function update(dt) {
+      var p = S.player, m = G.input.move;
+      p.animT += dt;
+      if (p.hitFlash > 0) p.hitFlash -= dt;
+      var dx = m.x, dy = m.y, mag = Math.hypot(dx, dy);
+      if (mag > 0.01) moveTo = null;
+      else if (moveTo) {
+        dx = moveTo.x - p.x; dy = moveTo.y - p.y; mag = Math.hypot(dx, dy);
+        if (mag < 0.1) { moveTo = null; mag = 0; } else { dx /= mag; dy /= mag; mag = 1; }
+      }
+      if (actT > 0) { actT -= dt; }
+      else if (mag > 0.01) {
+        var sp = 5 * dt;
+        if (canStand(p.x + dx * sp, p.y)) p.x += dx * sp;
+        if (canStand(p.x, p.y + dy * sp)) p.y += dy * sp;
+        p.facing = Math.atan2(dy, dx);
+        if (p.anim !== 'walk') { p.anim = 'walk'; p.animT = 0; }
+      } else if (p.anim !== 'idle') { p.anim = 'idle'; p.animT = 0; }
+
+      var t = S.time;
+      for (var i = 0; i < zoo.length; i++) {
+        var z = zoo[i], e = z.e;
+        if (e.hitFlash > 0) e.hitFlash -= dt;
+        if (z.frozen) { e.animT += dt; continue; }
+        var tt = t + z.off;
+        if (z.mode === 'cycle') { var k = Math.floor(tt / 1.6) % ANIMS.length; e.anim = ANIMS[k]; e.animT = tt % 1.6; e.facing = 0.78 + Math.floor(tt / 9.6) * 1.5708; }
+        else if (z.mode === 'walk') { e.anim = 'walk'; e.animT = tt; e.facing = tt * 0.7; }
+        else { e.anim = z.mode; e.animT = tt % 0.9; e.facing = 0.78 + Math.floor(tt / 3.6) * 1.5708; }
+      }
+      for (var j = 0; j < S.projectiles.length; j++) {
+        var q = S.projectiles[j];
+        q._a += dt * 2.2;
+        q.x = 22 + Math.cos(q._a) * q._r; q.y = 23 + Math.sin(q._a) * q._r;
+        q.vx = -Math.sin(q._a); q.vy = Math.cos(q._a);
+      }
+      updateVis();
+    }
+
+    // ------------------------------------------------------------ boot + loop
+    var canvas = $('game');
+    E.init(canvas);
+    var hud = $('hud'), acc = 0, n = 0, worst = 0, last = performance.now(), fpsT = 0, frames = 0, forceMenu = false, statT = performance.now();
+    window.__stats = { avg: 0, max: 0, fps: 0 };
+    function frame(now) {
+      var dt = Math.min(0.05, (now - last) / 1000); last = now;
+      if (!forceMenu) { S.time += dt; update(dt); }
+      var t0 = performance.now();
+      E.update(dt); E.render();
+      var ms = performance.now() - t0;
+      acc += ms; n++; if (ms > worst) worst = ms; frames++; fpsT = (now - statT) / 1000;
+      if (fpsT >= 1) {
+        statT = now;
+        window.__stats = { avg: acc / n, max: worst, fps: frames / fpsT };
+        hud.textContent = (frames / fpsT).toFixed(0) + ' fps  engine ' + (acc / n).toFixed(2) + ' ms (max ' + worst.toFixed(1) + ')  ' + canvas.width + 'x' + canvas.height;
+        acc = n = worst = frames = 0; fpsT = 0;
+      }
+      requestAnimationFrame(frame);
+    }
+
+    // ------------------------------------------------------------ panel
+    var panel = $('panel');
+    $('toggle').onclick = function () { panel.classList.toggle('open'); };
+    function section(title) { var h = document.createElement('h4'); h.textContent = title; panel.appendChild(h); var d = document.createElement('div'); panel.appendChild(d); return d; }
+    function btn(parent, label, fn) { var b = document.createElement('button'); b.textContent = label; b.onclick = fn; parent.appendChild(b); return b; }
+    logEl = section('last input event'); logEl.id = 'log'; logEl.textContent = '(none)';
+    var s1 = section('scene / theme');
+    ['town', 'crypt', 'caves', 'inferno', 'abyss', 'bogus'].forEach(function (t) { btn(s1, t, function () { forceMenu = false; setTheme(t); }); });
+    btn(s1, 'MENU', function () { forceMenu = true; S.scene = 'menu'; S.map = null; });
+    btn(s1, 'no player', function () { S._p = S.player; S.player = null; setTimeout(function () { S.player = S._p; }, 2500); });
+    var s2 = section('fx:spawn (at player)');
+    C.FX_TYPES.concat(['unknown_fx']).forEach(function (t, i) {
+      btn(s2, t, function () { var p = S.player; G.emit('fx:spawn', { type: t, x: p.x + 1.5, y: p.y - 1.5, angle: p.facing }); });
+    });
+    btn(s2, 'ALL', function () { C.FX_TYPES.forEach(function (t, i) { G.emit('fx:spawn', { type: t, x: 6 + (i % 7) * 3, y: 22.5 + ((i / 7) | 0) * 2 }); }); });
+    var s3 = section('fx:text / shake / flash');
+    btn(s3, 'dmg', function () { var p = S.player; G.emit('fx:text', { x: p.x, y: p.y, text: String((Math.random() * 90 + 10) | 0) }); });
+    btn(s3, 'CRIT', function () { var p = S.player; G.emit('fx:text', { x: p.x, y: p.y, text: String((Math.random() * 900 + 100) | 0), crit: true }); });
+    btn(s3, 'heal txt', function () { var p = S.player; G.emit('fx:text', { x: p.x, y: p.y, text: '+25', color: '#5bff8a' }); });
+    btn(s3, 'text storm', function () { for (var i = 0; i < 60; i++) G.emit('fx:text', { x: 6 + Math.random() * 20, y: 8 + Math.random() * 14, text: String((Math.random() * 500) | 0), crit: i % 7 === 0 }); });
+    btn(s3, 'shake', function () { G.emit('fx:shake', { amount: 6, duration: 0.4 }); });
+    btn(s3, 'hitFlash all', function () { zoo.forEach(function (z) { z.e.hitFlash = 0.25; }); S.player.hitFlash = 0.25; });
+    btn(s3, 'kill / revive zoo', function () { zoo.forEach(function (z) { z.frozen = !z.frozen; z.e.dead = z.frozen; z.e.anim = z.frozen ? 'die' : 'idle'; z.e.animT = 0; if (z.frozen) G.emit('fx:spawn', { type: 'blood', x: z.e.x, y: z.e.y }); }); });
+    btn(s3, 'loot explosion', function () {
+      var p = S.player, rs = Object.keys(C.RARITY);
+      for (var i = 0; i < 24; i++) {
+        var r = rs[Math.min(rs.length - 1, (Math.pow(Math.random(), 2.2) * rs.length) | 0)], a = Math.random() * 6.283, d = 0.5 + Math.random() * 2.5;
+        var x = p.x + Math.cos(a) * d, y = p.y + Math.sin(a) * d;
+        if (blocked(x, y)) continue;
+        var sh = C.ICON_SHAPES[(Math.random() * 23) | 0];
+        S.groundItems.push({ id: G.newId(), x: x, y: y, item: i % 5 === 0 ? { type: 'gold', qty: (Math.random() * 90 + 5) | 0, name: 'Gold', rarity: 'common', icon: { shape: 'gold', color: '#ffd94a' } }
+          : { name: C.RARITY[r].name + ' ' + sh, rarity: r, icon: { shape: sh, color: C.RARITY[r].color } } });
+        if (C.RARITY[r].order >= 2) G.emit('fx:spawn', { type: 'lootbeam', x: x, y: y, color: C.RARITY[r].color });
+      }
+      G.emit('sfx', { name: 'loot_rare' });
+    });
+    btn(s3, 'clear loot', function () { S.groundItems = []; });
+    btn(s3, '80 monsters', function () { for (var i = 0; i < 80; i++) zoo.push({ e: ent({ name: 'm' + i, x: 5 + Math.random() * 22, y: 8 + Math.random() * 16, hp: 50, rarity: i % 9 === 0 ? 'champion' : 'normal', sprite: { body: C.BODY_TYPES[i % 10], color: COLS[i % 10], accent: ACCS[(i * 3) % 10], scale: 1, weapon: C.WEAPON_LOOKS[i % 9] } }), mode: 'walk', off: i }); });
+    var s4 = section('loot filter');
+    Object.keys(C.RARITY).forEach(function (r) { btn(s4, r, function () { S.settings.lootFilter = r; }); });
+    var s5 = section('sfx');
+    ['hit', 'swing', 'cast', 'fire', 'ice', 'bolt', 'arrow', 'hurt', 'die', 'loot', 'loot_rare', 'loot_legendary', 'gold', 'levelup', 'equip', 'potion', 'click', 'error', 'door', 'stairs', 'quest', 'buy', 'sell', 'chest', 'shrine', 'unknown_sfx']
+      .forEach(function (nm) { btn(s5, nm, function () { G.emit('sfx', { name: nm }); }); });
+    btn(s5, 'sfx on/off', function () { S.settings.sfx = !S.settings.sfx; log('settings.sfx = ' + S.settings.sfx); });
+    var s6 = section('minimap (drawMinimap 5x/s)');
+    var mm = document.createElement('canvas'); mm.width = 110; mm.height = 110; mm.style.background = '#000'; s6.appendChild(mm);
+    var mm2 = document.createElement('canvas'); mm2.width = 260; mm2.height = 150; mm2.style.background = '#000'; s6.appendChild(mm2);
+    setInterval(function () { if (panel.classList.contains('open')) { E.drawMinimap(mm.getContext('2d'), 110, 110); E.drawMinimap(mm2.getContext('2d'), 260, 150); } }, 200);
+    var s7 = section('icons (getIconURL 32 / getIcon 16, 48)');
+    var IC = ['#c8c8c8', '#5b8cff', '#ffe45b', '#b65bff', '#ff8a2b', '#3ddc6a', '#ff3b4e', '#d8281e'];
+    C.ICON_SHAPES.concat(['nope']).forEach(function (sh, i) {
+      var im = document.createElement('img'); im.width = im.height = 32; im.title = sh;
+      im.src = E.getIconURL({ shape: sh, color: IC[i % IC.length] }, 32); s7.appendChild(im);
+    });
+    s7.appendChild(document.createElement('br'));
+    ['sword', 'potion', 'fire'].forEach(function (sh) { var c = E.getIcon({ shape: sh, color: '#ff8a2b', accent: '#5b8cff' }, 48); var o = document.createElement('canvas'); o.width = o.height = 48; o.getContext('2d').drawImage(c, 0, 0); s7.appendChild(o); });
+    s7.appendChild(E.getIcon(null, 16).cloneNode ? (function () { var o = document.createElement('canvas'); o.width = o.height = 16; o.getContext('2d').drawImage(E.getIcon(null, 16), 0, 0); return o; })() : document.createElement('span'));
+    var s8 = section('portraits (getPortrait 48 / 64)');
+    C.BODY_TYPES.forEach(function (b, i) {
+      var c = E.getPortrait({ body: b, color: COLS[i], accent: ACCS[i], weapon: C.WEAPON_LOOKS[(i + 1) % 9] }, i % 2 ? 48 : 64);
+      var o = document.createElement('canvas'); o.width = c.width; o.height = c.height; o.getContext('2d').drawImage(c, 0, 0); s8.appendChild(o);
+    });
+    window.__h = { setTheme: function (t) { forceMenu = false; setTheme(t); }, zoo: zoo, menu: function () { forceMenu = true; S.scene = 'menu'; S.map = null; } };
+
+    setTheme('crypt');
+    requestAnimationFrame(frame);
+  }
+})();
+</script>
+</body>
+</html>

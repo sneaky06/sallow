@@ -1,0 +1,705 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0b0a0f">
+<link rel="manifest" href="../manifest.webmanifest">
+<title>Sallow — UI harness</title>
+<style>
+  /* same base rules as index.html */
+  html, body { margin: 0; height: 100%; background: #0b0a0f; overflow: hidden; overscroll-behavior: none;
+    -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; touch-action: none; }
+  #game { position: fixed; inset: 0; width: 100%; height: 100%; display: block; image-rendering: pixelated; }
+  #ui { position: fixed; inset: 0; pointer-events: none; }
+  #boot-error { position: fixed; left: 8px; bottom: 8px; right: 8px; color: #f66; font: 11px monospace; white-space: pre-wrap; pointer-events: none; z-index: 9999; }
+  /* harness-only dev drawer */
+  #dev-toggle { position: fixed; left: 0; bottom: 0; z-index: 9000; font: 10px monospace; background: #204020; color: #afa; border: 1px solid #5a5; padding: 6px 3px; }
+  #dev { position: fixed; left: 0; top: 0; bottom: 0; width: 190px; z-index: 9001; background: #0c140cf0; border-right: 1px solid #5a5; overflow-y: auto;
+    touch-action: pan-y; font: 10px monospace; color: #afa; padding: 4px; display: none; }
+  #dev button { font: 10px monospace; margin: 1px; padding: 5px 4px; background: #183018; color: #cfc; border: 1px solid #5a5; }
+  #dev h4 { margin: 6px 0 2px; font-size: 10px; color: #7c7; }
+  #dev pre { margin: 4px 0; white-space: pre-wrap; color: #9c9; }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<div id="ui"></div>
+<div id="boot-error"></div>
+<button id="dev-toggle" type="button">DEV</button>
+<div id="dev"></div>
+<script>
+// UI-team harness. Default: core + the stubs below + src/ui. With ?real=1 it loads every team's real manifest instead.
+window.G = { manifest: {} };
+window.__errors = [];
+(function () {
+  var errBox = document.getElementById('boot-error');
+  window.addEventListener('error', function (e) {
+    window.__errors.push(e.message);
+    errBox.textContent += (e.message || 'error') + ' @ ' + (e.filename || '').split('/').slice(-2).join('/') + ':' + e.lineno + '\n';
+  });
+  var origErr = console.error;
+  console.error = function () { window.__errors.push([].slice.call(arguments).join(' ')); origErr.apply(console, arguments); };
+
+  // core/main.js registers 'sw.js' relative to the page; from /tests/ that must point at the real worker in the root.
+  if (navigator.serviceWorker) {
+    var swRegister = navigator.serviceWorker.register.bind(navigator.serviceWorker);
+    navigator.serviceWorker.register = function (url, opts) { return swRegister(url === 'sw.js' ? '../sw.js' : url, opts); };
+  }
+
+  var REAL = /[?&]real=1/.test(location.search);
+  var ROOT = '../';
+  var TEAMS = REAL ? ['engine', 'world', 'items', 'game', 'ui'] : ['ui'];
+  var CORE = ['constants.js', 'events.js', 'rng.js', 'state.js', 'scenes.js'];
+  function load(src) {
+    return new Promise(function (resolve) {
+      var s = document.createElement('script');
+      s.src = src; s.async = false;
+      s.onload = resolve;
+      s.onerror = function () { console.warn('[loader] missing ' + src); resolve(); };
+      document.body.appendChild(s);
+    });
+  }
+  function seq(list) { return list.reduce(function (p, src) { return p.then(function () { return load(src); }); }, Promise.resolve()); }
+  seq(CORE.map(function (f) { return ROOT + 'src/core/' + f; }))
+    .then(function () { if (!REAL) installStubs(); })
+    .then(function () { return seq(TEAMS.map(function (t) { return ROOT + 'src/' + t + '/manifest.js'; })); })
+    .then(function () {
+      var files = [];
+      TEAMS.forEach(function (t) { (G.manifest[t] || []).forEach(function (f) { files.push(ROOT + 'src/' + t + '/' + f); }); });
+      return seq(files);
+    })
+    .then(function () { return load(ROOT + 'src/core/main.js'); })
+    .then(buildDev);
+})();
+
+// =====================================================================================================
+// STUBS — harness only. Contract shapes, toy behaviour.
+// =====================================================================================================
+function installStubs() {
+  'use strict';
+  var G = window.G, S = G.state, C = G.C;
+  var toast = function (text, color) { G.emit('ui:toast', { text: text, color: color }); };
+
+  // ---------- engine ----------
+  var iconCache = {};
+  function iconCanvas(desc, size) {
+    var cv = document.createElement('canvas'); cv.width = cv.height = size;
+    var c = cv.getContext('2d');
+    c.fillStyle = (desc && desc.color) || '#888'; c.fillRect(2, 2, size - 4, size - 4);
+    c.fillStyle = (desc && desc.accent) || '#0006'; c.fillRect(size / 2 - 3, size / 2 - 3, 6, 6);
+    c.fillStyle = '#000'; c.font = 'bold 8px monospace'; c.fillText(String((desc && desc.shape) || '?').slice(0, 4), 3, size - 4);
+    return cv;
+  }
+  var canvas = null, ctx = null;
+  G.engine = {
+    init: function (cv) {
+      canvas = cv; ctx = cv.getContext('2d');
+      var fit = function () { cv.width = Math.floor(innerWidth / 2); cv.height = Math.floor(innerHeight / 2); };
+      fit(); addEventListener('resize', fit);
+    },
+    update: function () {},
+    render: function () {
+      if (!ctx) return;
+      ctx.fillStyle = S.scene === 'town' ? '#1c2a1c' : (S.scene === 'dungeon' ? '#1a1620' : '#0b0a0f');
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      if (!S.map || !S.player) return;
+      ctx.fillStyle = '#2a2433';
+      for (var i = 0; i < 12; i++) ctx.fillRect((i * 53) % canvas.width, (i * 37) % canvas.height, 16, 8);
+      ctx.fillStyle = '#d8c9a3'; ctx.fillRect(canvas.width / 2 - 4, canvas.height / 2 - 8, 8, 16);
+    },
+    worldToScreen: function (x, y) { return { x: x, y: y }; },
+    screenToWorld: function (x, y) { return { x: x, y: y }; },
+    getIcon: function (desc, size) { return iconCanvas(desc, size || 32); },
+    getIconURL: function (desc, size) {
+      size = size || 32;
+      var k = JSON.stringify(desc) + size;
+      return iconCache[k] || (iconCache[k] = iconCanvas(desc, size).toDataURL());
+    },
+    getPortrait: function (sprite, size) {
+      size = size || 48;
+      var cv = document.createElement('canvas'); cv.width = cv.height = size;
+      var c = cv.getContext('2d'), u = size / 8;
+      c.fillStyle = '#17141c'; c.fillRect(0, 0, size, size);
+      c.fillStyle = (sprite && sprite.color) || '#888'; c.fillRect(u * 2, u * 3, u * 4, u * 4);
+      c.fillStyle = '#e0b090'; c.fillRect(u * 3, u, u * 2, u * 2);
+      c.fillStyle = (sprite && sprite.accent) || '#444'; c.fillRect(u * 2, u * 5, u * 4, u);
+      return cv;
+    },
+    minimapCalls: 0,
+    drawMinimap: function (c, w, h) {
+      G.engine.minimapCalls++;
+      c.fillStyle = '#000'; c.fillRect(0, 0, w, h);
+      c.fillStyle = '#4a4354'; c.fillRect(w * 0.2, h * 0.2, w * 0.6, h * 0.25); c.fillRect(w * 0.45, h * 0.45, w * 0.12, h * 0.4);
+      c.fillStyle = '#5fd35f'; c.fillRect(w / 2 - 2, h / 2 - 2, 4, 4);
+    },
+    sfxLog: [],
+    sfx: function (name) { G.engine.sfxLog.push(name); if (G.engine.sfxLog.length > 30) G.engine.sfxLog.shift(); },
+  };
+  G.on('sfx', function (e) { G.engine.sfx(e.name); });
+
+  // ---------- world ----------
+  function blankMap(kind, depth, seed) {
+    var w = 24, h = 24, n = w * h;
+    return { w: w, h: h, kind: kind, depth: depth, theme: depth ? C.themeForDepth(depth) : 'town', seed: seed,
+      tiles: new Uint8Array(n).fill(1), explored: new Uint8Array(n).fill(1), visible: new Uint8Array(n).fill(1),
+      spawn: { x: 12, y: 12 }, rooms: [], spawns: [], props: [] };
+  }
+  G.world = {
+    generateTown: function (seed) { return blankMap('town', 0, seed); },
+    generateDungeon: function (depth, seed) { return blankMap('dungeon', depth, seed); },
+  };
+
+  // ---------- game ----------
+  function sk(id, name, classId, tree, shape, color, kind, tags, row, col, requires, desc) {
+    return { id: id, name: name, classId: classId, tree: tree, icon: { shape: shape, color: color, accent: '#201820' }, desc: desc,
+      maxRank: 5, reqLevel: 1 + row * 3, requires: requires || undefined, kind: kind, tags: tags, row: row, col: col };
+  }
+  var SKILLS = {};
+  [
+    sk('cleave', 'Cleave', 'warrior', 'arms', 'slash', '#d05040', 'active', ['aoe'], 0, 0, null, 'A wide swing that cuts every foe in front of you.'),
+    sk('execute', 'Execute', 'warrior', 'arms', 'sword', '#e0e0e0', 'active', ['single'], 0, 2, null, 'A brutal overhead blow against one enemy.'),
+    sk('whirlwind', 'Whirlwind', 'warrior', 'arms', 'whirl', '#c0c0ff', 'active', ['aoe'], 1, 0, 'cleave', 'Spin, striking everything around you.'),
+    sk('rend', 'Rend', 'warrior', 'arms', 'dagger', '#a02020', 'passive', ['single'], 1, 2, 'execute', 'Your hits make enemies bleed.'),
+    sk('leap', 'Leap', 'warrior', 'fury', 'leap', '#ffb040', 'active', ['mobility', 'aoe'], 0, 1, null, 'Jump to a foe and slam the ground.'),
+    sk('warcry', 'War Cry', 'warrior', 'fury', 'buff', '#ffd94a', 'active', ['buff'], 1, 1, 'leap', 'Shout to raise your damage for a while.'),
+    sk('ironskin', 'Iron Skin', 'warrior', 'guard', 'shield', '#8090a0', 'passive', ['defense'], 0, 0, null, 'Permanently increases armor.'),
+    sk('bulwark', 'Bulwark', 'warrior', 'guard', 'aura', '#60a0e0', 'active', ['defense'], 1, 0, 'ironskin', 'Briefly block all damage.'),
+    sk('firebolt', 'Firebolt', 'sorcerer', 'fire', 'fire', '#ff7020', 'active', ['single'], 0, 0, null, 'Hurl a bolt of flame at one enemy.'),
+    sk('fireball', 'Fireball', 'sorcerer', 'fire', 'fire', '#ffb020', 'active', ['aoe'], 1, 0, 'firebolt', 'An exploding ball of fire.'),
+    sk('frostnova', 'Frost Nova', 'sorcerer', 'frost', 'ice', '#80d0ff', 'active', ['aoe'], 0, 0, null, 'Freeze everything nearby.'),
+    sk('icelance', 'Ice Lance', 'sorcerer', 'frost', 'ice', '#c0f0ff', 'active', ['single'], 0, 1, null, 'A piercing shard of ice.'),
+    sk('chain', 'Chain Lightning', 'sorcerer', 'storm', 'bolt', '#ffff80', 'active', ['aoe'], 0, 0, null, 'Lightning that jumps between foes.'),
+    sk('static', 'Static Mind', 'sorcerer', 'storm', 'orb', '#a080ff', 'passive', ['buff'], 1, 0, 'chain', 'More mana and mana regeneration.'),
+  ].forEach(function (s) { SKILLS[s.id] = s; });
+  var CLASSES = {
+    warrior: { id: 'warrior', name: 'Warrior', desc: 'A wall of steel and fury. Wades into the pack and does not come out until it is dead.',
+      sprite: { body: 'humanoid', color: '#a04030', accent: '#c8c8c8', scale: 1, weapon: 'sword' }, icon: { shape: 'sword', color: '#c8c8c8' },
+      baseAttrs: { str: 10, dex: 6, int: 4, vit: 9 }, primaryStat: 'str', weaponTypes: ['sword', 'axe', 'mace'],
+      trees: [{ id: 'arms', name: 'Arms', desc: 'Weapon mastery.', skills: ['cleave', 'execute', 'whirlwind', 'rend'] },
+        { id: 'fury', name: 'Fury', desc: 'Rage and momentum.', skills: ['leap', 'warcry'] },
+        { id: 'guard', name: 'Guard', desc: 'Outlast everything.', skills: ['ironskin', 'bulwark'] }] },
+    sorcerer: { id: 'sorcerer', name: 'Sorcerer', desc: 'Fragile, brilliant, catastrophic. Burns, freezes and shocks from a safe distance.',
+      sprite: { body: 'caster', color: '#4050c0', accent: '#ffd94a', scale: 1, weapon: 'staff' }, icon: { shape: 'staff', color: '#8060ff' },
+      baseAttrs: { str: 4, dex: 6, int: 12, vit: 6 }, primaryStat: 'int', weaponTypes: ['staff', 'wand'],
+      trees: [{ id: 'fire', name: 'Fire', desc: 'Burn it all.', skills: ['firebolt', 'fireball'] },
+        { id: 'frost', name: 'Frost', desc: 'Control the field.', skills: ['frostnova', 'icelance'] },
+        { id: 'storm', name: 'Storm', desc: 'Raw power.', skills: ['chain', 'static'] }] },
+  };
+  function xpFor(level) { return 100 * level; }
+  function autoSpend() {
+    var p = S.player;
+    if (!p || !p.autoBuild) return;
+    var cls = CLASSES[p.classId];
+    while (p.attrPoints > 0) { p.attrs[cls.primaryStat]++; p.attrPoints--; }
+    var guard = 50;
+    while (p.skillPoints > 0 && guard--) {
+      var want = p.autoBuild === 'balanced' ? ((Object.keys(p.skills).length % 2) ? 'aoe' : 'single') : p.autoBuild;
+      var ids = Object.keys(SKILLS).filter(function (id) { return G.game.canLearn(id).ok; });
+      if (!ids.length) break;
+      var pick = ids.filter(function (id) { return SKILLS[id].tags.indexOf(want) >= 0; })[0] || ids[0];
+      G.game.learnSkill(pick);
+    }
+    G.game.recomputeStats(p);
+  }
+  G.game = {
+    CLASSES: CLASSES, SKILLS: SKILLS, attackCount: 0, skillUses: 0,
+    createPlayer: function (classId, name) {
+      var c = CLASSES[classId];
+      var eq = {}; C.EQUIP_SLOTS.forEach(function (s) { eq[s] = null; });
+      var stats = {}; C.STATS.forEach(function (s) { stats[s] = 0; });
+      return { id: G.newId(), type: 'player', name: name, x: 0, y: 0, radius: 0.3, facing: 0, sprite: c.sprite, anim: 'idle', animT: 0, hitFlash: 0, dead: false,
+        level: 1, hp: 1, mp: 1, stats: stats, effects: [], classId: classId, xp: 0, xpNext: xpFor(1),
+        attrs: Object.assign({}, c.baseAttrs), attrPoints: 0, skillPoints: 1, skills: {}, skillBar: [null, null, null, null], cooldowns: {}, autoBuild: null,
+        gold: 150, inventory: new Array(C.INV_SIZE).fill(null), equipment: eq, potions: { hp: 3, mp: 2 }, materials: { dust: 4, shard: 1, essence: 0 } };
+    },
+    revivePlayer: function () { var p = S.player; p.dead = false; p.hp = p.stats.hpMax; p.mp = p.stats.mpMax; },
+    spawnMapEntities: function (map) {
+      if (map.kind === 'town') {
+        C.NPC_ROLES.forEach(function (role, i) {
+          S.entities.push({ id: G.newId(), type: 'npc', role: role, name: ['Marta', 'Borin', 'Ysolde', 'Sister Anwen', 'Elder Corvin', 'Old Tam'][i],
+            x: 5 + i * 2, y: 6, radius: 0.3, facing: 0, sprite: { body: 'humanoid', color: ['#8a6a3a', '#6b4a3a', '#6a3a8a', '#d8d8e8', '#5a5a6a', '#3a5a4a'][i], accent: '#d8c9a3', scale: 1 },
+            anim: 'idle', animT: 0, hitFlash: 0, dead: false, level: 1, hp: 1, mp: 0, stats: {}, effects: [], faction: 'neutral' });
+        });
+      }
+    },
+    update: function (dt) {
+      var p = S.player; if (!p) return;
+      for (var k in p.cooldowns) { p.cooldowns[k] -= dt; if (p.cooldowns[k] <= 0) delete p.cooldowns[k]; }
+      p.mp = Math.min(p.stats.mpMax, p.mp + dt * 2);
+      G.game.potCd.hp = Math.max(0, G.game.potCd.hp - dt); G.game.potCd.mp = Math.max(0, G.game.potCd.mp - dt);
+      if (G.input.attackHeld) G.game.heldTime = (G.game.heldTime || 0) + dt;
+    },
+    recomputeStats: function (ent) {
+      var st = ent.stats; C.STATS.forEach(function (s) { st[s] = 0; });
+      var a = ent.attrs;
+      st.str = a.str; st.dex = a.dex; st.int = a.int; st.vit = a.vit;
+      var mods = G.items.getEquipmentMods(ent);
+      for (var k in mods) st[k] += mods[k];
+      st.hpMax += 40 + st.vit * 6 + ent.level * 8; st.mpMax += 20 + st.int * 4 + ent.level * 3;
+      st.critChance += 5; st.critDmg += 50; st.dmgPct += st.str; st.dodge += st.dex * 0.35; st.pickupRadius += 1.5; st.hpRegen += 0.5; st.mpRegen += 2;
+      if (ent.skills.ironskin) st.armor += ent.skills.ironskin * 12;
+      ent.hp = Math.min(ent.hp, st.hpMax); ent.mp = Math.min(ent.mp, st.mpMax);
+      G.emit('player:stats', {});
+    },
+    gainXp: function (n) {
+      var p = S.player; p.xp += n;
+      while (p.xp >= p.xpNext) {
+        p.xp -= p.xpNext; p.level++; p.xpNext = xpFor(p.level); p.attrPoints += 5; p.skillPoints += 1;
+        G.game.recomputeStats(p); p.hp = p.stats.hpMax; p.mp = p.stats.mpMax;
+        G.emit('player:levelup', { level: p.level }); autoSpend();
+      }
+      G.emit('player:xp', { xp: p.xp, xpNext: p.xpNext, gained: n });
+    },
+    spendAttr: function (attr) {
+      var p = S.player; if (!(p.attrPoints > 0)) return false;
+      p.attrs[attr]++; p.attrPoints--; G.game.recomputeStats(p); return true;
+    },
+    canLearn: function (id) {
+      var p = S.player, s = SKILLS[id];
+      if (!s || s.classId !== p.classId) return { ok: false, reason: 'Wrong class' };
+      if ((p.skills[id] || 0) >= s.maxRank) return { ok: false, reason: 'Already mastered' };
+      if (p.level < s.reqLevel) return { ok: false, reason: 'Requires level ' + s.reqLevel };
+      if (s.requires && !p.skills[s.requires]) return { ok: false, reason: 'Requires ' + SKILLS[s.requires].name };
+      if (p.skillPoints <= 0) return { ok: false, reason: 'No skill points' };
+      return { ok: true };
+    },
+    learnSkill: function (id) {
+      var p = S.player; if (!G.game.canLearn(id).ok) return false;
+      p.skills[id] = (p.skills[id] || 0) + 1; p.skillPoints--;
+      if (SKILLS[id].kind === 'active' && p.skillBar.indexOf(id) < 0) { var e = p.skillBar.indexOf(null); if (e >= 0) p.skillBar[e] = id; }
+      G.game.recomputeStats(p); G.emit('skills:changed', {}); return true;
+    },
+    setSkillSlot: function (slot, id) { S.player.skillBar[slot] = id; G.emit('skills:changed', {}); },
+    getRespecCost: function () { return S.player ? S.player.level * 50 : 0; },
+    potCd: { hp: 0, mp: 0 },
+    getPotionCooldown: function (kind) { return Math.max(0, G.game.potCd[kind] || 0); },
+    respec: function () {
+      var p = S.player, cost = p.level * 50; if (p.gold < cost) return false;
+      p.gold -= cost; G.emit('gold:changed', { gold: p.gold, delta: -cost });
+      var n = 0; for (var k in p.skills) n += p.skills[k];
+      p.skillPoints += n; p.skills = {}; p.skillBar = [null, null, null, null];
+      var base = CLASSES[p.classId].baseAttrs;
+      ['str', 'dex', 'int', 'vit'].forEach(function (a) { p.attrPoints += p.attrs[a] - base[a]; p.attrs[a] = base[a]; });
+      G.game.recomputeStats(p); G.emit('skills:changed', {}); autoSpend(); return true;
+    },
+    setAutoBuild: function (mode) { S.player.autoBuild = mode; autoSpend(); G.emit('skills:changed', {}); },
+    getSkillInfo: function (id) {
+      var p = S.player, s = SKILLS[id], can = G.game.canLearn(id), rank = p.skills[id] || 0;
+      return Object.assign({}, s, { rank: rank, nextRankDesc: '+' + (10 * (rank + 1)) + '% effect', mpCost: s.kind === 'active' ? 8 + s.row * 6 : 0,
+        cooldown: s.kind === 'active' ? 2 + s.row * 4 : 0, cdRemaining: p.cooldowns[id] || 0, learnable: can.ok, lockedReason: can.reason });
+    },
+    useSkill: function (slot) {
+      var p = S.player, id = p.skillBar[slot]; if (!id) return false;
+      var i = G.game.getSkillInfo(id);
+      if (p.cooldowns[id] > 0 || p.mp < i.mpCost) { G.emit('sfx', { name: 'error' }); return false; }
+      p.mp -= i.mpCost; p.cooldowns[id] = i.cooldown; G.game.skillUses++; return true;
+    },
+    usePotion: function (kind) {
+      var p = S.player; if (!(p.potions[kind] > 0)) { toast('No potions!', '#ff5b5b'); return false; }
+      if (G.game.potCd[kind] > 0) { G.emit('sfx', { name: 'error' }); return false; }
+      G.game.potCd[kind] = 4;
+      p.potions[kind]--; if (kind === 'hp') p.hp = Math.min(p.stats.hpMax, p.hp + p.stats.hpMax * 0.4); else p.mp = Math.min(p.stats.mpMax, p.mp + p.stats.mpMax * 0.5);
+      return true;
+    },
+    getXpForLevel: xpFor,
+    getMonsterInfo: function (id) { return { name: id, sprite: { body: 'skeleton', color: '#ccc', accent: '#444', scale: 1 } }; },
+    healPlayer: function () { var p = S.player; p.hp = p.stats.hpMax; p.mp = p.stats.mpMax; },
+  };
+  G.on('input:skill', function (e) { G.game.useSkill(e.slot); });
+  G.on('input:potion', function (e) { G.game.usePotion(e.kind); });
+  G.on('input:attack', function () { G.game.attackCount++; });
+
+  // ---------- items ----------
+  var BASES = [
+    { baseId: 'sword', name: 'Sword', type: 'weapon', slot: 'weapon', weaponType: 'sword', shape: 'sword', base: { dmgMin: 3, dmgMax: 7, attackSpeed: 1.2 } },
+    { baseId: 'staff', name: 'Staff', type: 'weapon', slot: 'weapon', weaponType: 'staff', twoHanded: true, shape: 'staff', base: { dmgMin: 4, dmgMax: 10, attackSpeed: 0.9 } },
+    { baseId: 'buckler', name: 'Buckler', type: 'armor', slot: 'offhand', shape: 'shield', base: { armor: 6, block: 10 } },
+    { baseId: 'cap', name: 'Cap', type: 'armor', slot: 'helm', shape: 'helm', base: { armor: 4 } },
+    { baseId: 'mail', name: 'Mail', type: 'armor', slot: 'chest', shape: 'armor', base: { armor: 12 } },
+    { baseId: 'grips', name: 'Grips', type: 'armor', slot: 'gloves', shape: 'gloves', base: { armor: 3 } },
+    { baseId: 'treads', name: 'Treads', type: 'armor', slot: 'boots', shape: 'boots', base: { armor: 3 } },
+    { baseId: 'sash', name: 'Sash', type: 'armor', slot: 'belt', shape: 'belt', base: { armor: 2 } },
+    { baseId: 'charm', name: 'Charm', type: 'jewelry', slot: 'amulet', shape: 'amulet', base: {} },
+    { baseId: 'band', name: 'Band', type: 'jewelry', slot: 'ring', shape: 'ring', base: {} },
+  ];
+  var MODS = ['str', 'vit', 'int', 'armor', 'critChance', 'hpMax', 'resFire', 'magicFind', 'attackSpeed', 'lifeSteal'];
+  var RKEYS = Object.keys(C.RARITY);
+  var vendors = {};
+  function rollItem(o) {
+    o = o || {};
+    var r = o.rng || G.rng.global;
+    var pool = BASES.filter(function (b) { return (!o.slot || b.slot === o.slot) && (!o.baseId || b.baseId === o.baseId); });
+    var b = r.pick(pool.length ? pool : BASES);
+    var rarity = o.rarity || r.weighted([{ w: 55, k: 'common' }, { w: 33, k: 'magic' }, { w: 10, k: 'rare' }, { w: 2, k: 'epic' }]).k;
+    var ord = C.RARITY[rarity].order, mods = [], lvl = o.level || 1;
+    var keys = r.shuffle(MODS.slice());
+    for (var i = 0; i < Math.min(ord + (ord ? 1 : 0), 5); i++) mods.push({ stat: keys[i], value: r.int(1, 4) + lvl + ord * 2 });
+    var base = {}; for (var k in b.base) base[k] = k === 'attackSpeed' ? b.base[k] : Math.round(b.base[k] * (1 + lvl * 0.15));
+    return { id: G.newId(), baseId: b.baseId, name: (ord ? ['', 'Fine ', 'Grim ', 'Dread ', 'Kingslayer ', 'Oathbound ', 'Worldender '][ord] : '') + b.name,
+      type: b.type, slot: b.slot, weaponType: b.weaponType, twoHanded: b.twoHanded, rarity: rarity, ilvl: lvl, reqLevel: Math.max(1, lvl - 2),
+      icon: { shape: b.shape, color: C.RARITY[rarity].color, accent: '#201820' }, base: base, mods: mods, value: 5 + lvl * 3 + ord * ord * 20,
+      sockets: ord >= 2 ? [null] : undefined, flavor: ord >= 4 ? 'It hums when the dead are near.' : undefined };
+  }
+  function scroll() {
+    return { id: G.newId(), baseId: 'tonic', name: 'Bitter Tonic', type: 'consumable', slot: null, rarity: 'common', ilvl: 1, reqLevel: 1,
+      icon: { shape: 'potion', color: '#5fd35f' }, base: {}, mods: [], value: 4, qty: 3 };
+  }
+  var buybackList = [];
+  G.on('scene:changed', function (e) { if (e && e.scene === 'dungeon') buybackList.length = 0; });
+  function gem() {
+    return { id: G.newId(), baseId: 'gem_ruby_1', name: 'Chipped Ruby', type: 'gem', slot: null, rarity: 'magic', ilvl: 1, reqLevel: 1,
+      icon: { shape: 'gem', color: '#e03040' }, base: {}, mods: [], value: 12, qty: 4 };
+  }
+  function itemStats(it) {
+    var o = {}; if (!it) return o;
+    if (it.base.armor) o.armor = it.base.armor; if (it.base.block) o.block = it.base.block;
+    if (it.base.dmgMin) { o.dmgMin = it.base.dmgMin; o.dmgMax = it.base.dmgMax; }
+    it.mods.forEach(function (m) { o[m.stat] = (o[m.stat] || 0) + m.value; });
+    return o;
+  }
+  function eqSlot(it) {
+    var p = S.player;
+    if (it.slot !== 'ring') return it.slot;
+    return !p.equipment.ring1 ? 'ring1' : (!p.equipment.ring2 ? 'ring2' : 'ring1');
+  }
+  function invChanged() { G.emit('inventory:changed', {}); }
+  function addGold(n) { var p = S.player; p.gold += n; G.emit('gold:changed', { gold: p.gold, delta: n }); }
+  G.items = {
+    rollItem: rollItem,
+    rollLoot: function () { return { items: [rollItem({})], gold: 10 }; },
+    dropLoot: function () {}, dropItemAt: function (x, y, item) { S.groundItems.push({ id: G.newId(), x: x, y: y, item: item }); },
+    pickup: function () { return false; },
+    addToInventory: function (item) {
+      var inv = S.player.inventory, i = inv.indexOf(null);
+      if (i < 0) { toast('Inventory full', '#ff5b5b'); return false; }
+      inv[i] = item; invChanged(); return true;
+    },
+    equip: function (i, want) {
+      G.items.lastEquipSlot = want;
+      var p = S.player, it = p.inventory[i]; if (!it || !it.slot) return false;
+      if (it.reqLevel > p.level) { toast('Requires level ' + it.reqLevel, '#ff5b5b'); return false; }
+      var slot = (it.slot === 'ring' && want) ? want : eqSlot(it); p.inventory[i] = p.equipment[slot]; p.equipment[slot] = it;
+      G.emit('sfx', { name: 'equip' }); invChanged(); G.emit('equipment:changed', {}); G.game.recomputeStats(p); return true;
+    },
+    unequip: function (slot) {
+      var p = S.player, it = p.equipment[slot], i = p.inventory.indexOf(null); if (!it) return false;
+      if (i < 0) { toast('Inventory full', '#ff5b5b'); return false; }
+      p.inventory[i] = it; p.equipment[slot] = null; invChanged(); G.emit('equipment:changed', {}); G.game.recomputeStats(p); return true;
+    },
+    useItem: function (i) {
+      var p = S.player, it = p.inventory[i]; if (!it || it.type !== 'consumable') return false;
+      p.hp = Math.min(p.stats.hpMax, p.hp + 20); it.qty = (it.qty || 1) - 1; if (it.qty <= 0) p.inventory[i] = null;
+      toast('You drink the tonic.', '#5fd35f'); invChanged(); return true;
+    },
+    dropFromInventory: function (i) { var p = S.player, it = p.inventory[i]; if (!it) return; p.inventory[i] = null; G.items.dropItemAt(p.x, p.y, it); invChanged(); },
+    sell: function (i) {
+      var p = S.player, it = p.inventory[i]; if (!it) return 0;
+      var g = it.value * (it.qty || 1); p.inventory[i] = null; addGold(g);
+      buybackList.unshift({ item: it, price: Math.round(g * 2.5) }); buybackList.length = Math.min(12, buybackList.length);
+      invChanged(); return g;
+    },
+    // ---- Revision 2 stubs ----
+    EFFECTS: { chain_spark: { name: 'Chain Spark', desc: 'Hits have a 25% chance to arc lightning to 3 nearby enemies.' } },
+    getBuyback: function () { return buybackList; },
+    buyback: function (i) {
+      var p = S.player, e = buybackList[i]; if (!e) return false;
+      if (p.gold < e.price) { toast('Not enough gold', '#ff5b5b'); return false; }
+      if (!G.items.addToInventory(e.item)) return false;
+      buybackList.splice(i, 1); addGold(-e.price); return true;
+    },
+    unsocketCost: function (item, si) { var g = item && item.sockets && item.sockets[si]; return !g || /blood/.test(g.baseId) ? null : 60; },
+    unsocketGem: function (target, si) {
+      var p = S.player, host = typeof target === 'number' ? p.inventory[target] : p.equipment[target];
+      var cost = G.items.unsocketCost(host, si); if (cost == null || p.gold < cost) return false;
+      var g = host.sockets[si]; host.sockets[si] = null; addGold(-cost); G.items.addToInventory(g); return true;
+    },
+    mythic: function () {
+      var it = rollItem({ level: 5, rarity: 'mythic', slot: 'amulet' }); it.name = 'Stormcaller\'s Knot'; it.effects = ['chain_spark']; return it;
+    },
+    bloodstone: function () {
+      var g = gem(); g.baseId = 'gem_bloodstone_1'; g.name = 'Weeping Bloodstone'; g.rarity = 'epic'; g.qty = 1; g.icon = { shape: 'gem', color: '#7a0c12' }; return g;
+    },
+    sellAllBelow: function (rarity) {
+      var p = S.player, lim = C.RARITY[rarity].order, g = 0;
+      p.inventory.forEach(function (it, i) { if (it && it.slot && C.RARITY[it.rarity].order < lim) { g += it.value; p.inventory[i] = null; } });
+      if (g) { addGold(g); toast('Sold junk for ' + g + ' gold', '#ffd94a'); invChanged(); } return g;
+    },
+    salvage: function (i) {
+      var p = S.player, it = p.inventory[i]; if (!it) return false;
+      p.inventory[i] = null; p.materials.dust += 1 + C.RARITY[it.rarity].order; toast('Salvaged: +' + (1 + C.RARITY[it.rarity].order) + ' dust', '#c8c8c8'); invChanged(); return true;
+    },
+    getVendorStock: function (role) { return vendors[role] || []; },
+    buy: function (role, index) {
+      var p = S.player, e = (vendors[role] || [])[index]; if (!e) return false;
+      if (p.gold < e.price) { toast('Not enough gold', '#ff5b5b'); return false; }
+      if (!G.items.addToInventory(e.item)) return false;
+      vendors[role].splice(index, 1); addGold(-e.price); return true;
+    },
+    refreshVendors: function (level) {
+      var mk = function (slots, n) { var out = []; for (var i = 0; i < n; i++) { var it = rollItem({ level: level, slot: G.rng.global.pick(slots) }); out.push({ item: it, price: it.value * 4 }); } return out; };
+      vendors = { merchant: mk(['belt', 'boots', 'gloves'], 4), blacksmith: mk(['weapon', 'offhand', 'helm', 'chest'], 8), mystic: mk(['amulet', 'ring'], 5), healer: [], elder: [], stashkeeper: [] };
+    },
+    gambleCost: function () { return 80; },
+    upgradeCost: function (it) { return !it || !it.slot || (it.plus || 0) >= 2 ? null : { gold: 50, dust: 2, shard: 0, essence: 0 }; },
+    salvageYield: function (it) { return { dust: 1 + C.RARITY[it.rarity].order, shard: 0, essence: 0 }; },
+    socketGem: function (gi, target) {
+      var p = S.player, g = p.inventory[gi], host = typeof target === 'number' ? p.inventory[target] : p.equipment[target];
+      if (!g || !host || !host.sockets || host.sockets.indexOf(null) < 0) return false;
+      host.sockets[host.sockets.indexOf(null)] = Object.assign({}, g, { id: G.newId(), qty: 1 });
+      g.qty--; if (g.qty <= 0) p.inventory[gi] = null; toast('Socketed into ' + host.name, '#b65bff'); invChanged(); return true;
+    },
+    combineGems: function (i) {
+      var p = S.player, g = p.inventory[i]; if (!g || (g.qty || 1) < 3) return false;
+      g.qty -= 3; if (g.qty <= 0) p.inventory[i] = null;
+      var n = gem(); n.name = 'Flawed Ruby'; n.qty = 1; n.rarity = 'rare'; G.items.addToInventory(n); return true;
+    },
+    sortStash: function () { S.stash.sort(function (a, b) { return a ? (b ? 0 : -1) : (b ? 1 : 0); }); G.items.stashSorted = (G.items.stashSorted || 0) + 1; },
+    gamble: function (slot) {
+      var p = S.player; if (p.gold < 80) { toast('Not enough gold', '#ff5b5b'); return null; }
+      if (p.inventory.indexOf(null) < 0) { toast('Inventory full', '#ff5b5b'); return null; }
+      var it = rollItem({ level: p.level, slot: slot }); addGold(-80); G.items.addToInventory(it); return it;
+    },
+    upgrade: function (ref) {
+      var p = S.player, it = typeof ref === 'number' ? p.inventory[ref] : p.equipment[ref]; if (!it || !G.items.upgradeCost(it)) return false;
+      if (p.gold < 50 || p.materials.dust < 2) { toast('Needs 50 gold and 2 dust', '#ff5b5b'); return false; }
+      p.materials.dust -= 2; addGold(-50); it.name = it.name.replace(/ \+\d+$/, '') + ' +' + ((it.plus = (it.plus || 0) + 1));
+      if (it.base.armor) it.base.armor += 3; if (it.base.dmgMax) { it.base.dmgMin += 1; it.base.dmgMax += 2; }
+      toast('Upgraded!', '#5fd35f'); invChanged(); G.emit('equipment:changed', {}); G.game.recomputeStats(p); return true;
+    },
+    stashDeposit: function (i) {
+      var p = S.player, it = p.inventory[i]; if (!it) return false;
+      while (S.stash.length < C.STASH_SIZE) S.stash.push(null);
+      var s = S.stash.indexOf(null); if (s < 0) { toast('Stash full', '#ff5b5b'); return false; }
+      S.stash[s] = it; p.inventory[i] = null; invChanged(); return true;
+    },
+    stashWithdraw: function (s) {
+      var p = S.player, it = S.stash[s], i = p.inventory.indexOf(null); if (!it) return false;
+      if (i < 0) { toast('Inventory full', '#ff5b5b'); return false; }
+      p.inventory[i] = it; S.stash[s] = null; invChanged(); return true;
+    },
+    getEquipmentMods: function (p) {
+      var o = {};
+      C.EQUIP_SLOTS.forEach(function (slot) {
+        var it = p.equipment[slot]; if (!it) return;
+        if (it.base.armor) o.armor = (o.armor || 0) + it.base.armor; if (it.base.block) o.block = (o.block || 0) + it.base.block;
+        it.mods.forEach(function (m) { o[m.stat] = (o[m.stat] || 0) + m.value; });
+      });
+      return o;
+    },
+    getWeapon: function (p) {
+      var w = p.equipment.weapon;
+      return w ? { dmgMin: w.base.dmgMin, dmgMax: w.base.dmgMax, attackSpeed: w.base.attackSpeed, weaponType: w.weaponType, twoHanded: !!w.twoHanded }
+        : { dmgMin: 1, dmgMax: 2, attackSpeed: 1, weaponType: null, twoHanded: false };
+    },
+    getTooltip: function (it) {
+      var lines = [{ text: C.RARITY[it.rarity].name + ' ' + (it.slot || it.type), color: '#8f8470' }];
+      if (it.base.dmgMin) lines.push({ text: it.base.dmgMin + '-' + it.base.dmgMax + ' damage, ' + it.base.attackSpeed + ' aps' });
+      if (it.base.armor) lines.push({ text: it.base.armor + ' armor' });
+      if (it.base.block) lines.push({ text: it.base.block + '% block' });
+      it.mods.forEach(function (m) { lines.push({ text: '+' + m.value + ' ' + m.stat, color: '#5b8cff' }); });
+      (it.sockets || []).forEach(function (g) { lines.push({ text: g ? '25C6 ' + g.name : '25C7 Empty Socket', color: g ? '#b65bff' : '#8f8470' }); });
+      if (it.type === 'consumable') lines.push({ text: 'Restores 20 life.' });
+      lines.push({ text: 'Requires level ' + it.reqLevel, color: it.reqLevel > S.player.level ? '#ff5b5b' : '#8f8470' });
+      lines.push({ text: 'Sells for ' + it.value + ' gold', color: '#ffd94a' });
+      (it.effects || []).forEach(function (id) { var e = G.items.EFFECTS[id]; lines.push({ text: e.name + ': ' + e.desc, color: C.RARITY.mythic.color }); });
+      if (it.flavor) lines.push({ text: '"' + it.flavor + '"', color: '#8f8470' });
+      return { name: it.name, color: C.RARITY[it.rarity].color, lines: lines };
+    },
+    compare: function (it) {
+      if (!it.slot) return {};
+      var cur = itemStats(S.player.equipment[eqSlot(it)]), nw = itemStats(it), d = {}, k;
+      for (k in nw) d[k] = nw[k] - (cur[k] || 0);
+      for (k in cur) if (!(k in nw)) d[k] = -cur[k];
+      return d;
+    },
+    isUpgrade: function (it) {
+      if (!it.slot) return false;
+      var d = G.items.compare(it), sum = 0; for (var k in d) sum += d[k];
+      return sum > 0 && S.player.equipment[eqSlot(it)] !== it;
+    },
+    grantStarterGear: function (p) {
+      p.equipment.weapon = rollItem({ level: 1, rarity: 'common', baseId: p.classId === 'sorcerer' ? 'staff' : 'sword' });
+      p.inventory[0] = rollItem({ level: 1, rarity: 'magic', slot: 'chest' });
+      p.inventory[1] = rollItem({ level: 2, rarity: 'rare', slot: 'weapon' });
+      p.inventory[2] = scroll();
+      p.inventory[3] = rollItem({ level: 1, rarity: 'common', slot: 'helm' });
+      p.inventory[4] = rollItem({ level: 1, rarity: 'common', slot: 'boots' });
+      p.inventory[5] = rollItem({ level: 3, rarity: 'legendary', slot: 'ring' });
+      p.inventory[6] = gem();
+      p.inventory[7] = rollItem({ level: 2, rarity: 'magic', slot: 'ring' });
+      p.inventory[8] = rollItem({ level: 2, rarity: 'rare', slot: 'ring' });
+    },
+    sortInventory: function () {
+      var inv = S.player.inventory;
+      inv.sort(function (a, b) { if (!a) return b ? 1 : 0; if (!b) return -1; return C.RARITY[b.rarity].order - C.RARITY[a.rarity].order || (a.name < b.name ? -1 : 1); });
+      invChanged();
+    },
+    potionPrice: function (kind) { return kind === 'hp' ? 25 : 30; },
+    buyPotion: function (kind) {
+      var p = S.player, c = G.items.potionPrice(kind); if (p.gold < c) { toast('Not enough gold', '#ff5b5b'); return false; }
+      p.potions[kind]++; addGold(-c); return true;
+    },
+  };
+
+  // ---------- Revision 3 / 4 stubs (contract shapes, toy numbers) ----------
+  var GI = G.items, GG = G.game;
+  var tooltip0 = GI.getTooltip;
+  GI.verdict = function (it) {
+    if (!it || !it.slot) return null;
+    var eq = S.player.equipment; for (var s in eq) if (eq[s] === it) return null;
+    var d = GI.compare(it), sum = 0; for (var k in d) sum += d[k];
+    return sum > 0 ? 'up' : (sum < 0 ? 'down' : 'same');
+  };
+  GI.isUpgrade = function (it) { return GI.verdict(it) === 'up'; };
+  GI.getTooltip = function (it) {
+    var t = tooltip0(it);
+    if (it.slot) {
+      var d = GI.compare(it);
+      if (it.base.dmgMax) t.headline = { label: 'DPS', value: Math.round((it.base.dmgMin + it.base.dmgMax) / 2 * it.base.attackSpeed * 10) / 10, delta: d.dmgMax || 0, pct: false };
+      else if (it.base.armor) t.headline = { label: 'Armor', value: it.base.armor, delta: d.armor || 0, pct: false };
+      else t.headline = null;
+    }
+    return t;
+  };
+  var RO = function (r) { return C.RARITY[r] ? C.RARITY[r].order : 0; };
+  GI.isJunk = function (it) {
+    var j = S.settings.junk || {}; if (!it || !it.slot || j.maxRarity === 'none' || C.RARITY[it.rarity].tier || it.rarity === 'set') return false;
+    if (RO(it.rarity) > RO(j.maxRarity || 'common')) return false;
+    if (j.keepUpgrades && GI.verdict(it) === 'up') return false;
+    if (j.keepSocketed && (it.sockets || []).some(Boolean)) return false;
+    return true;
+  };
+  GI.salvagePreview = function (i) {
+    var it = S.player.inventory[i]; if (!it) return null;
+    var gems = (it.sockets || []).filter(Boolean).length;
+    return { materials: { dust: 1 + RO(it.rarity) }, gems: gems, gemdust: gems * 2 };
+  };
+  GI.processJunk = function () {
+    var p = S.player, j = S.settings.junk || {}, r = { count: 0, gold: 0, materials: { dust: 0, gemdust: 0 } };
+    if (j.action === 'sell' && S.scene !== 'town') return r;
+    p.inventory.forEach(function (it, i) {
+      if (!it || !GI.isJunk(it)) return;
+      var pv = GI.salvagePreview(i); r.count++;
+      if (j.action === 'sell') { r.gold += it.value; p.inventory[i] = null; }
+      else { p.inventory[i] = null; r.materials.dust += pv.materials.dust; r.materials.gemdust += pv.gemdust; }
+    });
+    p.gold += r.gold; p.materials.dust += r.materials.dust; p.materials.gemdust = (p.materials.gemdust || 0) + r.materials.gemdust;
+    if (r.count) { toast((j.action === 'sell' ? 'Sold ' : 'Salvaged ') + r.count + ' junk', '#c8c8c8'); G.emit('inventory:changed', {}); G.emit('gold:changed', { gold: p.gold, delta: r.gold }); }
+    return r;
+  };
+  GI.gemUpgradeCost = function (i) { var g = S.player.inventory[i]; return g && /^gem_/.test(g.baseId) ? { gemdust: 4, gold: 25 } : null; };
+  GI.upgradeGem = function (i) {
+    var p = S.player, g = p.inventory[i], c = GI.gemUpgradeCost(i); if (!c || (p.materials.gemdust || 0) < c.gemdust || p.gold < c.gold) return false;
+    p.materials.gemdust -= c.gemdust; p.gold -= c.gold; g.qty = (g.qty || 1) - 1; if (g.qty <= 0) p.inventory[i] = null;
+    var n = gem(); n.name = 'Flawed Ruby'; n.baseId = 'gem_ruby_2'; n.qty = 1; GI.addToInventory(n); return true;
+  };
+  function tgt(t) { return typeof t === 'number' ? S.player.inventory[t] : S.player.equipment[t]; }
+  GI.rerollCost = function (t, mi) { var it = tgt(t); return it && RO(it.rarity) >= RO('rare') && it.mods[mi] ? { gemdust: 5, gold: 30 } : null; };
+  GI.rerollAffix = function (t, mi) {
+    var p = S.player, it = tgt(t), c = GI.rerollCost(t, mi); if (!c || (p.materials.gemdust || 0) < c.gemdust || p.gold < c.gold) return false;
+    p.materials.gemdust -= c.gemdust; p.gold -= c.gold; it.mods[mi] = { stat: MODS[Math.floor(Math.random() * MODS.length)], value: it.mods[mi].value + 1 };
+    G.emit('inventory:changed', {}); return true;
+  };
+  GI.socketGem = (function (orig) {
+    return function (gi, target, opts) { var g = S.player.inventory[gi]; if (g && /blood/.test(g.baseId) && !(opts && opts.confirmPermanent)) return false; return orig(gi, target); };
+  })(GI.socketGem);
+
+  SKILLS.fireball.synergies = [{ from: 'firebolt', desc: '+8% damage per rank of Firebolt' }];
+  SKILLS.whirlwind.synergies = [{ from: 'cleave', desc: '+6% damage per rank of Cleave' }, { from: 'warcry', desc: 'Spinning while War Cry is up leaves bleeding foes', combo: true }];
+  var info0 = GG.getSkillInfo;
+  GG.getSkillInfo = function (id) {
+    var i = info0(id);
+    i.synergies = (SKILLS[id].synergies || []).map(function (s) { return { from: s.from, name: SKILLS[s.from].name, desc: s.desc, active: (S.player.skills[s.from] || 0) > 0, combo: !!s.combo }; });
+    return i;
+  };
+  GG.dashOn = true; GG.dashCd = 0;
+  GG.getClassAction = function () {
+    if (!GG.dashOn || !S.player) return null;
+    return { id: 'dash', name: 'Roll', desc: 'Roll away', icon: { shape: 'leap', color: '#7fd4ff' }, cooldown: 3, cdRemaining: GG.dashCd };
+  };
+  G.on('input:classaction', function () { if (GG.dashCd <= 0) { GG.dashCd = 3; GG.dashes = (GG.dashes || 0) + 1; } });
+  var upd0 = GG.update;
+  GG.update = function (dt) { upd0(dt); GG.dashCd = Math.max(0, GG.dashCd - dt); };
+  GG.lock = null;
+  GG.getLockdown = function () { return GG.lock; };
+  GG.FLOOR_MODS = { hasted: { name: 'Hasted', desc: 'Monsters move faster.', reward: { xpGain: 20 } }, gloom: { name: 'Gloom', desc: 'Short sight.', reward: { magicFind: 25 } } };
+  var spawn0 = GG.spawnMapEntities;
+  GG.spawnMapEntities = function (map) { spawn0(map); if (map.kind === 'dungeon' && map.depth >= 4) map.mods = ['hasted', 'gloom']; };
+  var BOSSN = { boss_gravelord: 'Morgrath the Gravelord', boss_broodmother: 'Skarn the Broodmother', boss_tyrant: 'Azgalor, the Ember Tyrant', boss_hollow: 'Xal\'thuun, the Hollow Star' };
+  GG.getMonsterInfo = function (id) { return { id: id, name: BOSSN[id] || id, sprite: { body: 'skeleton', color: '#ccc', accent: '#444', scale: 1 }, boss: !!BOSSN[id] }; };
+}
+
+// =====================================================================================================
+// DEV DRAWER — fires contract events so every UI reaction can be exercised by hand.
+// =====================================================================================================
+function buildDev() {
+  var G = window.G, S = G.state;
+  var dev = document.getElementById('dev'), tog = document.getElementById('dev-toggle');
+  tog.onclick = function () { dev.style.display = dev.style.display === 'block' ? 'none' : 'block'; };
+  var out = document.createElement('pre');
+  function sec(t) { var h4 = document.createElement('h4'); h4.textContent = t; dev.appendChild(h4); }
+  function b(label, fn) { var x = document.createElement('button'); x.type = 'button'; x.textContent = label; x.dataset.dev = label; x.onclick = function () { fn(); }; dev.appendChild(x); }
+  function mon(rarity) { return { id: G.newId(), type: 'monster', name: rarity === 'boss' ? 'Morgrath the Gravelord' : 'Ghoul', monsterId: rarity === 'boss' ? 'boss_gravelord' : 'ghoul', rarity: rarity, x: 14, y: 12, dead: true, level: 1, hp: 0, stats: { hpMax: 100 } }; }
+  function kill(r) { var m = mon(r); G.emit('monster:killed', { monster: m, x: m.x, y: m.y }); if (G.game.gainXp) G.game.gainXp(r === 'boss' ? 120 : 20); }
+  function pick(r) { if (!G.items) return; var it = G.items.rollItem({ level: S.player.level, rarity: r }); if (G.items.addToInventory(it)) G.emit('item:picked', { item: it }); }
+  b('close', function () { dev.style.display = 'none'; });
+  sec('combat events');
+  b('kill monster', function () { kill('normal'); }); b('kill x10', function () { for (var i = 0; i < 10; i++) kill('normal'); });
+  b('kill elite', function () { kill('rare'); }); b('kill boss', function () { kill('boss'); });
+  b('hurt', function () { var p = S.player; p.hp = Math.max(1, p.hp - p.stats.hpMax * 0.3); p.mp = Math.max(0, p.mp - p.stats.mpMax * 0.6); G.emit('player:damaged', { amount: 10 }); });
+  b('die', function () { S.player.hp = 0; S.player.dead = true; G.emit('player:died', { noRetrieve: false }); });
+  b('die (boss/sealed)', function () { S.player.hp = 0; S.player.dead = true; G.emit('player:died', { noRetrieve: true }); });
+  sec('lockdown (R2.5)');
+  var lockRoom = { x: 4, y: 4, w: 8, h: 8, type: 'lockdown', waves: 3, wave: 0 };
+  b('room:locked', function () { lockRoom.wave = 1; S.flags.sealed = true; G.emit('room:locked', { room: lockRoom }); });
+  b('next wave', function () { lockRoom.wave = Math.min(3, lockRoom.wave + 1); });
+  b('room:cleared', function () { S.flags.sealed = false; G.emit('room:cleared', { room: lockRoom }); });
+  b('reclaim corpse', function () { G.emit('object:interact', { type: 'corpse' }); });
+  b('give mythic', function () { G.items.addToInventory(G.items.mythic()); });
+  b('give bloodstone', function () { G.items.addToInventory(G.items.bloodstone()); });
+  b('level up', function () { G.game.gainXp(S.player.xpNext - S.player.xp); });
+  b('spawn minion boss', function () { S.entities.unshift({ id: G.newId(), type: 'monster', name: 'Bone Golem', rarity: 'boss', faction: 'player', x: S.player.x + 1, y: S.player.y, dead: false, hp: 50, stats: { hpMax: 100 }, level: 5 }); });
+  b('kill minion', function () { G.emit('monster:killed', { monster: { type: 'monster', rarity: 'rare', faction: 'player' }, x: 0, y: 0 }); });
+  b('spawn boss', function () { S.entities.push({ id: G.newId(), faction: 'enemy', type: 'monster', name: 'The Bone Regent', monsterId: 'boss1', rarity: 'boss', x: S.player.x + 3, y: S.player.y, dead: false, hp: 620, stats: { hpMax: 1000 }, level: 5 }); });
+  b('hit boss', function () { S.entities.forEach(function (e) { if (e.rarity === 'boss') e.hp = Math.max(0, e.hp - 150); }); });
+  sec('loot events');
+  b('pick common', function () { pick('common'); }); b('pick rare', function () { pick('rare'); }); b('pick legendary', function () { pick('legendary'); });
+  b('+37 gold', function () { S.player.gold += 37; G.emit('gold:changed', { gold: S.player.gold, delta: 37 }); });
+  b('+1000 gold', function () { S.player.gold += 1000; G.emit('gold:changed', { gold: S.player.gold, delta: 1000 }); });
+  b('open chest', function () { G.emit('object:interact', { type: 'chest', prop: { type: 'chest', x: 1, y: 1, solid: true, interact: 'chest' } }); });
+  sec('npc:interact');
+  G.C.NPC_ROLES.forEach(function (role) {
+    b(role, function () { var e = S.entities.filter(function (x) { return x.role === role; })[0]; G.emit('npc:interact', { role: role, entity: e || null }); });
+  });
+  sec('object:interact / scenes');
+  ['stash', 'dungeon_entrance', 'waypoint'].forEach(function (t) { b(t, function () { G.emit('object:interact', { type: t }); }); });
+  b('descend', function () { if (S.scene === 'town') G.scenes.enterDungeon(1); else G.scenes.descend(); });
+  b('to town', function () { G.scenes.enterTown(); });
+  b('unlock wp 6', function () { G.scenes.unlockWaypoint(6); }); b('unlock wp 11', function () { G.scenes.unlockWaypoint(11); });
+  sec('input:ui (keys)');
+  ['inventory', 'skills', 'quests', 'map', 'menu'].forEach(function (p) { b(p, function () { G.emit('input:ui', { panel: p }); }); });
+  sec('revision 3/4');
+  b('kill legendary', function () { kill('legendary'); });
+  b('target legendary', function () { var e = { id: G.newId(), type: 'monster', faction: 'enemy', name: 'Ashgut, Warden of Ash', monsterId: 'brute', rarity: 'legendary', affixes: ['Nova', 'Hasted', 'Shielding', 'Thorned'], x: S.player.x + 2, y: S.player.y, dead: false, hp: 300, stats: { hpMax: 500 }, level: 9 }; S.entities.push(e); S.targetId = e.id; });
+  b('boss in view', function () { S.entities.push({ id: G.newId(), type: 'monster', faction: 'enemy', name: 'Morgrath', monsterId: 'boss_gravelord', rarity: 'boss', x: S.player.x + 2, y: S.player.y, dead: false, hp: 900, stats: { hpMax: 1000 }, level: 9 }); });
+  b('find lore', function () { var f = S.flags.loreFound || []; var i = 0; while (f.indexOf(i) >= 0) i++; var it = { id: G.newId(), type: 'lore', loreIndex: i, name: 'Torn Page', rarity: 'rare', icon: { shape: 'scroll', color: '#d9cba3' } }; G.emit('item:picked', { item: it }); G.emit('lore:found', { loreIndex: i }); });
+  b('dash on/off', function () { G.game.dashOn = !G.game.dashOn; });
+  b('lockdown wave', function () { G.game.lock = G.game.lock ? { room: {}, wave: Math.min(3, G.game.lock.wave + 1), waves: 3 } : { room: {}, wave: 1, waves: 3 }; S.flags.sealed = true; if (G.game.lock.wave === 1) G.emit('room:locked', { room: {} }); });
+  sec('misc');
+  b('toast', function () { G.emit('ui:toast', { text: 'A cold wind rises from below.', color: '#7fd4ff' }); });
+  b('save', function () { out.textContent = 'save -> ' + G.meta.save(); });
+  b('corrupt save', function () { localStorage.setItem(G.meta._KEY, '{"v":1,"player":'); out.textContent = 'hasSave -> ' + G.meta.hasSave(); });
+  b('old-version save', function () { localStorage.setItem(G.meta._KEY, '{"v":0,"player":{}}'); out.textContent = 'hasSave -> ' + G.meta.hasSave() + ', load -> ' + G.meta.load(); });
+  b('register sw', function () {
+    navigator.serviceWorker.register('../sw.js').then(function (r) { out.textContent = 'sw registered, scope ' + r.scope; }, function (e) { out.textContent = 'sw failed: ' + e; });
+  });
+  b('state', function () {
+    out.textContent = JSON.stringify({ scene: S.scene, depth: S.depth, paused: S.paused, attackHeld: G.input.attackHeld, attacks: G.game.attackCount, skillUses: G.game.skillUses,
+      open: G.ui.isOpen(), errors: window.__errors.length, minimap: G.engine.minimapCalls, sfx: (G.engine.sfxLog || []).slice(-5) }, null, 1);
+  });
+  dev.appendChild(out);
+}
+</script>
+</body>
+</html>
