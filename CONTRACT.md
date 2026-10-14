@@ -749,3 +749,23 @@ sprite as a PNG **template** in the final format to `assets_templates/` so the l
 Design-heavy work (story/narrative, combat balance and boss design, engine pipeline) runs on the strongest model; well-specified
 implementation (loot mechanics, UI controls, events, world generation changes) on a mid model; mechanical work (asset list
 regeneration, renames, harness upkeep) on the smallest model. Rounds are split across plan windows: at most 2–3 sessions at a time.
+
+## R7.10 The Fallen: adventurer relics that combine (lead dev, 2026-10-14)
+- Every corrupted former adventurer (R7.6, `docs/STORY.md`) drops a **relic unique to them**: a permanent power tied to their story
+  and fight (e.g. Brannoc's dash-ends-in-shield-bash), kept forever once claimed and never a bag item that can be lost.
+- Killing them one by one makes the player steadily stronger. Collect **all** relics and they combine at the Elder (or a shrine
+  in town) into one far more powerful reward, the story's payoff for hunting them all. Partial sets give nothing extra; the
+  combined reward is the prize.
+- Lead default: expand from 4 to 8 fallen adventurers (about two per act plus two in the endgame) so the hunt lasts. Story team
+  writes them; combat builds fights; items/meta build relics and the combining.
+
+## R7.11 Collection sets and the Curator (lead dev, 2026-10-14)
+- Instead of salvaging most loot into junk, armour and weapons feed a **collection**. Every look family (R5.9) and named set is a
+  collection page: one entry per slot (helm, chest, gloves, boots, plus weapon/off-hand lines).
+- A new town NPC, **the Curator**, keeps the **Collection Book**: a checklist of every page showing which pieces you've turned in,
+  which are missing, and roughly where they drop (act / depth band). Turning an item in registers it (the item is consumed).
+- Completing a page grants a permanent reward: a small buff, a title, a cosmetic, materials, or a stash tab. Completing tiers of
+  pages (e.g. 5 / 15 / all) grants larger rewards. Optional "gilded" pages for the same family at Rare-or-better.
+- Loot UI: items that would fill a missing collection slot get a small book mark on the cell and ground label, and are **never
+  junk**; a "Send to Curator" action and an option to auto-register on reaching town.
+- This sits alongside the Matched bonus (R5.9), which is about *wearing* a family; collection is about *turning pieces in*.
