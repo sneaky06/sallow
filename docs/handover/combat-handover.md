@@ -52,3 +52,53 @@ Balance notes
   is what `input:classaction` calls. Base: 3 tiles, 0.35 s invulnerable, 3 s cooldown; the Acrobatics passive (id `dodge_roll`, formerly the
   Dodge Roll active) improves all three. `dodge_roll` is now `kind: 'passive'` — UI skill bars should no longer show it.
 - Bosses take half damage from player summons; drain-skill healing (Life Drain) is 40% as strong against bosses; Bone Armor cooldown 30→26 s by rank.
+
+## Revision 6 additions (combat)
+Status: tests/combat.html → 399/399, 0 console errors. Real index.html: 0 errors from src/game (Echo fight driven end to end).
+New file: src/game/echo.js (manifest: last). Harness: `runDifficulty({ reps })` in ?real=1 → window.__diff.text.
+
+### Difficulty pass (lead playtest: far too easy)
+- `game.HPM(L)` life ×1.6 (L1) → ×2.8 (L6+); `game.DMM(L)` damage ×1.8–2.3 at L1–5 tapering to ×1.15 from L17; the early damage ramp
+  starts at 0.85 (was 0.65). Both are folded into `hpScale`/`dmgScale`, so minions, floor hazards and glyphs follow.
+- Bosses take half the life multiplier (hits carry the full one). Legendary monsters ×6 life (was ×8). XP per kill ×1.8 (`game.XP_MULT`).
+- Out-levelling: `game.monsterLevel(depth) = max(depth, playerLevel − 3)` for every spawn and the boss.
+- Packs +1 from depth 3; aggro radius ×1.15; monsters ×1.2 speed (`game.SPEED_SCALE`); hostile projectiles ×1.1 speed (same reach).
+
+### R6.3 dash for every class
+- Base player speed 5.0 (was 4.2, `game.BASE_SPEED`).
+- `CLASSES[c].action = { id:'dash', kind:'charge'|'roll'|'blink', name, desc, icon, cd, d, inv, charges }`: Warrior Shoulder Charge (1 charge,
+  4.5 s, hits 60% + stun 0.4 s + shoves aside), Ranger Dash (2), Sorcerer Blink (2, teleports, no passing walls), Necromancer Grave Step (2).
+- `getClassAction() → { id, kind, name, desc, icon, cooldown, cdRemaining, recharge, charges, maxCharges, ready }`. cdRemaining = recharge =
+  seconds to the next charge (0 when full); `ready` = charges > 0. Charges refill on revive and on any scene change.
+- Augments (passives, `player.bonus.dash*`): Ground Slam (warrior, slam at the end + shorter cd), Tumble Shot (ranger, free Multishot),
+  Rime Step (sorcerer, frost trail + range), Grave Swap (necro, swaps with a minion; minion gets absorb + `tauntT` 2 s), plus Acrobatics.
+  Every auto-build plan takes its class's augment. 76 skills.
+
+### R6.2 the Echo (src/game/echo.js)
+- `player.style = { attack, dash, potion, [skillId]: decaying counts, hpAt: potion threshold (moving avg), open: { opener counts } }`;
+  `G.game.getStyle() → { shares, hpAt, opener, potions }`.
+- Abandoned corpse: remembered on `player:died`; if `revivePlayer()` finds it replaced/cleared (core respawn), it becomes
+  `state.flags.echo = { depth, seed, x, y, gold, items, snap }` (snap = class, name, sprite, equipment copy, ranks, bar, defences, style).
+  One Echo at a time. Save/load must keep `flags.echo` (UI/meta).
+- Entering that depth spawns monster `monsterId:'echo'`, `echo:true`, `ghost:true`, rarity 'legendary', name "Echo of <name>", `classId`,
+  `equipment`, lying (`anim:'die'`) until you come within 7 tiles → `echo:rise { entity }`. Life max(2.5× your life, 0.9× a legendary),
+  damage = a legendary's swing ×0.8, your armour/resists, dodge/block capped 25.
+- AI: every bar skill maps to a telegraphed move (KIT table); picks moves in your style proportions, opens with your usual opener, dashes if
+  you dash (charges like your class), drinks up to 3 potions (25%) at your threshold. Summons are enemy adds (`bossAdd = echo.id`).
+- Kill: `game.onEchoKilled` → core `reclaimCorpse()` on the Echo's contents (your newer corpse on the floor is preserved) + dropLoot
+  source 'legendary', `floor:'rare'`.
+
+### R6.1 Go deeper
+- `G.game.previewPallor(v) → { value, tier, effects, tierUp, loot: { rarity, quantity } }`, `G.game.nextPallorValue(depth)`.
+- With Pallor unlocked and G.ui loaded, stairs down emit `stairs:confirm { depth, nextValue }` and wait; `G.game.confirmDescend()`
+  (validates same floor, alive, within 2.5 tiles) / `G.game.cancelDescend()`.
+
+### R6 balance (real world + items)
+runDifficulty (balanced auto-build at level ≈ 1.15×depth+1, real items best-of-4 common–rare): main-skill hits to kill a normal
+monster 1.1–2.3 at depth 1, 1.6–3.8 at depths 2–5, 2.1–6.2 from depth 8 (warrior lowest, ~2–3); champions 4–13, rares 10–37.
+Standing still in a 5-pack: 6–28 s at depth 1, ~5–12 s at depths 3–10 (warrior 11–17 s), 2–9 s from depth 15. Before the pass the main
+skill one-shot normals at almost every depth (0.7–1.9 hits) and a still player survived 10–60 s through depth 10.
+runMatrix reps 4 (48 runs, depths 1–20), potions per boss kill (hp+mana / hp only): warrior 6.3 / 3.5, ranger 6.1 / 4.5,
+sorcerer 5.2 / 3.3, necromancer 2.5 / 2.2. 15 of 48 runs stopped at a boss (6 deaths): 7× depth 5, 4× depth 10, 3× depth 15, 1× depth 20 —
+mostly runs where the bot had equipped off-class weapons. Level at 20 ≈ 29–31 (XP ×1.8).
+Dials: game.HPM / game.DMM (monsters.js), boss share of DMM (0.7) and of HPM (0.5) in createMonster.

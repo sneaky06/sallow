@@ -24,7 +24,7 @@
     ctl.intent = null; ctl.path = null; ctl.pi = 0; ctl.repath = 0; ctl.targetId = 0;
     ctl.gcd = 0; ctl.atkT = 0; ctl.lock = 0; ctl.animLock = 0; ctl.queued = -1;
     ctl.visTile = -1; ctl.visDirty = true; ctl.visT = 0;
-    ctl.tm = 1; ctl.dbl = null; ctl.wakeX = ctl.wakeY = -99; ctl.tgtT = 0;
+    ctl.tm = 1; ctl.dbl = null; ctl.wakeX = ctl.wakeY = -99; ctl.tgtT = 0; ctl.descend = null; ctl.dashN = -1; ctl.dashCd = 0;
     G.state.targetId = null;
   }
   G.on('scene:changed', resetCtl);
@@ -127,6 +127,7 @@
       K.zone({ x: t.x, y: t.y, r: 1.5, delay: 0.05, pct: 200, dtype: 'lightning', fx: 'explosion', color: COL.lightning });
     }
     if (myth.legion && !game.live.allies.length) ctl.dbl = { t: 0.18, id: t.id };      // mythic: spectral double repeats the attack
+    if (game.noteStyle) game.noteStyle('attack');
     const gain = game.CLASSES[p.classId].mpOnHit;            // martial classes build mana by fighting
     if (gain) p.mp = Math.min(p.stats.mpMax, p.mp + gain);
     if (!w.ranged) {
@@ -208,6 +209,7 @@
     ctl.atkT = Math.max(ctl.atkT, gcd);
     if (!utility) { ctl.lock = Math.min(gcd, 0.22); p.facing = ang; setAnim(p, sk.tg === 'melee' ? 'attack' : 'cast', Math.min(0.35, gcd)); }
     ctl.path = null;
+    if (game.noteStyle) game.noteStyle(sk.id);
     sk.cast(p, t, V, aim, sk, corpse);
     if (myth.echo_cast && sk.tg !== 'corpse' && sk.tg !== 'dir' && sk.tags.indexOf('mobility') < 0 && U.chance(25) && !(t && t.dead && (sk.tg === 'melee' || sk.tg === 'enemy'))) {
       U.text(p.x, p.y - 1.3, 'Echo', COL.shadow, true); U.fx('ring', p.x, p.y, { radius: 1.2, color: COL.shadow, duration: 0.3 }); U.sfx('cast');
@@ -266,6 +268,7 @@
     if (ctl.potCd[kind] > 0) return false;
     if (kind === 'hp') {
       if (p.hp >= p.stats.hpMax) return false;
+      if (game.noteStyle) game.noteStyle('potion', p.hp / p.stats.hpMax);
       const veil = game.floorHas('thin_veil') ? 0.5 : 1;          // deep floor modifier Thin Veil
       game.heal(p, Math.round(p.stats.hpMax * 0.4 * veil), true);
       game.addEffect(p, { id: 'potion_hp', t: 3, mods: { hpRegen: Math.round(p.stats.hpMax * 0.04 * veil) } });
@@ -301,13 +304,13 @@
     if (ctl.dashCd <= 0) { ctl.dashN++; ctl.dashCd = ctl.dashN < c.max ? ctl.dashCd + c.cd : 0; }
   }
 
-  // cdRemaining stays "seconds until you can dash" (0 while a charge is left); recharge = seconds until the next charge.
+  // cdRemaining = recharge = seconds until the next charge (0 when full); a dash is possible while charges > 0 (ready).
   game.getClassAction = function () {
     const p = G.state.player, c = classAction(p);
     if (!c) return null;
     const n = ctl.dashN < 0 ? c.max : Math.min(ctl.dashN, c.max), rech = n >= c.max ? 0 : Math.max(0, ctl.dashCd || 0);
     return { id: c.a.id, kind: c.a.kind || 'roll', name: c.a.name, desc: c.a.desc, icon: Object.assign({}, c.a.icon), cooldown: Math.round(c.cd * 100) / 100,
-      cdRemaining: n > 0 ? 0 : rech, recharge: rech, charges: n, maxCharges: c.max };
+      cdRemaining: rech, recharge: rech, charges: n, maxCharges: c.max, ready: n > 0 };
   };
 
   // Living hostile monsters whose body comes within `pad` of the segment a→b.
@@ -437,6 +440,8 @@
     p.hp = p.stats.hpMax;
     p.mp = p.stats.mpMax;
     resetCtl();
+    ctl.dashN = -1; ctl.dashCd = 0;
+    if (game.onRevive) game.onRevive();
   };
 
   game.healPlayer = function (full) {
@@ -646,6 +651,22 @@
     else interactNearest(p);
   });
 
+  function takeStairs(st) {
+    U.sfx('stairs');
+    game.pallorStairs = st;            // R5.2: only floors entered by the stairs raise Pallor
+    G.emit('object:interact', { type: st });
+    game.pallorStairs = null;
+  }
+  // R6.1: the UI's answer to 'stairs:confirm'. Valid while the player is alive, on the same floor and still near the stairs.
+  game.confirmDescend = function () {
+    const S = G.state, p = S.player, d = ctl.descend;
+    ctl.descend = null;
+    if (!d || !p || p.dead || S.scene !== 'dungeon' || d.depth !== (S.depth | 0) + 1 || Math.hypot(d.x + 0.5 - p.x, d.y + 0.5 - p.y) > 2.5) return false;
+    takeStairs('stairs_down');
+    return true;
+  };
+  game.cancelDescend = function () { ctl.descend = null; };
+
   // ---- per-frame ----
   function runIntent(p, dt) {
     const it = ctl.intent, S = G.state;
@@ -700,10 +721,13 @@
       case 'stairs':
         if (Math.hypot(it.x + 0.5 - p.x, it.y + 0.5 - p.y) <= 0.7) {
           ctl.intent = null; ctl.path = null;
-          U.sfx('stairs');
-          game.pallorStairs = it.st;            // R5.2: only floors entered by the stairs raise Pallor
-          G.emit('object:interact', { type: it.st });
-          game.pallorStairs = null;
+          // R6.1: once Pallor is unlocked, the UI asks "Go deeper?" first and calls confirmDescend() (no UI loaded → just go)
+          if (it.st === 'stairs_down' && S.flags.pallorUnlocked && G.ui) {
+            ctl.descend = { x: it.x, y: it.y, depth: (S.depth | 0) + 1 };
+            G.emit('stairs:confirm', { depth: ctl.descend.depth, nextValue: game.nextPallorValue ? game.nextPallorValue(ctl.descend.depth) : null });
+            break;
+          }
+          takeStairs(it.st);
         } else if (!stepToward(p, it.x + 0.5, it.y + 0.5, dt, false)) { ctl.intent = null; }
         break;
       default:

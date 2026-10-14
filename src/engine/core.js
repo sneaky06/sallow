@@ -6,6 +6,31 @@
   const E = G.engine = G.engine || {};
   const U = E._ = {};
 
+  // ---- R6.4 high-res art format (ART_SPEC.md). World code works in logical px (tile 32x16); the canvas backing store is
+  // V.R x logical (2 on most phones). Hand-drawn art is authored at 2x logical (tile 64x32) and marks its canvases
+  // `hd = 2`; U.blit draws those at half their pixel size, so they land 1:1 on the backing store.
+  U.HD = {
+    SCALE: 2, CELL: 96, OX: 48, OY: 84,
+    ANIMS: ['idle', 'walk', 'attack', 'cast', 'hit', 'die'],
+    FRAMES: { idle: 4, walk: 8, attack: 6, cast: 6, hit: 2, die: 6 },
+    // seconds: loop length for idle/walk, total length (last frame holds) for the others
+    TIME: { idle: 1, walk: 0.5, attack: 0.27, cast: 0.33, hit: 0.2, die: 0.5 },
+    DIRS: ['s', 'sw', 'w', 'nw', 'n', 'ne', 'e', 'se'],        // rows 0-4 drawn; ne/e/se mirror nw/w/sw unless 8 rows
+    TILE_CELL: [64, 96], TILE_SHEET: [256, 1344], PROP_CELL: [96, 128], ICON: 64, PROJ: 32, PORTRAIT: 96,
+  };
+  // facing (world radians) → screen direction index 0..7 (s, sw, w, nw, n, ne, e, se)
+  U.dir8 = function (facing) {
+    const f = typeof facing === 'number' && isFinite(facing) ? facing : 0.7854;
+    const wx = Math.cos(f), wy = Math.sin(f);
+    const k = ((Math.round(Math.atan2((wx + wy) / 2, wx - wy) / 0.7854) % 8) + 8) % 8;   // 0 = e, 2 = s, 4 = w, 6 = n
+    return (k + 6) % 8;
+  };
+  U.blit = function (ctx, img, x, y) {
+    const k = img.hd;
+    if (k) ctx.drawImage(img, x, y, img.width / k, img.height / k);
+    else ctx.drawImage(img, x, y);
+  };
+
   U.makeCanvas = function (w, h) {
     const c = document.createElement('canvas');
     c.width = Math.max(1, w | 0);
@@ -250,6 +275,7 @@
     x.globalCompositeOperation = 'source-atop';
     x.fillStyle = 'rgba(4,5,14,' + U.fogA + ')';
     x.fillRect(0, 0, o.width, o.height);
+    o.hd = c.hd;
     c._dim = o; c._dimA = U.fogA;
     return o;
   };

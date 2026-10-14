@@ -39,6 +39,7 @@
     x.globalAlpha = 1;
     x.globalCompositeOperation = 'destination-in';
     x.drawImage(src, 0, 0);
+    c.hd = src.hd;
     return c;
   }
   function tintDeep(v, o) {
@@ -87,7 +88,10 @@
         o.liquid = U.safeColor(pal.liquid, null);
         if (U.safeColor(pal.bg, null)) r.bg = U.safeColor(pal.bg, r.bg);
       }
-      if ((o.tint && o.amount > 0.01) || o.sat < 0.97 || o.bri !== 1 || o.liquid) r.set = tintedSet(base, theme, o);
+      // a hand-drawn tileset for this variant (tiles/<theme>_<variantId>.png) is used as drawn, untinted
+      const vset = typeof v.id === 'string' && U.assets && U.assets.variantSet ? U.assets.variantSet(theme, v.id) : null;
+      if (vset) r.set = vset;
+      else if ((o.tint && o.amount > 0.01) || o.sat < 0.97 || o.bri !== 1 || o.liquid) r.set = tintedSet(base, theme, o);
       // blend (deep floors): another theme's tiles bleed in as noise patches, tinted the same way
       const B = v.blend;
       if (B && typeof B === 'object' && typeof B.theme === 'string' && B.theme !== theme && map.w > 0 && map.h > 0) {

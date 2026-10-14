@@ -178,6 +178,64 @@
     return sheetObj(c, cell, base.ox, base.oy, base.top);
   }
 
+  // ---------------------------------------------------------------- hand-drawn 2x overlays (R6.4): gear/<key>/<anim>.png
+  // key = <family>_<slot> for armour, <family>_<weaponType> / <family>_<offhandKind> for held items; generic fallbacks
+  // generic_<material>_<slot>, generic_<weaponType>, generic_<offhandKind> are recoloured by the item's palette.
+  const hdOver = Object.create(null);      // key â†’ { anims: { [anim]: rec } }
+  function addOverlayHD(key, anim, rec) {
+    const o = hdOver[key] || (hdOver[key] = { anims: Object.create(null) });
+    o.anims[anim] = rec;
+    ver++;
+    return true;
+  }
+  const tints = new WeakMap();
+  // 'color' blend keeps each pixel's brightness and takes the palette hue, so one grey-ish generic piece fits every family
+  function recolour(rec, hex) {
+    let m = tints.get(rec);
+    if (!m) { m = new Map(); tints.set(rec, m); }
+    let c = m.get(hex);
+    if (c) return c;
+    c = U.makeCanvas(rec.c.width, rec.c.height);
+    const x = U.ctx2d(c);
+    x.drawImage(rec.c, 0, 0);
+    x.globalCompositeOperation = 'color'; x.fillStyle = hex; x.fillRect(0, 0, c.width, c.height);
+    x.globalCompositeOperation = 'destination-in'; x.drawImage(rec.c, 0, 0);
+    c = { c: c, n: rec.n, rows: rec.rows, cell: rec.cell, top: rec.top };
+    m.set(hex, c);
+    return c;
+  }
+  function hdPiece(it, slot, anim) {
+    if (!it) return null;
+    const fam = String((it.look && it.look.family) || '').toLowerCase();
+    const kind = slot === 'weapon' ? (WEAPON_TYPES[it.weaponType] ? it.weaponType : 'sword') : slot === 'offhand' ? offKind(it) : slot;
+    const own = hdOver[fam + '_' + kind] || (slot === 'weapon' || slot === 'offhand' ? hdOver[fam + '_' + slot] : null);
+    if (own) return own.anims[anim] || null;
+    const L = lookOf(it, slot), gen = hdOver[slot === 'weapon' || slot === 'offhand' ? 'generic_' + kind : 'generic_' + L.mat + '_' + slot];
+    const rec = gen && gen.anims[anim];
+    return rec ? recolour(rec, L.m) : null;
+  }
+  // rows nw / n (/ ne on 8-row sheets) show the back: held items go behind the body there
+  function composeHD(base, eq) {
+    const out = { hd: true, cell: base.cell, ox: base.ox, oy: base.oy, top: base.top, scale: base.scale, anims: Object.create(null), hover: false, wide: false };
+    for (const anim in base.anims) {
+      const b = base.anims[anim], cell = b.cell, c = U.makeCanvas(b.c.width, b.c.height), x = U.ctx2d(c);
+      const pieces = Object.create(null);
+      for (let i = 0; i < SLOTS.length; i++) { const p = hdPiece(eq[SLOTS[i]], SLOTS[i], anim); if (p && p.cell === cell && p.rows === b.rows) pieces[SLOTS[i]] = p; }
+      const lay = function (p, r) {
+        for (let f = 0; f < b.n; f++) x.drawImage(p.c, Math.min(f, p.n - 1) * cell, r * cell, cell, cell, f * cell, r * cell, cell, cell);
+      };
+      for (let r = 0; r < b.rows; r++) {
+        const back = r === 3 || r === 4 || (b.rows === 8 && r === 5);
+        if (back) for (let i = 0; i < BACK_BEHIND.length; i++) if (pieces[BACK_BEHIND[i]]) lay(pieces[BACK_BEHIND[i]], r);
+        x.drawImage(b.c, 0, r * cell, b.c.width, cell, 0, r * cell, b.c.width, cell);
+        const order = back ? BACK_FRONT : FRONT_ORDER;
+        for (let i = 0; i < order.length; i++) if (pieces[order[i]]) lay(pieces[order[i]], r);
+      }
+      out.anims[anim] = { c: c, n: b.n, rows: b.rows, cell: cell, top: b.top };
+    }
+    return out;
+  }
+
   // ---------------------------------------------------------------- sheet cache
   const cache = new Map();
   let bump = 0;
@@ -211,7 +269,7 @@
   }
   function build(p, eq) {
     const hb = handBase(p);
-    if (hb) return composeHand(hb, eq);
+    if (hb) return hb.hd ? composeHD(hb, eq) : composeHand(hb, eq);
     const desc = p.sprite || {}, P = U.sprites.palette(desc);
     const gear = { helm: null, chest: null, gloves: null, boots: null, off: null, wP: null };
     for (let i = 2; i < SLOTS.length; i++) { const it = eq[SLOTS[i]]; if (it) gear[SLOTS[i]] = lookOf(it, SLOTS[i]); }
@@ -228,7 +286,7 @@
 
   const memo = new WeakMap();      // player object → { sig, sprite, sheet }
   U.gear = {
-    addOverlay: addOverlay,
+    addOverlay: addOverlay, addOverlayHD: addOverlayHD,
     lookOf: lookOf,
     // geared sheet for the player, or null when the default path should be used
     sheetFor: function (p) {
@@ -242,7 +300,7 @@
       let sheet = cache.get(key);
       if (!sheet) {
         try { sheet = build(p, eq); } catch (err) { console.warn('[engine] gear build failed', err); sheet = U.sprites.get(p.sprite); }
-        if (cache.size > 24) cache.clear();
+        if (cache.size > (sheet && sheet.hd ? 3 : 24)) cache.clear();
         cache.set(key, sheet);
       }
       if (!m) { m = { sig: 0, sprite: null, sheet: null }; memo.set(p, m); }
@@ -269,7 +327,11 @@
     const z = Math.max(1, Math.floor(size / side)), sx = sheet.ox - (side >> 1), sy = sheet.oy - side + Math.round(4 * k);
     c = U.makeCanvas(size, size);
     const x = U.ctx2d(c);
-    x.drawImage(sheet.c, sx, sy, side, side, Math.round((size - side * z) / 2), Math.round((size - side * z) / 2), side * z, side * z);
+    if (sheet.hd) {                       // painted 2x art: front (s) idle frame, scaled smoothly to fit
+      const a = sheet.anims.idle || sheet.anims[Object.keys(sheet.anims)[0]], cs = a.cell, s2 = Math.min(cs, Math.round(a.top * 1.25));
+      x.imageSmoothingEnabled = true; x.imageSmoothingQuality = 'high';
+      x.drawImage(a.c, (cs - s2) >> 1, sheet.oy - s2 + Math.round(cs / 16), s2, s2, 0, 0, size, size);
+    } else x.drawImage(sheet.c, sx, sy, side, side, Math.round((size - side * z) / 2), Math.round((size - side * z) / 2), side * z, side * z);
     per.set(size, c);
     return c;
   };

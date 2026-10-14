@@ -48,6 +48,14 @@
     return { value: v, tier: tier, effects: tierEffects(tier) };
   };
 
+  // R6.1: what Pallor would look like at `nextValue` (the Go-deeper prompt). loot = the items module's per-tier boost
+  // (rare+ odds ×(1 + 0.2·tier), one extra-drop chance per tier) as numbers the UI can print.
+  game.previewPallor = function (nextValue) {
+    const v = U.clamp(Math.round(+nextValue || 0), 0, 100), tier = tierOf(v);
+    return { value: v, tier: tier, effects: tierEffects(tier), tierUp: tier > game.pallorTier(), loot: tier ? { rarity: 20 * tier, quantity: 8 * tier } : null };
+  };
+  game.nextPallorValue = function (depth) { return Math.min(100, game.pallorValue() + game.pallorGain(depth | 0)); };
+
   // Called by spawnMapEntities for every new map, before its monsters exist. player.js sets game.pallorStairs while the
   // stairs interaction is being resolved.
   game.notePallorFloor = function (map) {

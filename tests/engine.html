@@ -366,7 +366,104 @@ window.G = { manifest: {} };
     btn(s13, 'fixed right big 60%', function () { setJ({ mode: 'fixed', x: 0.85, y: 0.75, size: 0.4 }, 0.6); });
     btn(s13, 'fixed off-screen', function () { setJ({ mode: 'fixed', x: 1.4, y: -2, size: 3 }); });
 
-    window.__h = { setTheme: function (t) { forceMenu = false; setTheme(t); }, zoo: zoo, menu: function () { forceMenu = true; S.scene = 'menu'; S.map = null; } };
+    // ------------------------------------------------------------ R6 additions
+    var s14 = section('R6 joystick: synthetic touch tests');
+    function touchTests() {
+      var cv = $('game'), r = cv.getBoundingClientRect(), I = E._.input, J = I.joy, res = [];
+      var ok = function (name, c) { res.push((c ? 'PASS ' : 'FAIL ') + name); };
+      var hasTouch = typeof Touch === 'function' && 'ontouchstart' in window;
+      var mk = function (id, x, y) { return new Touch({ identifier: id, target: cv, clientX: x, clientY: y }); };
+      var fire = function (type, changed, all) { cv.dispatchEvent(new TouchEvent(type, { changedTouches: changed, touches: all, targetTouches: all, bubbles: true, cancelable: true })); };
+      var start = hasTouch ? function (id, x, y, all) { fire('touchstart', [mk(id, x, y)], all.map(function (a) { return mk(a[0], a[1], a[2]); })); } : function (id, x, y) { I._start('t' + id, x, y); };
+      var move = hasTouch ? function (id, x, y, all) { fire('touchmove', [mk(id, x, y)], all.map(function (a) { return mk(a[0], a[1], a[2]); })); } : function (id, x, y) { I._move('t' + id, x, y); };
+      var end = hasTouch ? function (id, x, y, all) { fire('touchend', [mk(id, x, y)], all.map(function (a) { return mk(a[0], a[1], a[2]); })); } : function (id) { I._end('t' + id); };
+      var keep = S.settings.hud;
+      delete S.settings.hud;
+      var cfg = I.config(r);
+      ok('fixed stick is the default on touch devices (fixed=' + cfg.fixed + ', touch=' + hasTouch + ')', !hasTouch || cfg.fixed);
+      // floating: drift far past the rim, a second finger taps and lifts, a stray pointercancel arrives
+      S.settings.hud = { joystick: { mode: 'floating', x: 0.2, y: 0.8, size: 0.25 } };
+      var x0 = r.left + r.width * 0.15, y0 = r.top + r.height * 0.7;
+      start(1, x0, y0, [[1, x0, y0]]);
+      ok('stick grabbed', J.active);
+      for (var k = 1; k <= 12; k++) move(1, x0 + k * 15, y0 - k * 6, [[1, x0 + k * 15, y0 - k * 6]]);
+      ok('drift 180 px: still held, full speed (mag ' + J.mag.toFixed(2) + ')', J.active && J.mag > 0.95);
+      ok('base followed the thumb (base ' + Math.round(J.ox - x0) + ' px right)', J.ox - x0 > 100);
+      var mv = G.input.move, m1 = Math.hypot(mv.x, mv.y);
+      start(2, r.left + r.width * 0.8, r.top + r.height * 0.4, [[1, x0 + 180, y0 - 72], [2, r.left + r.width * 0.8, r.top + r.height * 0.4]]);
+      ok('second finger lands: stick still held', J.active && J.id === 't1');
+      end(2, r.left + r.width * 0.8, r.top + r.height * 0.4, [[1, x0 + 180, y0 - 72]]);
+      ok('second finger lifts: stick still held', J.active);
+      cv.dispatchEvent(new PointerEvent('pointercancel', { pointerId: 1, pointerType: 'touch', bubbles: true }));
+      ok('stray touch pointercancel ignored', J.active || !hasTouch);
+      move(1, x0 + 190, y0 - 70, [[1, x0 + 190, y0 - 70]]);
+      ok('still walking after all that (|move| ' + m1.toFixed(2) + ' → ' + Math.hypot(G.input.move.x, G.input.move.y).toFixed(2) + ')', Math.hypot(G.input.move.x, G.input.move.y) > 0.9);
+      end(1, x0 + 190, y0 - 70, []);
+      ok('lift: released, stopped', !J.active && G.input.move.x === 0 && G.input.move.y === 0);
+      // fixed: thumb slides off the stick and back
+      S.settings.hud = { joystick: { mode: 'fixed', x: 0.2, y: 0.8, size: 0.25 } };
+      cfg = I.config(r);
+      start(3, cfg.cx, cfg.cy, [[3, cfg.cx, cfg.cy]]);
+      move(3, cfg.cx + 300, cfg.cy - 200, [[3, cfg.cx + 300, cfg.cy - 200]]);
+      ok('fixed: thumb far off the stick, still held at full speed', J.active && J.mag > 0.95 && Math.abs(J.ox - cfg.cx) < 1);
+      if (hasTouch) { start(4, cfg.cx, cfg.cy, [[4, cfg.cx, cfg.cy]]); ok('lost touch (no end event) is released, new touch grabs', J.active && J.id === 't4'); end(4, cfg.cx, cfg.cy, []); }
+      else end(3);
+      S.settings.hud = keep; if (!keep) delete S.settings.hud;
+      log(res.join('\n'));
+      window.__touch = res;
+      return res;
+    }
+    btn(s14, 'run touch tests', touchTests);
+
+    var s15 = section('R6.4 high-res art (templates fed back through the loader)');
+    var origSprite = null;
+    btn(s15, 'inject 2x skeleton + crypt tiles + chest', function () {
+      var hd = E._.sprites.toHD(E._.sprites.get({ body: 'skeleton', color: '#d9d4c0', accent: '#6b6455', weapon: 'sword', scale: 1 }));
+      var n = 0;
+      E._.HD.ANIMS.forEach(function (a) {
+        var c = hd.anims[a], x = c.getContext('2d');           // tint it so the swap is visible
+        x.globalCompositeOperation = 'source-atop'; x.fillStyle = 'rgba(80,200,255,0.35)'; x.fillRect(0, 0, c.width, c.height);
+        n += E._.assets.inject('sprites/skeleton/' + a + '.png', c) ? 1 : 0;
+      });
+      var t = E._.makeCanvas(256, 1344), tx = t.getContext('2d'), s = E._.tiles.get('crypt');
+      for (var i = 0; i < 4; i++) { tx.fillStyle = ['#3a3448', '#463c52', '#30303c', '#4a4038'][i]; tx.beginPath(); tx.moveTo(i * 64, 80); tx.lineTo(i * 64 + 32, 64); tx.lineTo(i * 64 + 64, 80); tx.lineTo(i * 64 + 32, 96); tx.fill(); }
+      n += E._.assets.inject('tiles/crypt.png', t) ? 1 : 0;
+      var p = E._.makeCanvas(96, 128), px = p.getContext('2d');
+      px.fillStyle = '#8a5a2a'; px.fillRect(28, 80, 40, 30); px.fillStyle = '#ffd94a'; px.fillRect(44, 88, 8, 8);
+      n += E._.assets.inject('props/chest.png', p) ? 1 : 0;
+      log('injected ' + n + '/8 (skeleton anims ' + Object.keys((E._.assets.sprite('skeleton') || {}).anims || {}).join(',') + ')');
+      var p0 = S.player;
+      for (var q = 0; q < 8; q++) S.entities.push({ id: 9100 + q, type: 'monster', monsterId: 'skeleton', name: 'HD skeleton', x: p0.x - 2 + (q % 4), y: p0.y + 2 + (q >> 2), radius: 0.3,
+        facing: q * 0.7854, sprite: { body: 'skeleton', color: '#d9d4c0', accent: '#6b6455', weapon: 'sword', scale: 1 }, anim: ['idle', 'walk', 'attack', 'cast', 'hit', 'walk', 'idle', 'die'][q], animT: 0, hitFlash: 0, dead: q === 7, rarity: 'normal', hp: 5, stats: { hpMax: 10 }, effects: [], affixes: [] });
+    });
+    btn(s15, 'reject wrong sizes', function () {
+      var bad = [['tiles/crypt.png', 100, 100], ['props/barrel.png', 50, 70], ['sprites/rat/walk.png', 97, 480], ['icons/sword.png', 30, 20], ['sprites/rat/dance.png', 96, 480]];
+      log(bad.map(function (b) { return b[0] + ' ' + b[1] + 'x' + b[2] + ' → ' + (E._.assets.inject(b[0], E._.makeCanvas(b[1], b[2])) ? 'ACCEPTED (bug)' : 'rejected'); }).join('\n'));
+    });
+    ['auto', 'high', 'low'].forEach(function (m) { btn(s15, 'graphics ' + m, function () { S.settings.graphics = m; E.update(1); var v = E._.view; log('graphics ' + m + ': R ' + v.R + ', backing ' + $('game').width + 'x' + $('game').height + ', logical ' + v.W + 'x' + v.H); }); });
+
+    var s16 = section('R6.2 Echo / R6.3 dash pips');
+    btn(s16, 'spawn Echo of the player', function () {
+      var p = S.player;
+      S.entities = S.entities.filter(function (e) { return !e.echo; });
+      S.entities.push({ id: 9001, type: 'monster', echo: true, name: 'Echo of ' + (p.name || 'You'), classId: p.classId, x: p.x + 2, y: p.y + 1, radius: 0.35, facing: 3.5,
+        sprite: p.sprite, equipment: p.equipment, anim: 'walk', animT: 0, hitFlash: 0, dead: false, rarity: 'boss', hp: 50, stats: { hpMax: 100 }, effects: [], affixes: [] });
+      log('echo spawned; it circles the player');
+    });
+    var dash = { cur: 2, max: 2, t: 0 };
+    btn(s16, 'fake 2-charge dash (use one)', function () {
+      G.game = G.game || {};
+      G.game.getClassAction = function () { return { id: 'dash', name: 'Dash', cooldown: 3, cdRemaining: dash.cur < dash.max ? Math.max(0, 3 - (E._.view.time - dash.t)) : 0, charges: dash.cur, maxCharges: dash.max }; };
+      if (dash.cur > 0) { dash.cur--; dash.t = E._.view.time; }
+      log('dash charges ' + dash.cur + '/' + dash.max);
+    });
+    setInterval(function () {
+      if (dash.cur < dash.max && E._.view.time - dash.t >= 3) { dash.cur++; dash.t = E._.view.time; }
+      var e = S.entities && S.entities.find(function (q) { return q.echo; });
+      if (e && S.player) { var a = E._.view.time * 0.8; e.x = S.player.x + Math.cos(a) * 2.5; e.y = S.player.y + Math.sin(a) * 2.5; e.facing = a + 1.57; e.animT = (e.animT || 0) + 0.05; }
+    }, 50);
+
+    window.__h = { touchTests: touchTests, setTheme: function (t) { forceMenu = false; setTheme(t); }, zoo: zoo, menu: function () { forceMenu = true; S.scene = 'menu'; S.map = null; } };
 
     setTheme('crypt');
     requestAnimationFrame(frame);

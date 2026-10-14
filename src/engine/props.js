@@ -272,6 +272,16 @@
     }
     return (lights[key] = b.done());
   };
+  // Smooth radial light (high-res mode): quadratic falloff, no bands; the light map is filtered when drawn.
+  const soft = Object.create(null);
+  U.lightSoft = function (key) {
+    if (soft[key]) return soft[key];
+    const c = LCOL[key] || (typeof key === 'string' && key[0] === '#' ? U.rgbOf(key) : LCOL.warm), o = U.makeCanvas(64, 64), x = o.getContext('2d');
+    const g = x.createRadialGradient(32, 32, 0, 32, 32, 32), rgb = function (k) { return 'rgb(' + (c[0] * k | 0) + ',' + (c[1] * k | 0) + ',' + (c[2] * k | 0) + ')'; };
+    for (let i = 0; i <= 8; i++) { const d = i / 8, k = Math.min(1, Math.pow(1 - d, 1.6) * 1.5); g.addColorStop(d, rgb(k)); }
+    x.fillStyle = g; x.fillRect(0, 0, 64, 64);
+    return (soft[key] = o);
+  };
   U.lightKeyFor = function (hex) {
     const c = U.rgbOf(hex);
     if (c[0] > c[1] + 40 && c[0] > c[2] + 40) return c[1] > 150 ? 'warm' : 'red';

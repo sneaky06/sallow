@@ -350,7 +350,8 @@
       }
       U.text(t.x, t.y - 1.2, 'SPLITS!', '#ffb347', true);
     }
-    if (game.onDeepKill) game.onDeepKill(t);          // Gravewalker / Restless Dead leave a wisp that rises again
+    if (t.echo && game.onEchoKilled) game.onEchoKilled(t);          // R6.2: your belongings back + a rare-or-better drop
+    else if (game.onDeepKill) game.onDeepKill(t);          // Gravewalker / Restless Dead leave a wisp that rises again
     if (!p) return;
     const fr = game.floorReward();
     if (game.fxOf(p).corpse_blast) {          // mythic: the dead detonate (and can chain)
@@ -377,10 +378,11 @@
   // o: { x, y, ang, speed, shape, color, radius, faction, life, pierce, explode, homing,
   //      spec (player damage spec)  |  dmg, dtype, st, srcId, lvl, affixes (monster) }
   game.spawnProjectile = function (o) {
+    const sp = (o.faction || 'enemy') === 'enemy' ? 1.1 : 1;          // R6.3: hostile shots keep pace with the faster player (same reach)
     const pr = {
-      id: G.newId(), x: o.x, y: o.y, vx: Math.cos(o.ang) * o.speed, vy: Math.sin(o.ang) * o.speed,
+      id: G.newId(), x: o.x, y: o.y, vx: Math.cos(o.ang) * o.speed * sp, vy: Math.sin(o.ang) * o.speed * sp,
       shape: o.shape || 'orb', color: o.color || '#ffffff', radius: o.radius || 0.22, angle: o.ang,
-      faction: o.faction || 'enemy', life: o.life || 1.6, pierce: o.pierce || 0, hit: [], explode: o.explode || 0, homing: o.homing || 0,
+      faction: o.faction || 'enemy', life: (o.life || 1.6) / sp, pierce: o.pierce || 0, hit: [], explode: o.explode || 0, homing: o.homing || 0,
       spec: o.spec || null, dmg: o.dmg || 0, dtype: o.dtype || 'phys', st: o.st || null, srcId: o.srcId || 0, lvl: o.lvl || 1, affixes: o.affixes || null,
     };
     G.state.projectiles.push(pr);

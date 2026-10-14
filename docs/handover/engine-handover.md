@@ -117,3 +117,29 @@ item's `look.family`, e.g. `gear/rusted_mail_chest.png`). Listed in `assets/asse
   sheet (`sprites/<classId>.png`) is shown as drawn with no gear. Slots whose family has no overlay show nothing on a
   hand-drawn base, so draw a family's pieces together.
 - Big bodies (80 px cells) are not supported for the player.
+
+## Revision 6 (engine side)
+- **Render scale (R6.4).** World code still works in logical px (tile 32 × 16); the canvas backing store is `V.R` × logical.
+  `settings.graphics`: `'auto'` (default; R = 2 on 4×-scale phones, 1.5 on iPhone 6–8 class, always a whole number of device
+  px per backing px), `'high'` (native resolution), `'low'` (R 1, the old look). Auto drops to low for the session if frames
+  stay above ~24 ms for 4 s. `worldToScreen` / `screenToWorld` are unchanged (CSS px).
+- **2× art** (ART_SPEC.md): hand-drawn canvases carry `hd = 2` and are drawn with `U.blit` at half size. Characters are one
+  file per animation (`sprites/<id>/<anim>.png`, 5 or 8 direction rows); old 1× files still load. `U.dir8(facing)` gives the
+  screen direction (0 s … 4 n … 7 se). Procedural art keeps rendering through the old path; `U.sprites.toHD(sheet)` produces the
+  exact 2× files (used for `assets_templates/`).
+- **Lighting:** smooth radial lights and a filtered light map when R > 1; soft contact shadows. Stepped look at R 1.
+- **Audio files:** `sound/<sfx>[_n].mp3`, `sound/amb_<bed>.mp3`, `sound/music_<track>.mp3` via `assets/assets.js`. Buses read
+  `settings.sfxVolume / ambienceVolume / musicVolume` (0–1, defaults 1 / 1 / 0.6) and `settings.music === false`;
+  `settings.sfx === false` still mutes everything. Music: title, town, theme, rift (depth > 20), boss / echo when one is alive
+  within ~16 tiles; 2 s crossfades through two streamed `<audio>` elements blessed on the first gesture (iOS).
+- **Echo (R6.2):** any entity with `echo: true` (also `isEcho`, `monsterId 'echo'`, `kind 'echo'`) is drawn from its own
+  `equipment` (+ `classId`, `sprite`) through the gear path, or from the player's look if it has none: desaturated, cold-tinted,
+  ~65% alpha with a flicker, 4 additive after-images, pale-blue plate.
+- **Dash pips (R6.3):** under the player while a charge recharges; reads `getClassAction()` → `charges` + `maxCharges`
+  (or `charges: { cur, max }`), else a single pip from `cdRemaining / cooldown`.
+- **Rarity glow (R7.1):** by rarity key — none for common/uncommon/rare, slight for magic, then legendary < mythic < unique <
+  rift (rift pulses slowly). `C.RARITY[key].glow` (0–5) overrides. `G.engine.rarityGlow(key)` for the UI's inventory cells.
+- **Joystick (lead playtest bug):** touch devices track the stick with Touch Events (iOS sent `pointercancel` to the stick when
+  a second finger landed). Fixed stick is the default on touch devices when no layout is saved; floating still follows drift.
+- **Tools:** `tests/assets.html` regenerates ART_LIST.md / SOUND_LIST.md and writes `assets_templates/` through
+  `tests/save-files.ps1` (a localhost:8399 receiver that only writes those paths).

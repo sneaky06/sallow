@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sallow — asset catalogue</title>
+<style>
+  body { margin: 0; background: #0b0a0f; color: #d8d0c0; font: 12px/1.4 monospace; padding: 10px; }
+  h1 { font-size: 15px; color: #ffd94a; margin: 0 0 6px; }
+  button { background: #2a2230; color: #d8d0c0; border: 1px solid #5a4c38; font: 12px monospace; margin: 2px; padding: 8px 10px; }
+  #out { white-space: pre-wrap; color: #9fd0ff; margin: 8px 0; }
+  #grid canvas { image-rendering: pixelated; margin: 2px; background: #1a1622; max-height: 96px; vertical-align: middle; }
+  textarea { width: 100%; height: 220px; background: #120f18; color: #d8d0c0; border: 1px solid #3a3040; font: 11px monospace; }
+</style>
+</head>
+<body>
+<h1>Asset catalogue (R6.4) and paint-over templates (R7.8)</h1>
+<div>
+  <button id="scan">1. Build lists (checks which files exist)</button>
+  <button id="saveLists">2. Save ART_LIST.md + SOUND_LIST.md</button>
+  <button id="saveTpl">3. Save templates to assets_templates/</button>
+  <button id="dl">Download lists instead</button>
+</div>
+<div id="out">Saving needs the receiver: powershell -ExecutionPolicy Bypass -File tests/save-files.ps1</div>
+<textarea id="art" placeholder="ART_LIST.md"></textarea>
+<textarea id="snd" placeholder="SOUND_LIST.md"></textarea>
+<div id="grid"></div>
+<script>
+window.G = { manifest: {} };
+(function () {
+  var TEAMS = ['engine', 'world', 'items', 'game', 'ui'];
+  function load(src) {
+    return new Promise(function (res) {
+      var s = document.createElement('script');
+      s.src = src; s.async = false; s.onload = res;
+      s.onerror = function () { console.error('[assets] missing ' + src); res(); };
+      document.body.appendChild(s);
+    });
+  }
+  function seq(l) { return l.reduce(function (p, s) { return p.then(function () { return load(s); }); }, Promise.resolve()); }
+  seq(['constants.js', 'events.js', 'rng.js', 'state.js', 'scenes.js'].map(function (f) { return '../src/core/' + f; }))
+    .then(function () { return seq(TEAMS.map(function (t) { return '../src/' + t + '/manifest.js'; })); })
+    .then(function () { var f = []; TEAMS.forEach(function (t) { (G.manifest[t] || []).forEach(function (x) { f.push('../src/' + t + '/' + x); }); }); return seq(f); })
+    .then(start);
+
+  function start() {
+    var C = G.C, E = G.engine, U = E._, HD = U.HD, GM = G.game || {}, IT = G.items || {}, W = G.world || {};
+    var $ = function (id) { return document.getElementById(id); };
+    var out = function (s) { $('out').textContent = s; };
+    var RECV = 'http://localhost:8399/';
+
+    // ------------------------------------------------------------------ catalogue from the live code
+    var CELL_BIG = 192;
+    function cellFor(desc) { var sh = U.sprites.get(desc); return sh.cell * 2 > 96 ? CELL_BIG : 96; }
+    function animSize(cell, anim, rows) { return (HD.FRAMES[anim] * cell) + ' × ' + ((rows || 5) * cell); }
+    var ANIM_DESC = { idle: 'breathing loop', walk: 'walk cycle', attack: 'wind-up, strike, recover', cast: 'raise, release, recover', hit: 'recoil', die: 'fall; last frame stays as the corpse' };
+    var art = [], snd = [];
+    function row(list, group, path, size, layout, desc, prio) { list.push({ group: group, path: path, size: size, layout: layout, desc: desc, prio: prio || 'core', exists: false }); }
+
+    function characters() {
+      var add = function (group, id, desc, sprite, onlyIdle) {
+        var cell = cellFor(sprite);
+        HD.ANIMS.forEach(function (a) {
+          row(art, group, 'sprites/' + id + '/' + a + '.png', animSize(cell, a), HD.FRAMES[a] + ' frames × 5 dirs (s, sw, w, nw, n), cell ' + cell,
+            desc + ' — ' + a + ' (' + ANIM_DESC[a] + ')', onlyIdle && a !== 'idle' ? 'not needed' : a === 'hit' || a === 'cast' ? 'nice' : 'core');
+        });
+      };
+      var cls = GM.CLASSES || {};
+      Object.keys(cls).forEach(function (id) { add('Player classes', id, cls[id].name + ': ' + String(cls[id].desc || '').slice(0, 70), cls[id].sprite); });
+      add('Player base body (wears gear overlays)', 'player_base', 'Shared player body in plain underclothes, no weapon or armour; every gear overlay is drawn on it', (cls.warrior || {}).sprite || {});
+      var npcs = GM.NPCS || {};
+      (C.NPC_ROLES || []).forEach(function (r) { add('Townsfolk', 'npc_' + r, (npcs[r] && npcs[r].name) || r, (npcs[r] && npcs[r].sprite) || {}, true); });
+      var M = GM.MONSTERS || {};
+      Object.keys(M).forEach(function (id) {
+        var m = M[id], sp = m.sprite || {};
+        var where = m.theme ? m.theme : /^minion/.test(id) ? 'summon' : /^boss/.test(id) ? 'boss' : 'other';
+        add('Monsters — ' + where, id, (m.n || m.name || id) + ': ' + (m.desc || '') + ' [' + (sp.body || '?') + (sp.weapon && sp.weapon !== 'none' ? ', ' + sp.weapon : '') + ']', sp);
+      });
+    }
+    function gear() {
+      var L = IT.LOOKS || {}, WT = ['sword', 'axe', 'mace', 'dagger', 'bow', 'staff', 'wand'], OFF = ['shield', 'orb', 'tome', 'quiver'];
+      var ARM = ['helm', 'chest', 'gloves', 'boots'], MATS = ['plate', 'mail', 'leather', 'cloth', 'bone'];
+      var add = function (group, key, desc, prio) {
+        HD.ANIMS.forEach(function (a) { row(art, group, 'gear/' + key + '/' + a + '.png', animSize(96, a), HD.FRAMES[a] + ' frames × 5 dirs, cell 96, on the player_base grid', desc + ' — ' + a, prio); });
+      };
+      MATS.forEach(function (m) { ARM.forEach(function (s) { add('Gear — generic (recoloured per family)', 'generic_' + m + '_' + s, 'Generic ' + m + ' ' + s + ' in neutral greys; the game tints it with each family palette', 'core'); }); });
+      WT.concat(OFF).forEach(function (k) { add('Gear — generic (recoloured per family)', 'generic_' + k, 'Generic ' + k + ' in neutral greys, tinted per family', 'core'); });
+      Object.keys(L).forEach(function (id) {
+        var f = L[id], kinds = f.kind === 'weapon' ? WT.concat(OFF) : ARM;
+        kinds.forEach(function (k) { add('Gear — family ' + f.kind, id + '_' + k, (f.name || id) + ' ' + k + ': ' + (f.desc || ''), 'optional'); });
+      });
+    }
+    var MOOD = { town: 'dying settlement, mud and ash, leaning timber', crypt: 'cold damp stone, grave dirt', caves: 'wet black rock, pale fungus, stagnant water', inferno: 'scorched basalt, glowing cracks, chains', abyss: 'flesh and void, pale tendrils, eyes' };
+    function tiles() {
+      ['town'].concat(C.THEMES).forEach(function (t) { row(art, 'Tilesets', 'tiles/' + t + '.png', '256 × 1344', '4 × 14 cells of 64 × 96 (see ART_SPEC §1)', t + ': ' + (MOOD[t] || ''), 'core'); });
+      (W.VARIANTS || []).forEach(function (v) { row(art, 'Tilesets — floor variants', 'tiles/' + v.theme + '_' + v.id + '.png', '256 × 1344', 'same as the theme sheet; used untinted', (v.name || v.id) + ' (depth ' + v.min + '–' + (v.max > 900 ? '∞' : v.max) + '); otherwise the theme sheet is tinted', 'optional'); });
+    }
+    var PROP_DESC = { chest: 'closed iron-bound chest', chest_open: 'opened chest, lid up', barrel: 'breakable barrel', crate: 'breakable crate', torch: 'standing torch, flame flickers', shrine: 'small altar, faint pulse', shrine_used: 'spent shrine, dark', pillar: 'broken column', bones: 'flat bone scatter', stash: 'large strongbox (town)', portal: 'swirling spectral-blue oval', dungeon_entrance: 'dark stairwell / archway (town)', waypoint: 'rune circle on the ground', tree: 'dead tree', bush: 'thorn bush', fountain: 'stained fountain, murky water', sign: 'town sign', stall: 'market stall', well: 'the old well (the rift mouth)', tombstone: 'tombstone', crystal: 'glowing crystal cluster', campfire: 'campfire', gate: 'iron portcullis filling a doorway', corpse: 'your fallen body, face down' };
+    function propsList() {
+      (C.PROP_TYPES || []).concat(['shrine_used']).forEach(function (t) {
+        var n = U.props.get(t).frames.length;
+        row(art, 'Props', 'props/' + t + '.png', (96 * n) + ' × 128', n + (n > 1 ? ' frames' : ' frame') + ' of 96 × 128, tile centre at (48, 112)', PROP_DESC[t] || t, 'core');
+      });
+    }
+    function iconShapes() {
+      var seen = {}, list = [];
+      var push = function (s) { if (typeof s === 'string' && !seen[s]) { seen[s] = 1; list.push(s); } };
+      (C.ICON_SHAPES || []).forEach(push);
+      var walk = function (o, d) {
+        if (!o || typeof o !== 'object' || d > 6) return;
+        if (o.icon && typeof o.icon === 'object') push(o.icon.shape);
+        for (var k in o) if (o[k] && typeof o[k] === 'object') walk(o[k], d + 1);
+      };
+      walk(GM.SKILLS, 0); walk(GM.CLASSES, 0); walk(IT.data, 0); walk(IT.UNIQUES, 0);
+      return list;
+    }
+    function icons() {
+      iconShapes().forEach(function (s) { row(art, 'Icons', 'icons/' + s + '.png', '64 × 64', 'one image, object centred', s + ' (items, skills and the HUD use it at any size)', 'core'); });
+      row(art, 'Icons', 'icons/potion_hp.png', '64 × 64', 'one image', 'red life potion', 'nice');
+      row(art, 'Icons', 'icons/potion_mp.png', '64 × 64', 'one image', 'blue mana potion', 'nice');
+    }
+    var FX_DESC = { hit: 'impact spark', slash: 'melee arc', explosion: 'fire burst', nova: 'expanding ring blast', heal: 'rising green motes', levelup: 'golden column', lootbeam: 'loot light beam', spark: 'lightning crackle', smoke: 'grey puff', blood: 'blood spray', frost: 'ice shards', poison: 'green cloud', teleport: 'blink in/out', ring: 'thin expanding ring' };
+    function misc() {
+      (C.PROJECTILE_SHAPES || []).forEach(function (s) { row(art, 'Projectiles', 'projectiles/' + s + '.png', '32 × 32', 'one image pointing right; the game rotates it', s, 'core'); });
+      (C.FX_TYPES || []).forEach(function (s) { row(art, 'Effects', 'fx/' + s + '.png', '1024 × 128', '8 square frames of 128 × 128 played once (any count works)', FX_DESC[s] || s, 'optional'); });
+      Object.keys(GM.CLASSES || {}).concat((C.NPC_ROLES || []).map(function (r) { return 'npc_' + r; })).forEach(function (n) {
+        row(art, 'Portraits', 'portraits/' + n + '.png', '96 × 96', 'head and shoulders, include any frame', n, 'core');
+      });
+      row(art, 'UI (engine)', 'ui/joystick_base.png', '256 × 256', 'ring, scaled to the stick size', 'virtual joystick base', 'nice');
+      row(art, 'UI (engine)', 'ui/joystick_knob.png', '128 × 128', 'knob, scaled', 'virtual joystick knob', 'nice');
+      row(art, 'UI (needs UI-team hookup)', 'ui/appicon.png', '1024 × 1024', 'no transparency, iOS rounds it', 'home-screen icon', 'nice');
+      row(art, 'UI (needs UI-team hookup)', 'ui/logo.png', '768 × 256', 'transparent', 'title-screen logo', 'nice');
+    }
+    var SFX_DESC = { hit: 'weapon connects with flesh/bone', swing: 'weapon whoosh', cast: 'generic spell release', fire: 'fire whoosh / burn', ice: 'ice crackle', bolt: 'lightning crack', arrow: 'bow release', hurt: 'player hurt grunt', die: 'death cry', loot: 'item drops (plain)', loot_rare: 'good item drops', loot_legendary: 'Legendary drop — the best sound in the game', gold: 'coins', levelup: 'level up fanfare', equip: 'gear equipped', potion: 'drink', click: 'UI click', error: 'not allowed', door: 'heavy door', stairs: 'footsteps on stairs', quest: 'quest update', buy: 'purchase', sell: 'sale', chest: 'chest opens', shrine: 'shrine blessing' };
+    var BED_DESC = { wind: 'cold wind over the town', drone: 'low dungeon drone', drip: 'crypt: dripping water, stone room tone', water: 'caves: running water', fire: 'inferno: roaring fire and crackle', heart: 'abyss: a slow vast heartbeat', choir: 'distant wordless choir' };
+    var MUS_DESC = { title: 'title screen', town: 'Emberfall, calm and sad', crypt: 'depths 1–5', caves: 'depths 6–10', inferno: 'depths 11–15', abyss: 'depths 16–20', rift: 'depth 21+, the corrupted rift', boss: 'any boss fight', echo: 'fighting your Echo (falls back to boss)' };
+    function sounds() {
+      var names = (U.audio.names || []).slice();
+      Object.keys(SFX_DESC).forEach(function (n) { if (names.indexOf(n) < 0) names.push(n); });
+      names.forEach(function (n) { row(snd, 'Sound effects', 'sound/' + n + '.mp3', 'mono, < 2 s', 'one shot; add ' + n + '_2.mp3, _3 … for random variations', SFX_DESC[n] || n, 'core'); });
+      (U.audio.BEDS || []).forEach(function (b) { row(snd, 'Ambience beds', 'sound/amb_' + b + '.mp3', 'stereo, 20–60 s', 'seamless loop', BED_DESC[b] || b, 'core'); });
+      (U.audio.MUSIC || []).forEach(function (m) { row(snd, 'Music', 'sound/music_' + m + '.mp3', 'stereo, 1–3 min', 'loop; crossfaded 2 s', MUS_DESC[m] || m, m === 'rift' || m === 'echo' ? 'nice' : 'core'); });
+    }
+
+    function check(list) {
+      var i = 0, done = 0;
+      return new Promise(function (res) {
+        if (!list.length) return res();
+        var next = function () {
+          if (i >= list.length) return;
+          var r = list[i++];
+          var alt = r.path.replace(/\.mp3$/, '.m4a');
+          fetch('../assets/' + r.path, { method: 'HEAD', cache: 'no-store' }).then(function (x) { r.exists = x.status !== 404; })
+            .catch(function () {}).then(function () {
+              if (r.exists || alt === r.path) return;
+              return fetch('../assets/' + alt, { method: 'HEAD', cache: 'no-store' }).then(function (x) { if (x.status !== 404) { r.exists = true; r.path = alt; } }).catch(function () {});
+            }).then(function () { done++; if (done === list.length) res(); else next(); });
+        };
+        for (var k = 0; k < 8; k++) next();
+      });
+    }
+
+    function md(title, intro, list) {
+      var s = '# ' + title + '\n\n' + intro + '\n\n';
+      var groups = [], by = {};
+      list.forEach(function (r) { if (!by[r.group]) { by[r.group] = []; groups.push(r.group); } by[r.group].push(r); });
+      var have = list.filter(function (r) { return r.exists; }).length;
+      s += '**' + list.length + ' files, ' + have + ' hand-made so far.** Generated by `tests/assets.html` from the game code on ' + new Date().toISOString().slice(0, 10) + ' — do not edit by hand; re-run the page.\n\n';
+      s += '| Section | Files | Done |\n|---|---|---|\n';
+      groups.forEach(function (g) { s += '| ' + g + ' | ' + by[g].length + ' | ' + by[g].filter(function (r) { return r.exists; }).length + ' |\n'; });
+      groups.forEach(function (g) {
+        s += '\n## ' + g + '\n\n| File (under assets/) | Size | Layout | Description | Priority | Done |\n|---|---|---|---|---|---|\n';
+        by[g].forEach(function (r) { s += '| `' + r.path + '` | ' + r.size + ' | ' + r.layout + ' | ' + String(r.desc).replace(/\|/g, '/') + ' | ' + r.prio + ' | ' + (r.exists ? 'yes' : '') + ' |\n'; });
+      });
+      return s;
+    }
+
+    var lists = null;
+    $('scan').onclick = function () {
+      art = []; snd = [];
+      try { characters(); gear(); tiles(); propsList(); icons(); misc(); sounds(); } catch (err) { out('catalogue failed: ' + err.stack); return; }
+      out('checking ' + (art.length + snd.length) + ' paths …');
+      check(art.concat(snd)).then(function () {
+        var A = md('Art list', 'Every image the game can use. Format, anchors and layouts: **ART_SPEC.md**. Priority: core = the game looks unfinished without it; nice = small polish; optional = the game already makes a good stand-in (tinted generic gear, tinted theme tiles, particle effects); not needed = never shown. Add each finished file to `assets/assets.js`.', art);
+        var S = md('Sound list', 'Every sound the game can use. Drop the file under `assets/sound/` and add `\'sound/<name>.mp3\'` (or `.m4a`) to `assets/assets.js`. Anything missing stays synthesized (sfx, ambience) or silent (music). Volumes: settings sfxVolume / ambienceVolume / musicVolume.', snd);
+        $('art').value = A; $('snd').value = S; lists = { A: A, S: S };
+        out('ART_LIST: ' + art.length + ' files (' + art.filter(function (r) { return r.exists; }).length + ' exist) · SOUND_LIST: ' + snd.length + ' files');
+      });
+    };
+    function post(path, body) {
+      return fetch(RECV, { method: 'POST', headers: { 'X-Path': path }, body: body }).then(function (r) { if (!r.ok) throw new Error(path + ' → ' + r.status); });
+    }
+    $('saveLists').onclick = function () {
+      if (!lists) { out('build the lists first'); return; }
+      post('ART_LIST.md', lists.A).then(function () { return post('SOUND_LIST.md', lists.S); })
+        .then(function () { out('saved ART_LIST.md and SOUND_LIST.md'); window.__saved = (window.__saved || 0) + 2; })
+        .catch(function (e) { out('save failed (is tests/save-files.ps1 running?) ' + e); });
+    };
+    $('dl').onclick = function () {
+      if (!lists) { out('build the lists first'); return; }
+      [['ART_LIST.md', lists.A], ['SOUND_LIST.md', lists.S]].forEach(function (p) {
+        var a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([p[1]], { type: 'text/markdown' })); a.download = p[0]; a.click();
+      });
+    };
+
+    // ------------------------------------------------------------------ R7.8 templates: the procedural art in the final format
+    function up2(src, w, h, dx, dy, dst) { var x = U.ctx2d(dst); x.drawImage(src, 0, 0, src.width, src.height, dx, dy, w, h); }
+    function templates() {
+      var T = [];
+      var sprite = function (id, desc) { var hd = U.sprites.toHD(U.sprites.get(desc)); HD.ANIMS.forEach(function (a) { T.push({ path: 'sprites/' + id + '/' + a + '.png', c: hd.anims[a] }); }); };
+      var cls = GM.CLASSES || {}, npcs = GM.NPCS || {}, M = GM.MONSTERS || {};
+      Object.keys(cls).forEach(function (id) { sprite(id, cls[id].sprite); });
+      var base = Object.assign({}, (cls.warrior || {}).sprite || {}, { weapon: 'none' });
+      sprite('player_base', base);
+      (C.NPC_ROLES || []).forEach(function (r) { if (npcs[r]) sprite('npc_' + r, npcs[r].sprite); });
+      Object.keys(M).forEach(function (id) { sprite(id, M[id].sprite); });
+      // tiles: the procedural set laid out on the 2x sheet
+      ['town'].concat(C.THEMES).forEach(function (th) {
+        var s = U.tiles.get(th), c = U.makeCanvas(256, 1344), x = U.ctx2d(c);
+        var flat = function (r, col, img) { if (img) x.drawImage(img, 0, 0, 32, 16, col * 64, r * 96 + 64, 64, 32); };
+        var tall = function (r, col, img) { if (img) x.drawImage(img, 0, 0, img.width, img.height, col * 64, r * 96 + 96 - img.height * 2 + (img.height > 16 ? 0 : 0), img.width * 2, img.height * 2); };
+        [0, 3, 4, 6].forEach(function (k, i) { flat(0, i, s.floor[k]); });
+        s.wall[0].forEach(function (img, i) { x.drawImage(img, 0, 0, 32, 40, i * 64, 96 + 16, 64, 80); });
+        s.door.forEach(function (img, i) { x.drawImage(img, 0, 0, 32, 40, i * 64, 2 * 96 + 16, 64, 80); });
+        flat(3, 0, s.stairsDown);
+        tall(4, 0, s.stairsUp);
+        (s.water[0] || []).forEach(function (img, i) { flat(5, i, img); });
+        (s.grass || []).forEach(function (img, i) { flat(6, i, img); });
+        (s.path || []).forEach(function (img, i) { flat(7, i, img); });
+        (s.lava[0] || []).forEach(function (img, i) { flat(8, i, img); });
+        flat(9, 0, s.bridge[0]);
+        (s.rubble || []).forEach(function (img, i) { flat(10, i, img); });
+        (s.deepWater || []).forEach(function (img, i) { flat(11, i, img); });
+        (s.deepLava || []).forEach(function (img, i) { flat(12, i, img); });
+        flat(13, 0, s.chasm[0]);
+        T.push({ path: 'tiles/' + th + '.png', c: c });
+      });
+      (C.PROP_TYPES || []).concat(['shrine_used']).forEach(function (t) {
+        var fr = U.props.get(t).frames, c = U.makeCanvas(96 * fr.length, 128);
+        fr.forEach(function (img, i) { var x = U.ctx2d(c); x.drawImage(img, 0, 0, 48, 64, i * 96, 0, 96, 128); });
+        T.push({ path: 'props/' + t + '.png', c: c });
+      });
+      iconShapes().forEach(function (s) { T.push({ path: 'icons/' + s + '.png', c: E.getIcon({ shape: s, color: '#b0a890', accent: '#6a5a3c' }, 64) }); });
+      (C.PROJECTILE_SHAPES || []).forEach(function (s) { var c = U.makeCanvas(32, 32); up2(U.projectile(s)[0], 40, 40, -4, -4, c); T.push({ path: 'projectiles/' + s + '.png', c: c }); });
+      Object.keys(cls).forEach(function (id) { T.push({ path: 'portraits/' + id + '.png', c: E.getPortrait(Object.assign({ id: id }, cls[id].sprite), 96) }); });
+      (C.NPC_ROLES || []).forEach(function (r) { if (npcs[r]) T.push({ path: 'portraits/npc_' + r + '.png', c: E.getPortrait(Object.assign({ id: 'npc_' + r }, npcs[r].sprite), 96) }); });
+      return T;
+    }
+    function blob(c) { return new Promise(function (res) { c.toBlob(res, 'image/png'); }); }
+    $('saveTpl').onclick = function () {
+      var T;
+      try { T = templates(); } catch (err) { out('template build failed: ' + err.stack); return; }
+      var g = $('grid'); g.innerHTML = '';
+      T.slice(0, 40).forEach(function (t) { g.appendChild(t.c); });
+      var i = 0, ok = 0, fail = 0;
+      var next = function () {
+        if (i >= T.length) { out('templates: ' + ok + ' saved, ' + fail + ' failed (of ' + T.length + ')'); window.__tpl = { ok: ok, fail: fail, n: T.length }; return; }
+        var t = T[i++];
+        blob(t.c).then(function (b) { return post('assets_templates/' + t.path, b); }).then(function () { ok++; }, function () { fail++; }).then(function () { if (i % 25 === 0) out('saving templates ' + i + '/' + T.length); next(); });
+      };
+      out('saving ' + T.length + ' templates …');
+      next();
+    };
+    window.__assets = { templates: templates, art: function () { return art; }, snd: function () { return snd; } };
+  }
+})();
+</script>
+</body>
+</html>

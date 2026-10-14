@@ -543,7 +543,7 @@
       aoe: { bar: ['multishot', 'rain_of_arrows', 'explosive_arrow', 'arrow_storm'],
         order: [['multishot', 1], ['dodge_roll', 1], ['multishot', 3], ['rapid_fire', 1], ['tumble_shot', 1], ['evasion', 1], ['rain_of_arrows', 1], ['multishot', 5], ['explosive_arrow', 1], ['poison_arrow', 1], ['vigor', 1], ['rain_of_arrows', 3], ['rapid_fire', 5], ['explosive_arrow', 5], ['arrow_storm', 1], ['rain_of_arrows', 5], ['arrow_storm', 5], ['eagle_eye', 5], ['ricochet', 5], ['tumble_shot', 5], ['evasion', 5], ['vigor', 5], ['lethal_focus', 5], ['dodge_roll', 5]] },
       balanced: { bar: ['aimed_shot', 'multishot', 'rain_of_arrows', 'explosive_arrow'],
-        order: [['aimed_shot', 1], ['multishot', 1], ['dodge_roll', 1], ['eagle_eye', 1], ['aimed_shot', 3], ['multishot', 3], ['rapid_fire', 1], ['tumble_shot', 1], ['evasion', 1], ['rain_of_arrows', 1], ['poison_arrow', 1], ['aimed_shot', 5], ['multishot', 5], ['vigor', 1], ['rain_of_arrows', 5], ['eagle_eye', 5], ['rapid_fire', 5], ['lethal_focus', 5], ['evasion', 5], ['vigor', 5], ['ricochet', 5], ['tumble_shot', 5], ['dodge_roll', 5], ['poison_arrow', 5], ['explosive_arrow', 5]] },
+        order: [['aimed_shot', 1], ['multishot', 1], ['dodge_roll', 1], ['eagle_eye', 1], ['aimed_shot', 3], ['multishot', 3], ['rapid_fire', 1], ['evasion', 1], ['rain_of_arrows', 1], ['poison_arrow', 1], ['tumble_shot', 1], ['aimed_shot', 5], ['multishot', 5], ['vigor', 1], ['rain_of_arrows', 5], ['eagle_eye', 5], ['rapid_fire', 5], ['lethal_focus', 5], ['evasion', 5], ['vigor', 5], ['ricochet', 5], ['tumble_shot', 5], ['dodge_roll', 5], ['poison_arrow', 5], ['explosive_arrow', 5]] },
     },
     sorcerer: {
       single: { bar: ['fire_bolt', 'incinerate', 'glacial_spike', 'mana_shield'],

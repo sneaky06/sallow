@@ -4,7 +4,7 @@
   const G = window.G, E = G.engine, U = E._;
   const C = G.C, T = C.TILE, HW = C.TILE_W / 2, HH = C.TILE_H / 2;
   const V = U.view = {
-    canvas: null, ctx: null, W: 270, H: 480, scale: 1, left: 0, top: 0,
+    canvas: null, ctx: null, W: 270, H: 480, R: 1, mode: 'auto', autoLow: false, scale: 1, left: 0, top: 0,
     camX: 0, camY: 0, offX: 0, offY: 0, time: 0, snap: true, lastMap: null, info: null, mapT: 0,
   };
   let lightC = null, lightX = null, LW = 1, LH = 1;
@@ -12,6 +12,22 @@
   let trailT = 0, sparkT = 0;
 
   // ---------------------------------------------------------------- sizing
+  // state.settings.graphics = 'auto' (default) | 'high' | 'low'. In auto, a device that cannot hold ~42 fps for 4 s
+  // drops to 'low' for the rest of the session (V.autoLow).
+  function gfxMode() {
+    const S = G.state, g = S && S.settings && S.settings.graphics;
+    if (g === 'high' || g === 'low') return g;
+    return V.autoLow ? 'low' : 'auto';
+  }
+  const perf = { ema: 1 / 60, slow: 0, poll: 0 };
+  function watchPerf(dt) {
+    if (dt > 0 && dt < 0.25) {
+      perf.ema += (dt - perf.ema) * 0.05;
+      perf.slow = perf.ema > 1 / 42 && V.mode === 'auto' && V.R > 1 ? perf.slow + dt : 0;
+      if (perf.slow > 4) { V.autoLow = true; perf.slow = 0; resize(); }
+    }
+    if ((perf.poll -= dt) <= 0) { perf.poll = 0.5; if (gfxMode() !== V.mode) resize(); }
+  }
   function resize() {
     const c = V.canvas;
     if (!c) return;
@@ -27,11 +43,17 @@
       if (l >= 216 && l <= 340 && Math.abs(l - 270) < best) { best = Math.abs(l - 270); k = i; }
     }
     if (!k) k = Math.max(1, short / 270);
-    const W = Math.max(64, Math.ceil(cw * dpr / k)), H = Math.max(64, Math.ceil(ch * dpr / k));
-    if (c.width !== W) c.width = W;
-    if (c.height !== H) c.height = H;
-    V.W = W; V.H = H; V.scale = k / dpr; V.left = r.left; V.top = r.top;
+    // R6.4: the backing store is R x the logical size; j = whole device px per backing px, so it always maps cleanly.
+    // auto: R near 2 (1.5 on 3x-scale phones such as iPhone 6-8, 2 on newer ones); low: R 1 (the old look); high: native.
+    const mode = gfxMode(), j = mode === 'low' ? k : mode === 'high' || k < 2 ? 1 : Math.max(1, Math.round(k / 2));
+    const R = k / j, step = Number.isInteger(R) ? 1 : j;
+    const W = Math.max(64, Math.ceil(cw * dpr / k / step) * step), H = Math.max(64, Math.ceil(ch * dpr / k / step) * step);
+    const BW = Math.round(W * R), BH = Math.round(H * R);
+    if (c.width !== BW) c.width = BW;
+    if (c.height !== BH) c.height = BH;
+    V.W = W; V.H = H; V.R = R; V.mode = mode; V.scale = k / dpr; V.left = r.left; V.top = r.top;
     c.style.width = (W * V.scale) + 'px'; c.style.height = (H * V.scale) + 'px';
+    c.style.imageRendering = Number.isInteger(j) ? 'pixelated' : 'auto';
     V.ctx.imageSmoothingEnabled = false;
     LW = Math.ceil(W / 2); LH = Math.ceil(H / 2);
     if (!lightC) { lightC = U.makeCanvas(LW, LH); lightX = U.ctx2d(lightC); }
@@ -71,14 +93,16 @@
   }
   const tgt = { x: 0, y: 0 };
   function computeOffsets() {
-    V.offX = Math.round((V.camX - V.camY) * HW - V.W / 2);
-    V.offY = Math.round((V.camX + V.camY) * HH - V.H / 2 - 8);
+    // snapped to whole backing pixels, so 2x art scrolls smoothly instead of in logical-pixel steps
+    V.offX = Math.round(((V.camX - V.camY) * HW - V.W / 2) * V.R) / V.R;
+    V.offY = Math.round(((V.camX + V.camY) * HH - V.H / 2 - 8) * V.R) / V.R;
   }
 
   E.update = function (dt) {
     if (!(dt > 0)) dt = 0;
     V.time += dt;
     V.dt = dt;
+    watchPerf(dt);
     const S = G.state, map = S.map;
     if (map !== V.lastMap) { V.lastMap = map; V.snap = true; V.info = null; V.mapT = V.time; }
     if (glint.t > 0) glint.t -= dt;
@@ -88,6 +112,7 @@
     computeOffsets();
     U.fx.update(dt);
     U.audio.setBed(map && S.scene !== 'menu' ? U.variant.get(map).sound : 'none', pal.tier);
+    if ((V.musT -= dt) <= 0 || map !== V.musMap) { V.musT = 0.5; V.musMap = map; U.audio.setMusic(musicTrack(S, map)); }
     U.audio.tick();
     if (!map || S.scene === 'menu') return;
 
@@ -112,12 +137,26 @@
       const gs = S.groundItems || [], n = Math.min(gs.length, 120);
       for (let i = 0; i < n; i++) {
         const g = gs[i], r = g && g.item && C.RARITY[g.item.rarity];
-        if (r && r.order >= 3 && Math.random() < 0.45 && (!map.explored || map.explored[Math.floor(g.y) * map.w + Math.floor(g.x)])) {
+        if (r && glowOf(g.item.rarity) >= 3 && Math.random() < 0.45 && (!map.explored || map.explored[Math.floor(g.y) * map.w + Math.floor(g.x)])) {
           U.fx.particle(g.x + (Math.random() - 0.5) * 0.5, g.y + (Math.random() - 0.5) * 0.5, 2, 0, 0, 26 + Math.random() * 20, 0.6, 1, Math.random() < 0.3 ? '#ffffff' : r.color, -4);
         }
       }
     }
   };
+
+  // R6.4 music: title / town / theme (rift past depth 20); boss or echo while one is alive and close
+  function musicTrack(S, map) {
+    if (!map || S.scene === 'menu') return 'title';
+    if (map.kind === 'town' || S.scene === 'town') return 'town';
+    const p = S.player, es = S.entities || [];
+    if (p) for (let i = 0; i < es.length; i++) {
+      const e = es[i];
+      if (!e || e.dead || e.type !== 'monster') continue;
+      const echo = isEcho(e);
+      if ((echo || e.rarity === 'boss') && Math.abs(e.x - p.x) + Math.abs(e.y - p.y) < 16) return echo ? 'echo' : 'boss';
+    }
+    return map.depth > 20 ? 'rift' : (map.theme || 'crypt');
+  }
 
   // ---------------------------------------------------------------- menu backdrop
   const EMB = 14, embSeed = new Float32Array(EMB * 4);
@@ -215,7 +254,7 @@
     if (!it) it = dl[dn] = { b: 0, k: 0, kind: 0, ref: null, sx: 0, sy: 0, lit: true };
     dn++;
     it.b = Math.floor(x) + Math.floor(y); it.k = x + y + bias; it.kind = kind; it.ref = ref;
-    it.sx = Math.round(sx); it.sy = Math.round(sy); it.lit = lit;
+    it.sx = Math.round(sx * V.R) / V.R; it.sy = Math.round(sy * V.R) / V.R; it.lit = lit;
   }
   function addLight(x, y, r, key) {
     if (nLights >= 40 || !(r > 0)) return;
@@ -234,23 +273,144 @@
     b.ell(15.5, 7.5, 15.5, 7.5, function (nx, ny) { const k = Math.ceil((1 - Math.sqrt(nx * nx + ny * ny)) * 4) / 4 * 0.7; return U.pack(c[0] * k, c[1] * k, c[2] * k); });
     return (halos[hex] = b.done());
   }
-  const glint = { t: 0, c: '#ffffff' };       // brief screen-edge flash when a Legendary-tier item drops
+  const glint = { t: 0, c: '#ffffff' };
+  const BEAM_HALO = [0, 22, 32, 36, 42, 52], BEAM_H = [0, 0, 40, 52, 68, 86];       // by glow level       // brief screen-edge flash when a Legendary-tier item drops
 
   const RIM = { champion: '#5b8cff', rare: '#ffe45b', legendary: '#ff8a2b', boss: '#ff3b4e' };
   const PLATE = { champion: '#8fb0ff', rare: '#ffe45b', legendary: '#ff9a3a', boss: '#ff6a5a' };
 
+  // R6.2: the Echo (a hostile copy of the player) — matched loosely, like the UI does
+  function isEcho(e) { return !!e && (e.echo === true || e.isEcho === true || e.monsterId === 'echo' || e.kind === 'echo'); }
+  // Echo look: the sheet drained of colour, cold-tinted (cached per source canvas)
+  const ghosts = new WeakMap();
+  function ghostOf(src) {
+    let g = ghosts.get(src);
+    if (g) return g;
+    g = U.makeCanvas(src.width, src.height);
+    const x = U.ctx2d(g);
+    x.drawImage(src, 0, 0);
+    x.globalCompositeOperation = 'saturation'; x.fillStyle = '#808080'; x.fillRect(0, 0, g.width, g.height);
+    x.globalCompositeOperation = 'source-atop'; x.fillStyle = 'rgba(150,205,255,0.38)'; x.fillRect(0, 0, g.width, g.height);
+    x.globalCompositeOperation = 'destination-in'; x.drawImage(src, 0, 0);
+    ghosts.set(src, g);
+    return g;
+  }
+  // soft contact shadow (high-res mode); the old hard pixel ellipse at R 1
+  let softSh = null;
+  function shadowAt(ctx, sx, sy, w) {
+    if (V.R <= 1) { const s = U.shadow(w); ctx.drawImage(s, sx - (s.width >> 1), sy - (s.height >> 1)); return; }
+    if (!softSh) {
+      softSh = U.makeCanvas(64, 64);
+      const x = softSh.getContext('2d'), g = x.createRadialGradient(32, 32, 0, 32, 32, 32);
+      g.addColorStop(0, 'rgba(0,0,0,0.62)'); g.addColorStop(0.55, 'rgba(0,0,0,0.38)'); g.addColorStop(1, 'rgba(0,0,0,0)');
+      x.fillStyle = g; x.fillRect(0, 0, 64, 64);
+    }
+    const ww = w * 1.35, hh = ww * 0.5;
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(softSh, sx - ww / 2, sy - hh / 2, ww, hh);
+    ctx.imageSmoothingEnabled = false;
+  }
+
+  // One frame of a sheet, resolved to a source rect + a logical destination (shared by the body, the flash and the
+  // Echo's after-images). 2x sheets: per-animation strips, 8 screen directions (5 drawn + 3 mirrored).
+  const FD = { img: null, sx: 0, sy: 0, s: 0, ox: 0, oy: 0, d: 0, mirror: false, top: 0 };
+  function hdRec(sh, anim) {
+    const A = sh.anims;
+    return A[anim] || (anim === 'cast' ? A.attack : anim === 'attack' ? A.cast : null) || A.idle || A.walk || A[Object.keys(A)[0]];
+  }
+  function frameOf(sh, e, dead, t) {
+    if (!sh.hd) {
+      FD.img = sh.c; FD.d = sh.cell; FD.s = sh.cell;
+      FD.sx = (dead ? (e.anim === 'die' ? U.sprites.column('die', t) : 15) : U.sprites.column(e.anim, t + (e.anim === 'idle' || !e.anim ? (e.id || 0) * 0.37 : 0))) * sh.cell;
+      FD.sy = U.sprites.row(e.facing) * sh.cell; FD.ox = sh.ox; FD.oy = sh.oy; FD.mirror = false; FD.top = sh.top;
+      return FD;
+    }
+    let anim = dead ? 'die' : (e.anim || 'idle');
+    const rec = hdRec(sh, anim), H = U.HD;
+    if (rec !== sh.anims[anim]) anim = rec === sh.anims.idle ? 'idle' : rec === sh.anims.walk ? 'walk' : anim;
+    const n = rec.n, T = H.TIME[anim] || 1;
+    let f;
+    if (dead && anim === 'die' && e.anim !== 'die') f = n - 1;                       // lying corpse
+    else if (anim === 'idle' || anim === 'walk') f = Math.floor((t + (anim === 'idle' ? (e.id || 0) * 0.37 : 0)) / T * n) % n;
+    else f = Math.min(n - 1, Math.floor(t / T * n));
+    const dir = U.dir8(e.facing);
+    let row = dir, mirror = false;
+    if (rec.rows < 8 && dir > 4) { row = 8 - dir; mirror = true; }
+    const k = sh.scale || 2, cell = rec.cell;
+    FD.img = rec.c; FD.s = cell; FD.d = cell / k; FD.sx = f * cell; FD.sy = row * cell;
+    FD.ox = (cell >> 1) / k; FD.oy = Math.round(cell * 7 / 8) / k; FD.mirror = mirror; FD.top = rec.top / k;
+    return FD;
+  }
+  function paint(ctx, fd, img, x, y) {
+    if (fd.mirror) {
+      ctx.save(); ctx.translate(x, 0); ctx.scale(-1, 1);
+      ctx.drawImage(img, fd.sx, fd.sy, fd.s, fd.s, -fd.ox, y - fd.oy, fd.d, fd.d);
+      ctx.restore();
+    } else ctx.drawImage(img, fd.sx, fd.sy, fd.s, fd.s, x - fd.ox, y - fd.oy, fd.d, fd.d);
+  }
+
+  // Echo after-images: a short trail of past frames (positions in world units), drawn additively
+  const trails = new WeakMap();
+  function echoTrail(ctx, e, fd, img) {
+    let tr = trails.get(e);
+    if (!tr) { tr = { t: 0, n: 0, list: [] }; for (let i = 0; i < 4; i++) tr.list.push({ x: 0, y: 0, img: null, sx: 0, sy: 0, s: 0, d: 0, ox: 0, oy: 0, mirror: false }); trails.set(e, tr); }
+    ctx.globalCompositeOperation = 'lighter';
+    for (let i = 0; i < tr.n; i++) {
+      const p = tr.list[i];
+      if (!p.img) continue;
+      ctx.globalAlpha = [0.2, 0.13, 0.08, 0.04][i];
+      paint(ctx, p, p.img, Math.round(((p.x - p.y) * HW - fr.ox) * V.R) / V.R, Math.round(((p.x + p.y) * HH - fr.oy) * V.R) / V.R);
+    }
+    ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+    if (V.time - tr.t < 0.07) return;
+    tr.t = V.time;
+    for (let i = tr.list.length - 1; i > 0; i--) Object.assign(tr.list[i], tr.list[i - 1]);
+    const q = tr.list[0];
+    q.x = e.x; q.y = e.y; q.img = img; q.sx = fd.sx; q.sy = fd.sy; q.s = fd.s; q.d = fd.d; q.ox = fd.ox; q.oy = fd.oy; q.mirror = fd.mirror;
+    tr.n = Math.min(tr.list.length, tr.n + 1);
+  }
+
+  // R6.3: dash charges as small pips under the player while any charge is recharging (fade out once all are back).
+  // Reads getClassAction(): charges / maxCharges (or charges: { cur, max }); without them, one pip that refills.
+  const dashUi = { full: 9 };
+  function dashInfo() {
+    const fn = G.game && G.game.getClassAction;
+    let a = null;
+    try { a = fn ? fn() : null; } catch (err) { a = null; }
+    if (!a) return null;
+    const max = Math.max(1, Math.min(5, +(a.maxCharges || a.chargesMax || (a.charges && a.charges.max) || 1) | 0));
+    let cur = typeof a.charges === 'number' ? a.charges : a.charges && typeof a.charges.cur === 'number' ? a.charges.cur : (+a.cdRemaining > 0 ? max - 1 : max);
+    cur = Math.max(0, Math.min(max, cur | 0));
+    const cd = +a.cooldown || 0, rem = +a.cdRemaining || 0;
+    return { max: max, cur: cur, prog: cur < max && cd > 0 ? Math.max(0, Math.min(1, 1 - rem / cd)) : 1 };
+  }
+  function drawDash(ctx, sx, sy) {
+    const d = dashInfo();
+    if (!d) return;
+    if (d.cur >= d.max) { dashUi.full += V.dt || 0; if (dashUi.full > 0.9) return; } else dashUi.full = 0;
+    ctx.globalAlpha = d.cur >= d.max ? 1 - dashUi.full / 0.9 : 1;
+    const w = 7, x0 = Math.round(sx - (d.max * w - 2) / 2), y = Math.round(sy + 5);
+    for (let i = 0; i < d.max; i++) {
+      const x = x0 + i * w;
+      ctx.fillStyle = '#0b0910'; ctx.fillRect(x - 1, y - 1, w, 4);
+      ctx.fillStyle = '#3a3448'; ctx.fillRect(x, y, w - 2, 2);
+      const f = i < d.cur ? 1 : i === d.cur ? d.prog : 0;
+      if (f > 0) { ctx.fillStyle = i < d.cur ? '#9fe0ff' : '#4a7a96'; ctx.fillRect(x, y, Math.max(1, Math.round((w - 2) * f)), 2); }
+    }
+    ctx.globalAlpha = 1;
+  }
+
   function drawEntity(ctx, it) {
-    const e = it.ref, sx = it.sx, sy = it.sy;
-    const sh = (e === G.state.player && U.gear.sheetFor(e)) || (U.assets && U.assets.spriteFor(e)) || U.sprites.get(e.sprite);
+    const e = it.ref, sx = it.sx, sy = it.sy, P = G.state.player, echo = isEcho(e);
+    const sh = (e === P && U.gear.sheetFor(e)) || (echo && e.equipment && U.gear.sheetFor(e)) || (U.assets && U.assets.spriteFor(e))
+      || (echo && P && P.classId === e.classId && U.gear.sheetFor(P)) || U.sprites.get(e.sprite);
     const dead = !!e.dead || e.anim === 'die';
     const t = typeof e.animT === 'number' && isFinite(e.animT) ? e.animT : V.time;
-    const col = dead ? (e.anim === 'die' ? U.sprites.column('die', t) : 15) : U.sprites.column(e.anim, t + (e.anim === 'idle' || !e.anim ? (e.id || 0) * 0.37 : 0));
-    const row = U.sprites.row(e.facing);
-    const rim = !dead && e.type === 'monster' ? RIM[e.rarity] : null;
+    const rim = !dead && e.type === 'monster' ? (echo ? '#9fd8ff' : RIM[e.rarity]) : null;
+    const fd = frameOf(sh, e, dead, t);
     if (!dead) {
-      const w = Math.round(sh.cell * (sh.wide ? 0.42 : 0.3) * (sh.hover ? 0.75 : 1));
-      const s = U.shadow(w);
-      ctx.drawImage(s, sx - (s.width >> 1), sy - (s.height >> 1));
+      const w = Math.round((sh.hd ? fd.d * 0.62 : sh.cell) * (sh.wide ? 0.42 : 0.3) * (sh.hover ? 0.75 : 1) * (sh.hd ? 1.6 : 1));
+      shadowAt(ctx, sx, sy, w);
       if (rim) {
         const a = U.aura(rim, Math.max(20, Math.min(64, (w * 1.9) & ~1)));
         ctx.globalCompositeOperation = 'lighter';
@@ -265,15 +425,29 @@
         ctx.globalCompositeOperation = 'source-over';
       }
     }
-    const src = (e.hitFlash > 0 && !dead) ? sh.flash() : rim ? sh.outlined(rim) : sh.c;
-    ctx.drawImage(src, col * sh.cell, row * sh.cell, sh.cell, sh.cell, sx - sh.ox, sy - sh.oy, sh.cell, sh.cell);
-    if (dead || e === G.state.player) return;
+    if (sh.hd) ctx.imageSmoothingEnabled = V.R !== 2;          // painted art lands 1:1 at R 2, filtered otherwise
+    if (echo) {
+      const img = ghostOf(fd.img);
+      if (!dead) echoTrail(ctx, e, fd, img);
+      ctx.globalAlpha = dead ? 0.35 : 0.62 + 0.12 * Math.sin(V.time * 9 + (e.id || 0)) * Math.sin(V.time * 2.3);
+      paint(ctx, fd, img, sx, sy);
+      ctx.globalAlpha = 1;
+      if (e.hitFlash > 0 && !dead) { ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = 0.6; paint(ctx, fd, img, sx, sy); ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over'; }
+    } else if (sh.hd) {
+      paint(ctx, fd, fd.img, sx, sy);
+      if (e.hitFlash > 0 && !dead) { ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = 0.7; paint(ctx, fd, fd.img, sx, sy); ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over'; }
+    } else {
+      paint(ctx, fd, (e.hitFlash > 0 && !dead) ? sh.flash() : rim ? sh.outlined(rim) : sh.c, sx, sy);
+    }
+    ctx.imageSmoothingEnabled = false;
+    if (e === P) { if (!dead) drawDash(ctx, sx, sy); return; }
+    if (dead) return;
     if (e.type === 'npc' || (e.type === 'monster' && (rim || e.hp < ((e.stats && e.stats.hpMax) || e.hp)))) {
       if (nBars < 90) {
         let b = bars[nBars];
         if (!b) b = bars[nBars] = { e: null, x: 0, y: 0 };
         nBars++;
-        b.e = e; b.x = sx; b.y = sy - sh.top - 4;
+        b.e = e; b.x = sx; b.y = sy - fd.top - 4;
       }
     }
   }
@@ -288,9 +462,21 @@
     const r = C.RARITY[item.rarity];
     return (r ? r.order * 4 : 0) + (item.type === 'consumable' || item.type === 'material' ? 0 : 1);
   }
+  // ground icons are fetched at 32 px and drawn at 16 logical px (1:1 on the 2x backing store)
   function iconOf(item, rar, gold) {
-    return E.getIcon(item.icon || { shape: gold ? 'gold' : 'fallback', color: gold ? '#ffd94a' : rar.color }, 16);
+    const c = E.getIcon(item.icon || { shape: gold ? 'gold' : 'fallback', color: gold ? '#ffd94a' : rar.color }, 32);
+    c.hd = 2;
+    return c;
   }
+  // R7.1 rarity ladder â†’ glow level 0..5 (none, slight, a little bigger, slightly bigger, bigger, biggest + slow pulse).
+  // Read by key; a numeric C.RARITY[key].glow wins, so core can retune it without an engine change.
+  const GLOW_KEY = { common: 0, uncommon: 0, rare: 0, magic: 1, epic: 1, set: 2, legendary: 2, mythic: 3, unique: 4, corrupted: 4, rift: 5 };
+  function glowOf(key) {
+    const r = C.RARITY[key];
+    if (r && typeof r.glow === 'number') return Math.max(0, Math.min(5, r.glow | 0));
+    return GLOW_KEY[key] || 0;
+  }
+  E.rarityGlow = glowOf;
   const badges = [], reicons = [];
   let nBadges = 0, nReicons = 0;
 
@@ -307,8 +493,8 @@
       lift = 3;
       const s = U.shadow(22);
       ctx.drawImage(s, sx - 11, sy - 5);
-      if (pile.c) { const ci = pile.c.item || {}; ctx.drawImage(iconOf(ci, C.RARITY[ci.rarity] || C.RARITY.common, ci.type === 'gold'), sx - 1, sy - 13); }
-      if (pile.b) { const bi = pile.b.item || {}; ctx.drawImage(iconOf(bi, C.RARITY[bi.rarity] || C.RARITY.common, bi.type === 'gold'), sx - 14, sy - 12); }
+      if (pile.c) { const ci = pile.c.item || {}; U.blit(ctx, iconOf(ci, C.RARITY[ci.rarity] || C.RARITY.common, ci.type === 'gold'), sx - 1, sy - 13); }
+      if (pile.b) { const bi = pile.b.item || {}; U.blit(ctx, iconOf(bi, C.RARITY[bi.rarity] || C.RARITY.common, bi.type === 'gold'), sx - 14, sy - 12); }
       if (nBadges < 24) {
         let bd = badges[nBadges];
         if (!bd) bd = badges[nBadges] = { x: 0, y: 0, img: null };
@@ -319,8 +505,8 @@
       const s = U.shadow(12);
       ctx.drawImage(s, sx - 6, sy - 3);
     }
-    ctx.drawImage(icon, sx - (isz >> 1), sy - isz + 3 - hop - lift);
-    const glow = rar.order >= 2 ? (rar.tier === 'legendary' ? (item.rarity === 'mythic' ? 3 : 2) : 1) : 0;
+    U.blit(ctx, icon, sx - (isz >> 1), sy - isz + 3 - hop - lift);
+    const glow = gold ? 0 : glowOf(item.rarity);
     if (glow === 0 && gold) {                      // gold glints
       const ph = (V.time * 1.1 + (g.id || 0) * 0.37) % 1;
       if (ph < 0.16) { const gx = sx - 3 + ((g.id || 0) % 5), gy = sy - 9 - hop; ctx.fillStyle = '#ffffff'; ctx.fillRect(gx - (ph < 0.08 ? 2 : 1), gy, ph < 0.08 ? 5 : 3, 1); ctx.fillRect(gx, gy - (ph < 0.08 ? 2 : 1), 1, ph < 0.08 ? 5 : 3); }
@@ -360,7 +546,7 @@
       const P = U.props.get(pr.type === 'shrine' && pr.used ? 'shrine_used' : pr.type);
       const n = P.frames.length;
       const img = pr.type === 'gate' ? P.frames[(V.info ? V.info[(pr.y | 0) * G.state.map.w + (pr.x | 0)] & 1 : 0) % n] : n > 1 ? P.frames[((V.time * (n >= 3 ? 8 : 2.5) + pr.x * 3 + pr.y) | 0) % n] : P.frames[0];
-      ctx.drawImage(it.lit ? img : U.dim(img), sx - 24, sy - 56);
+      U.blit(ctx, it.lit ? img : U.dim(img), sx - 24, sy - 56);
       if (it.lit && !pr.used) {
         const r = pr.light > 0 ? pr.light : (P.light ? P.light[0] : 0);
         if (r > 0) {
@@ -377,8 +563,10 @@
     const sp = U.projectile(p.shape, p.color)[dir];
     ctx.fillStyle = 'rgba(0,0,0,0.35)';
     ctx.fillRect(sx - 2, sy - 1, 4, 2);
+    ctx.imageSmoothingEnabled = sp.width > 20;
     if (p.radius > 0.45) ctx.drawImage(sp, sx - 20, sy - 32, 40, 40);
-    else ctx.drawImage(sp, sx - 10, sy - 22);
+    else ctx.drawImage(sp, sx - 10, sy - 22, 20, 20);
+    ctx.imageSmoothingEnabled = false;
     if (p.shape !== 'arrow') addLight(sx, sy - 12, 1.8, U.lightKeyFor(U.projectileColor(p.shape, p.color)));
   }
 
@@ -394,8 +582,8 @@
     const s = spills[spHead]; spHead = (spHead + 1) % SPN;
     const a = Math.random() * 6.283, d = 9 + Math.random() * 9;
     s.on = true; s.x = g.x; s.y = g.y; s.t0 = V.time + spK++ * 0.05; s.dx = Math.cos(a) * d; s.dy = Math.sin(a) * d * 0.5;
-    if (rar.tier === 'legendary') { glint.t = 0.7; glint.c = rar.color; }  // brief screen-edge flash
-    s.h = 16 + Math.random() * 10; s.icon = iconOf(item, rar, item.type === 'gold'); s.c = rar.order >= 2 ? rar.color : null;
+    if (glowOf(item.rarity) >= 3) { glint.t = 0.7; glint.c = rar.color; }  // brief screen-edge flash
+    s.h = 16 + Math.random() * 10; s.icon = iconOf(item, rar, item.type === 'gold'); s.c = glowOf(item.rarity) >= 1 ? rar.color : null;
     return s.t0 + 0.5;                                        // the heap hops when this one lands
   }
   function drawSpills(ctx, ox, oy) {
@@ -406,7 +594,7 @@
       if (k < 0) continue;
       if (k >= 1) { s.on = false; if (s.c) U.fx.burst(s.x, s.y, SPILL_SPARK(s.c)); continue; }
       const out = Math.sin(k * Math.PI), sx = (s.x - s.y) * HW - ox + s.dx * out, sy = (s.x + s.y) * HH - oy + s.dy * out - s.h * Math.sin(Math.min(1, k * 1.15) * Math.PI);
-      ctx.drawImage(s.icon, Math.round(sx) - 8, Math.round(sy) - 13);
+      U.blit(ctx, s.icon, Math.round(sx) - 8, Math.round(sy) - 13);
       if (s.c) { ctx.fillStyle = s.c; ctx.fillRect(Math.round(sx), Math.round(sy) - 4, 1, 1); }
     }
   }
@@ -525,11 +713,16 @@
     joyKnob = k.outline(0x0b0910, 190).done();
   }
 
+  // light sprite: stepped bands at R 1 (the old pixel look), a smooth falloff in high-res mode
+  function LS(key) { return V.R > 1 ? U.lightSoft(key) : U.lightSprite(key); }
+
   // ---------------------------------------------------------------- render
   E.render = function () {
     const ctx = V.ctx;
     if (!ctx) return;
     const S = G.state, map = S && S.map, W = V.W, H = V.H;
+    ctx.setTransform(V.R, 0, 0, V.R, 0, 0);
+    ctx.imageSmoothingEnabled = false;
     if (!map || !map.tiles || S.scene === 'menu') { drawBackdrop(ctx, W, H); return; }
 
     const VR = U.variant.get(map), set = VR.set, bm = VR.blendMask, bs = VR.blendSet;
@@ -581,7 +774,7 @@
         }
         const lit = !vis || vis[i];
         const sx = e * HW - ox - 16, sy = d * HH - oy;
-        ctx.drawImage(lit ? img : U.dim(img), sx, sy);
+        U.blit(ctx, lit ? img : U.dim(img), sx, sy);
         if ((t === T.STAIRS_DOWN || t === T.STAIRS_UP) && nMarks < 8) {
           let m = marks[nMarks];
           if (!m) m = marks[nMarks] = { x: 0, y: 0, up: false };
@@ -668,20 +861,21 @@
           const img = ts.wall[lvl][vr], hgt = WH[lvl];
           if (lvl < 2 && fr.hasP && d + 1 > fr.pd && sx + 16 > fr.psx - 34 && sx + 16 < fr.psx + 34 && sy - hgt < fr.psy + 2 && sy + 16 > fr.psy - 26) {
             const low = ts.wall[2][vr];
-            ctx.drawImage(lit ? low : U.dim(low), sx, sy - WH[2]);
+            U.blit(ctx, lit ? low : U.dim(low), sx, sy - WH[2]);
             ctx.globalAlpha = 0.2;
-            ctx.drawImage(img, sx, sy - hgt);
+            U.blit(ctx, img, sx, sy - hgt);
             ctx.globalAlpha = 1;
           } else {
-            ctx.drawImage(lit ? img : U.dim(img), sx, sy - hgt);
+            U.blit(ctx, lit ? img : U.dim(img), sx, sy - hgt);
           }
         } else if (t === T.DOOR) {
           const img = set.door[info[i] & 1];
           if (fr.hasP && d + 0.5 > fr.pd && Math.abs(sx + 16 - fr.psx) < 30 && sy - 24 < fr.psy && sy + 16 > fr.psy - 26) ctx.globalAlpha = 0.3;
-          ctx.drawImage(lit ? img : U.dim(img), sx, sy - U.tiles.WALL_H);
+          U.blit(ctx, lit ? img : U.dim(img), sx, sy - U.tiles.WALL_H);
           ctx.globalAlpha = 1;
         } else {
-          ctx.drawImage(lit ? set.stairsUp : U.dim(set.stairsUp), sx, sy - (set.stairsUp.height - 16));
+          const su = set.stairsUp;
+          U.blit(ctx, lit ? su : U.dim(su), sx, sy - (su.height / (su.hd || 1) - 16));
         }
       }
       while (q < dn && ord[q].b <= d) drawItem(ctx, ord[q++]);
@@ -696,42 +890,47 @@
       lightX.globalCompositeOperation = 'lighter';
       if (fr.hasP) {
         const rx = VR.lightR * 22 * (1 + 0.02 * Math.sin(V.time * 7.3)), ry = rx * 0.6;
-        lightX.drawImage(U.lightSprite(VR.lightKey), (fr.psx - rx) / 2, (fr.psy - 10 - ry) / 2, rx, ry);
+        lightX.drawImage(LS(VR.lightKey), (fr.psx - rx) / 2, (fr.psy - 10 - ry) / 2, rx, ry);
       }
       for (let i = 0; i < nLights; i++) {
         const l = lights[i], rx = l.r * 22, ry = rx * 0.6;
-        lightX.drawImage(U.lightSprite(l.key), (l.x - rx) / 2, (l.y - ry) / 2, rx, ry);
+        lightX.drawImage(LS(l.key), (l.x - rx) / 2, (l.y - ry) / 2, rx, ry);
       }
       ctx.globalCompositeOperation = 'multiply';
+      ctx.imageSmoothingEnabled = V.R > 1;                // D2-style: the light map is filtered, not blocky
       ctx.drawImage(lightC, 0, 0, LW * 2, LH * 2);
+      ctx.imageSmoothingEnabled = false;
       ctx.globalCompositeOperation = 'source-over';
     }
 
     // ---- Pallor (R5.2): the world drains of colour by tier. One composite fill over the lit world, before loot,
     // spell fx, labels and bars are drawn, so those stay fully saturated. No per-pixel work in JS.
-    if (drawPallor(ctx, W, H)) for (let i = 0; i < nReicons; i++) { const ri = reicons[i]; ctx.drawImage(ri.img, ri.x, ri.y); }
+    if (drawPallor(ctx, W, H)) for (let i = 0; i < nReicons; i++) { const ri = reicons[i]; U.blit(ctx, ri.img, ri.x, ri.y); }
 
     // ---- overlay: beams, fx, markers, labels, bars, text, joystick
     // rare+ loot: soft pulsing halo, beam, then the icon again on top so it stays bright after lighting.
     // Legendary tier (Elite = 2, Mythic = 3): taller double beam and orbiting sparkles; Mythic adds a second counter-orbit.
     if (nBeams) {
       for (let i = 0; i < nBeams; i++) {
-        const b = beams[i], h = halo(b.c), t = V.time, pulse = 0.5 + 0.5 * Math.sin(t * 3 + b.id);
+        const b = beams[i], o = b.o, h = halo(b.c), t = V.time;
+        const pulse = 0.5 + 0.5 * Math.sin(t * (o >= 5 ? 1.3 : 3) + b.id);
         ctx.globalCompositeOperation = 'lighter';
-        ctx.globalAlpha = 0.45 + 0.35 * pulse;
-        const hw = b.o >= 2 ? 40 : 32;
+        ctx.globalAlpha = (o === 1 ? 0.3 : 0.45) + (o === 1 ? 0.2 : 0.35) * pulse;
+        const hw = BEAM_HALO[o];
         ctx.drawImage(h, b.x - (hw >> 1), b.y - (hw >> 2) - 1, hw, hw >> 1);
-        const bm = U.beam(b.c, b.o >= 2 ? 78 : 40);
-        ctx.globalAlpha = 0.55 + 0.3 * pulse;
-        ctx.drawImage(bm, b.x - 4, b.y - bm.height + 1);
-        if (b.o >= 2) ctx.drawImage(bm, b.x - 4, b.y - bm.height + 1);
+        if (BEAM_H[o]) {
+          const bm = U.beam(b.c, BEAM_H[o]);
+          ctx.globalAlpha = 0.55 + 0.3 * pulse;
+          ctx.drawImage(bm, b.x - 4, b.y - bm.height + 1);
+          if (o >= 4) ctx.drawImage(bm, b.x - 4, b.y - bm.height + 1);
+        }
         ctx.globalAlpha = 1;
         ctx.globalCompositeOperation = 'source-over';
-        ctx.drawImage(b.icon, b.x - 8, b.y - 13 - b.hop);
-        if (b.o >= 2) {
-          const n = b.o === 3 ? 6 : 3;
+        U.blit(ctx, b.icon, b.x - 8, b.y - 13 - b.hop);
+        if (o >= 3) {
+          const n = o === 3 ? 3 : o === 4 ? 4 : 6;
           for (let k = 0; k < n; k++) {
-            const inner = k >= 3, a = (inner ? -t * 2.1 : t * 1.4) + k * 2.094 + b.id;
+            const inner = k >= 3, a = (inner ? -t * 2.1 : t * 1.4) + k * 6.283 / Math.min(3, n) + b.id;
             const px = Math.round(b.x + Math.cos(a) * (inner ? 6 : 11)), py = Math.round(b.y - 6 + Math.sin(a) * (inner ? 3 : 5) - (inner ? 8 : 0));
             ctx.fillStyle = Math.sin(a) > 0 || inner ? '#ffffff' : b.c;
             ctx.fillRect(px, py, 1, 1);
@@ -791,7 +990,7 @@
       } else {
         y -= 6;
       }
-      const color = e.type === 'npc' ? '#ffe9a8' : PLATE[e.rarity];
+      const color = e.type === 'npc' ? '#ffe9a8' : isEcho(e) ? '#bfe6ff' : PLATE[e.rarity];
       if (color && e.name) {
         // modifier names under the plate: rare / legendary only, and only when near the player or targeted
         const af = (e.rarity === 'rare' || e.rarity === 'legendary') && Array.isArray(e.affixes) ? e.affixes : null;
@@ -844,8 +1043,12 @@
     const bx = Math.round((cx - V.left) / V.scale), by = Math.round((cy - V.top) / V.scale);
     const kx = Math.round((cx + mx - V.left) / V.scale), ky = Math.round((cy + my - V.top) / V.scale);
     ctx.globalAlpha = alpha;
-    ctx.drawImage(joyBase, bx - (joyBase.width >> 1), by - (joyBase.height >> 1));
-    ctx.drawImage(joyKnob, kx - (joyKnob.width >> 1), ky - (joyKnob.height >> 1));
+    const hb = U.assets && U.assets.ui('joystick_base'), hk = U.assets && U.assets.ui('joystick_knob');
+    ctx.imageSmoothingEnabled = !!(hb || hk);
+    const bd = r * 2 + 5, kd = Math.round(bd * 0.4);             // painted ui/joystick_*.png scale to the stick size
+    if (hb) ctx.drawImage(hb, bx - bd / 2, by - bd / 2, bd, bd); else ctx.drawImage(joyBase, bx - (joyBase.width >> 1), by - (joyBase.height >> 1));
+    if (hk) ctx.drawImage(hk, kx - kd / 2, ky - kd / 2, kd, kd); else ctx.drawImage(joyKnob, kx - (joyKnob.width >> 1), ky - (joyKnob.height >> 1));
+    ctx.imageSmoothingEnabled = false;
     ctx.globalAlpha = 1;
   }
 

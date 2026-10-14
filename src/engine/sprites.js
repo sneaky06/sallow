@@ -596,6 +596,26 @@
     },
   };
 
+  // R7.8: a 1x sheet (procedural or hand-drawn) in the exact 2x format — one canvas per animation, 5 direction rows
+  // (s, sw, w, nw, n), the R6 frame counts, cell 96 (192 for big bodies), feet at (cell/2, cell*7/8). The procedural
+  // rig only has two drawn views, so s/sw/w show its front-left row and nw/n its back-left row; frames are doubled up.
+  // Used for the paint-over templates (tests/assets.html); dropping such a file into assets/ renders the same figure.
+  const HD_COLS = { idle: [0, 0, 1, 1], walk: [2, 2, 3, 3, 4, 4, 5, 5], attack: [6, 6, 7, 7, 8, 8], cast: [9, 9, 10, 10, 11, 11], hit: [12, 12], die: [13, 13, 14, 14, 15, 15] };
+  const HD_ROWS = [1, 1, 1, 3, 3];
+  U.sprites.toHD = function (sheet) {
+    const k = 2, src = sheet.base && sheet.base.width === sheet.c.width ? sheet.base : sheet.c, cell = sheet.cell;
+    const hc = Math.max(96, Math.ceil(cell * k / 96) * 96), ax = hc / 2, ay = Math.round(hc * 7 / 8);
+    const out = {};
+    for (const anim in HD_COLS) {
+      const cols = HD_COLS[anim], c = U.makeCanvas(hc * cols.length, hc * 5), x = U.ctx2d(c);
+      for (let r = 0; r < 5; r++) for (let i = 0; i < cols.length; i++) {
+        x.drawImage(src, cols[i] * cell, HD_ROWS[r] * cell, cell, cell, i * hc + ax - sheet.ox * k, r * hc + ay - sheet.oy * k, cell * k, cell * k);
+      }
+      out[anim] = c;
+    }
+    return { cell: hc, anims: out };
+  };
+
   const portraits = new Map();
   E.getPortrait = function (spriteDesc, size) {
     size = Math.max(8, (size | 0) || 48);

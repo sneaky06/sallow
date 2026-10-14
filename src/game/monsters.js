@@ -13,15 +13,27 @@
   // Unbounded scaling by level. HP outgrows damage: player damage compounds faster (gear × stats × ranks) than player life.
   // The first few levels are deliberately soft (ramp → 1 at level 5) so depth 1 teaches rather than punishes.
   function ramp(L, from) { return L >= 5 ? 1 : from + (1 - from) * (L - 1) / 4; }
-  game.hpScale = function (L) { return (1 + 0.25 * (L - 1)) * Math.pow(1.06, L - 1) * ramp(L, 0.9); };
-  game.dmgScale = function (L) { return 1.12 * (1 + 0.22 * (L - 1)) * Math.pow(1.05, L - 1) * ramp(L, 0.65); };
+  // R6 difficulty pass (lead playtest: far too easy). Monsters take ~3–5 main-skill hits from on-level gear (trash at
+  // depths 1–2 still folds in 1–2), and a pack kills a player who stands still in a few seconds at any depth. HPM/DMM are
+  // the multipliers on top of the R5 curves; DMM is heaviest early so the first floors ramp quickly into the first boss.
+  game.HPM = function (L) { return 1.6 + 1.2 * Math.min(1, Math.max(0, (L - 1) / 5)); };
+  game.DMM = function (L) { return (1.15 + 1.15 * Math.min(1, Math.max(0, (17 - L) / 12))) * (L < 2 ? 0.8 : L < 3 ? 0.9 : 1); };
+  game.hpScale = function (L) { return (1 + 0.25 * (L - 1)) * Math.pow(1.06, L - 1) * ramp(L, 0.9) * game.HPM(L); };
+  game.dmgScale = function (L) { return 1.12 * (1 + 0.22 * (L - 1)) * Math.pow(1.05, L - 1) * ramp(L, 0.85) * game.DMM(L); };
+  game.SPEED_SCALE = 1.2;           // R6.3: the player moves ~19% faster; monsters keep pace
+  game.XP_MULT = 1.8;               // tougher monsters, same generous levelling pace per minute
+  // Out-levelling no longer trivialises a floor: monsters are never more than 3 levels below the player.
+  game.monsterLevel = function (depth) {
+    const p = G.state.player;
+    return Math.max(Math.max(1, depth | 0), p ? (p.level | 0) - 3 : 1);
+  };
   game.xpScale = function (L) { return (1 + 0.2 * (L - 1)) * Math.pow(1.03, L - 1); };
 
   const RARITY_MULT = {
     normal:   { hp: 1,   dmg: 1,    xp: 1, scale: 1 },
     champion: { hp: 2.2, dmg: 1.2,  xp: 3, scale: 1.15 },
     rare:     { hp: 3.5, dmg: 1.3,  xp: 6, scale: 1.3 },
-    legendary: { hp: 8,  dmg: 1.45, xp: 18, scale: 1.5 },
+    legendary: { hp: 6,  dmg: 1.45, xp: 18, scale: 1.5 },
     boss:     { hp: 1,   dmg: 1,    xp: 1, scale: 1 },
   };
   const ROMAN = ['', ' II', ' III', ' IV', ' V', ' VI', ' VII', ' VIII', ' IX', ' X'];
@@ -49,8 +61,8 @@
       facing: rng.range(0, 6.28), sprite: Object.assign({}, def.sprite), anim: 'idle', animT: rng.range(0, 1), hitFlash: 0, dead: false,
       level: level, hp: st.hpMax, mp: 0, stats: st, effects: [],
       monsterId: def.id, rarity: rarity, affixes: [], faction: 'enemy',
-      dmgMin: def.dmg[0] * ds * rm.dmg, dmgMax: def.dmg[1] * ds * rm.dmg, speed: def.spd, atkCd: def.cd, aggro: def.aggro,
-      regen: def.regen || 0, xp: Math.round(def.xp * game.xpScale(level) * rm.xp), ai: newAI(x, y),
+      dmgMin: def.dmg[0] * ds * rm.dmg, dmgMax: def.dmg[1] * ds * rm.dmg, speed: def.spd * game.SPEED_SCALE, atkCd: def.cd, aggro: def.aggro * 1.15,
+      regen: def.regen || 0, xp: Math.round(def.xp * game.xpScale(level) * rm.xp * game.XP_MULT), ai: newAI(x, y),
     };
     if (def.sprite.body === 'flyer' || def.sprite.body === 'wraith') { e.fly = true; e.lavaProof = true; }     // R2.1: hover over water and lava
     else if (def.theme === 'inferno') e.lavaProof = true;                                                       // natives wade through lava unharmed
@@ -74,7 +86,11 @@
     }
     if (rarity === 'boss') {
       // boss hits are a big share of a life bar early on; deeper, where everything else also hurts, they grow a little slower
-      const soft = 1.05 * Math.max(0.72, 1 - Math.max(0, level - 7) * 0.018);
+      // R6: bosses take half of the life multiplier (their hits carry the full one): long fights, not endless ones
+      const hm = game.HPM(level);
+      e.stats.hpMax = e.hp = Math.round(st.hpMax * (1 + (hm - 1) * 0.5) / hm);
+      const dm = game.DMM(level);
+      const soft = 1.05 * Math.max(0.72, 1 - Math.max(0, level - 7) * 0.018) * (1 + (dm - 1) * 0.7) / dm;      // and 70% of the damage one
       e.dmgMin *= soft; e.dmgMax *= soft;
       let i = 0;
       for (const mv of def.phases[0].moves) e.ai.mcd[mv.id] = mv.first !== undefined ? mv.first : 2.5 + 2.5 * i++;
@@ -112,7 +128,7 @@
 
   game.createBoss = function (depth, x, y) {
     const b = game.bossForDepth(depth);
-    const e = game.createMonster(b.id, x, y, depth + 2, 'boss');
+    const e = game.createMonster(b.id, x, y, game.monsterLevel(depth) + 2, 'boss');
     e.stats.hpMax = Math.round(e.stats.hpMax * 1.35 * (1 + depth * 0.03)); e.hp = e.stats.hpMax;      // player power snowballs with gear: bosses keep pace
     if (b.tier > 0) {
       e.name += ROMAN[Math.min(b.tier, ROMAN.length - 1)];
@@ -176,10 +192,11 @@
     let legend = map.kind === 'dungeon' && !bossFloor && depth >= 3 && (has('hunted') || rng.chance(Math.min(0.7, 0.33 + depth * 0.012)));
     if (map.kind === 'dungeon' && !bossFloor && game.pallorHunts && game.pallorHunts()) legend = true;      // Pallor IV: something pale hunts every floor
     const LVL = { champion: 1, rare: 2, legendary: 3 };
+    const mlvl = game.monsterLevel(depth);          // R6: out-level scaling
     const add = function (id, s, rarity, spread, shared) {
       if (count >= MAX_MONSTERS) return null;
       const at = spread ? spotNear(rng, s.x, s.y, spread) : (W.free(s.x + 0.5, s.y + 0.5, 3) || { x: s.x + 0.5, y: s.y + 0.5 });
-      const e = game.createMonster(id, at.x, at.y, depth + (LVL[rarity] || 0), rarity, rng, shared);
+      const e = game.createMonster(id, at.x, at.y, mlvl + (LVL[rarity] || 0), rarity, rng, shared);
       S.entities.push(e);
       count++;
       return e;
@@ -211,7 +228,7 @@
         }
       } else if (s.kind === 'pack') {
         const id = pickType(rng, pool, depth);
-        let n = s.count || rng.int(3, 5);
+        let n = (s.count || rng.int(3, 5)) + (depth >= 3 ? 1 : 0);          // R6: bigger packs past the first floors
         if (M[id].arch === 'swarm') n = Math.ceil(n * 1.6);
         else if (M[id].arch === 'brute') n = Math.max(1, Math.ceil(n * 0.5));
         if (has('horde')) n = Math.ceil(n * 1.4);
@@ -231,7 +248,7 @@
         if (d > fd) { fd = d; far = e; }
       }
       if (far) {
-        const L = game.createMonster(far.monsterId, far.x, far.y, depth + 3, 'legendary', rng);
+        const L = game.createMonster(far.monsterId, far.x, far.y, mlvl + 3, 'legendary', rng);
         S.entities[S.entities.indexOf(far)] = L;
       }
     }
@@ -593,7 +610,7 @@
         const a = al[i];
         if (a.dead) continue;
         const d = Math.hypot(a.x - e.x, a.y - e.y);
-        if (M[a.monsterId].taunt && d < 5) return a;
+        if ((M[a.monsterId].taunt || a.tauntT > G.state.time) && d < 5) return a;
         if (d <= reach && d > fd + 0.5) { fd = d; far = a; }
       }
       if (far) return far;
@@ -604,7 +621,7 @@
       const a = al[i];
       if (a.dead) continue;
       let d = Math.hypot(a.x - e.x, a.y - e.y);
-      const taunt = M[a.monsterId].taunt;
+      const taunt = M[a.monsterId].taunt || a.tauntT > G.state.time;      // golem, or a Grave Swap minion for 2 s
       if (e.rarity === 'boss' || e.bossAdd) { if (!taunt && best) continue; }      // bosses and their adds hunt the player; only a golem can pull them off
       else if (taunt) d *= 0.4;
       if (d < bd - 0.5) { bd = d; best = a; }
@@ -616,6 +633,7 @@
     const ai = e.ai, def = M[e.monsterId];
     if (e.effects.length) { game.tickEffects(e, dt); if (e.dead) return; }
     if (ai.al > 0) ai.al -= dt;
+    if (e.echo && game.thinkEcho) { game.thinkEcho(e, dt, p); return; }          // R6.2: the Echo fights like the player
     if (ai.st === 'sleep') {
       ai.t -= dt;
       if (ai.t > 0) return;

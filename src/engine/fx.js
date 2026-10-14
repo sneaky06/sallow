@@ -110,6 +110,9 @@
     if (!e) return;
     const x = +e.x, y = +e.y;
     if (!isFinite(x) || !isFinite(y)) return;
+    // a hand-drawn strip fx/<type>.png plays instead (once over the duration, sized to the radius)
+    const strip = U.assets && U.assets.fx(e.type);
+    if (strip) { shape('sprite', x, y, num(e.duration, Math.min(1, strip.length * 0.06)), e.type, num(e.radius, 1), num(e.angle, 0)); fxs[(fxHead + FXN - 1) % FXN].frames = strip; return; }
     (SPAWN[e.type] || SPAWN.spark)(x, y, e);
   });
   G.on('fx:text', function (e) {
@@ -141,6 +144,7 @@
     }
   }
 
+  const GLOWY = { hit: 1, explosion: 1, nova: 1, heal: 1, levelup: 1, lootbeam: 1, spark: 1, frost: 1, teleport: 1, ring: 1, slash: 1 };
   U.fx = {
     shake: shake,
     particle: p,
@@ -184,6 +188,14 @@
           ctx.drawImage(b, Math.round(sx) - 4, Math.round(sy) - b.height + 2);
           if (k < 0.5) ctx.drawImage(b, Math.round(sx) - 4, Math.round(sy) - b.height + 2);
           ctx.globalAlpha = 1;
+          ctx.globalCompositeOperation = 'source-over';
+        } else if (f.kind === 'sprite' && f.frames) {
+          // square frames; the frame's width covers the effect's diameter (radius in tiles), anchored at its centre
+          const img = f.frames[Math.min(f.frames.length - 1, (k * f.frames.length) | 0)], d = Math.max(16, f.r * 2 * 32 * 0.75);
+          ctx.globalCompositeOperation = GLOWY[f.color] ? 'lighter' : 'source-over';
+          ctx.imageSmoothingEnabled = true;
+          ctx.drawImage(img, sx - d / 2, sy - d / 2 - 6, d, d);
+          ctx.imageSmoothingEnabled = false;
           ctx.globalCompositeOperation = 'source-over';
         } else if (f.kind === 'flash') {
           const s = (f.r > 1 ? 5 : 3) - ((k * 2) | 0), x = Math.round(sx), y = Math.round(sy) - 10;

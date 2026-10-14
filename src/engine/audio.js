@@ -3,7 +3,7 @@
 (function () {
   'use strict';
   const G = window.G, E = G.engine, U = E._;
-  let ac = null, master = null, noiseBuf = null;
+  let ac = null, master = null, noiseBuf = null, sfxBus = null, ambBus = null, musicBus = null, toBus = null;
   const last = Object.create(null);
   let recent = 0, recentT = 0;
 
@@ -16,6 +16,9 @@
         master = ac.createGain();
         master.gain.value = 0.42;
         master.connect(ac.destination);
+        // R6.4 volume buses: state.settings.sfxVolume / ambienceVolume / musicVolume (0..1), applied in tick()
+        sfxBus = ac.createGain(); ambBus = ac.createGain(); musicBus = ac.createGain();
+        sfxBus.connect(master); ambBus.connect(master); musicBus.connect(master);
         const len = (ac.sampleRate * 0.6) | 0;
         noiseBuf = ac.createBuffer(1, len, ac.sampleRate);
         const d = noiseBuf.getChannelData(0);
@@ -27,6 +30,8 @@
         s.start(0);
       }
       if (ac.state === 'suspended' && ac.resume) ac.resume();
+      decodeAll();
+      blessMusic();
     } catch (err) { ac = null; }
   }
 
@@ -43,7 +48,7 @@
     o.frequency.setValueAtTime(f0, t0);
     if (f1 !== f0) o.frequency.exponentialRampToValueAtTime(Math.max(20, f1), t0 + dur);
     env(g, t0, dur, vol, attack);
-    o.connect(g); g.connect(master);
+    o.connect(g); g.connect(toBus || sfxBus);
     o.start(t0); o.stop(t0 + dur + 0.03);
   }
   // filtered noise burst, filter sweep f0 → f1
@@ -56,7 +61,7 @@
     if (f1 !== f0) f.frequency.exponentialRampToValueAtTime(Math.max(30, f1), t0 + dur);
     f.Q.value = ftype === 'bandpass' ? 1.4 : 0.7;
     env(g, t0, dur, vol, attack);
-    s.connect(f); f.connect(g); g.connect(master);
+    s.connect(f); f.connect(g); g.connect(toBus || sfxBus);
     s.start(t0, Math.random() * 0.3); s.stop(t0 + dur + 0.03);
   }
   function arp(type, notes, step, dur, vol) {
@@ -98,14 +103,103 @@
     const S = G.state;
     if (S && S.settings && S.settings.sfx === false) return;
     const fn = R[name];
-    if (!fn || !ac || ac.state === "closed") return;
+    if ((!fn && !variants[name]) || !ac || ac.state === "closed") return;     // file-only names (no synth) play too
     const now = ac.currentTime;
     if (last[name] !== undefined && now - last[name] < 0.05) return;     // don't stack identical sounds
     if (now - recentT > 0.12) { recentT = now; recent = 0; }
     if (++recent > 7) return;                                             // global burst cap
     last[name] = now;
-    try { fn(); } catch (err) { /* audio must never break the game */ }
+    try { if (!playFile(name) && fn) fn(); } catch (err) { /* audio must never break the game */ }
   };
+
+  // ---- sound files (R6.4): assets/sound/<name>.mp3|.m4a listed in assets/assets.js override the synth.
+  //   <sfx>.mp3 (and <sfx>_2, _3 â€¦ picked at random), amb_<bed>.mp3 (looping bed), music_<track>.mp3 (streamed loop).
+  // SFX and beds are fetched at load and decoded once audio unlocks; anything missing or undecodable stays synthesized.
+  const files = Object.create(null);         // name â†’ { url, data, buf, music }
+  const variants = Object.create(null);      // sfx name â†’ [file names]
+  function addFile(path, url) {
+    const m = /^sound\/([a-z0-9_]+)\.[a-z0-9]+$/.exec(path);
+    if (!m) return;
+    const name = m[1], music = /^music_/.test(name);
+    const f = files[name] = { url: url, data: null, buf: null, music: music };
+    const v = /^(.+)_(\d+)$/.exec(name), base = v && !/^(amb|music)_/.test(name) ? v[1] : name;
+    (variants[base] || (variants[base] = [])).push(name);
+    if (music) return;
+    try {
+      fetch(url).then(function (r) { return r.ok ? r.arrayBuffer() : null; }).then(function (d) { if (d) { f.data = d; decodeAll(); } }).catch(function () {});
+    } catch (err) { /* no fetch */ }
+  }
+  function decodeAll() {
+    if (!ac) return;
+    for (const n in files) {
+      const f = files[n];
+      if (!f.data || f.buf) continue;
+      const d = f.data; f.data = null;
+      try {
+        const p = ac.decodeAudioData(d, function (b) { f.buf = b; }, function () {});
+        if (p && p.catch) p.catch(function () {});
+      } catch (err) { /* stays synthesized */ }
+    }
+  }
+  function playFile(name) {
+    const list = variants[name];
+    if (!list) return false;
+    let pick = null, n = 0;
+    for (let i = 0; i < list.length; i++) if (files[list[i]].buf && Math.random() * ++n < 1) pick = files[list[i]];
+    if (!pick) return false;
+    const s = ac.createBufferSource();
+    s.buffer = pick.buf; s.connect(sfxBus); s.start();
+    return true;
+  }
+
+  // ---- music: two streamed <audio> elements routed through musicBus, crossfaded over ~2 s.
+  // Tracks: title, town, crypt, caves, inferno, abyss, rift (deep floors), boss, echo. A missing track falls back
+  // (echo â†’ boss, rift â†’ abyss); with no file at all there is simply no music and the ambience bed carries the mood.
+  const MUSIC_FALLBACK = { echo: 'boss', rift: 'abyss' };
+  const mus = { els: [], gains: [], active: 0, cur: null, want: null };
+  function trackFile(t) { while (t && !files['music_' + t]) t = MUSIC_FALLBACK[t]; return t ? files['music_' + t] : null; }
+  function blessMusic() {
+    if (mus.els.length || !ac) return;
+    let any = false;
+    for (const n in files) if (files[n].music) { any = true; break; }
+    if (!any) return;
+    for (let i = 0; i < 2; i++) {
+      const el = new Audio(); el.loop = true; el.preload = 'auto';
+      let g = null;
+      try { const src = ac.createMediaElementSource(el); g = ac.createGain(); g.gain.value = 0; src.connect(g); g.connect(musicBus); }
+      catch (err) { g = null; el.volume = 0; }
+      mus.els.push(el); mus.gains.push(g);
+    }
+    // iOS: an element must first play inside the gesture to be allowed to play later
+    const f = trackFile(mus.want) || (function () { for (const n in files) if (files[n].music) return files[n]; return null; })();
+    if (f) { const el = mus.els[0]; el.src = f.url; const p = el.play(); if (p && p.catch) p.catch(function () {}); mus.cur = f; }
+  }
+  function fade(i, to, sec) {
+    const g = mus.gains[i], el = mus.els[i];
+    if (g) { const t = ac.currentTime; g.gain.cancelScheduledValues(t); g.gain.setValueAtTime(g.gain.value, t); g.gain.linearRampToValueAtTime(to, t + sec); }
+    else el.volume = to;
+  }
+  function tickMusic() {
+    if (!mus.els.length) return;
+    const f = trackFile(mus.want);
+    if (f === mus.cur && (!f || !mus.els[mus.active].paused)) return;
+    const old = mus.active, nxt = mus.cur ? 1 - old : old;
+    mus.cur = f;
+    if (mus.cur !== null && nxt !== old) { fade(old, 0, 2); const oe = mus.els[old]; setTimeout(function () { if (mus.els[mus.active] !== oe) oe.pause(); }, 2200); }
+    if (!f) return;
+    const el = mus.els[nxt];
+    if (el.src.indexOf(f.url) < 0) { el.src = f.url; el.currentTime = 0; }
+    const p = el.play(); if (p && p.catch) p.catch(function () {});
+    fade(nxt, 1, nxt === old ? 0.5 : 2);
+    mus.active = nxt;
+  }
+  function vol(v, d) { return typeof v === 'number' && isFinite(v) ? Math.max(0, Math.min(1, v)) : d; }
+  function tickVolumes() {
+    const st = (G.state && G.state.settings) || {}, t = ac.currentTime, off = st.sfx === false;
+    sfxBus.gain.setTargetAtTime(off ? 0 : vol(st.sfxVolume, 1), t, 0.05);
+    ambBus.gain.setTargetAtTime(off ? 0 : vol(st.ambienceVolume, 1), t, 0.1);
+    musicBus.gain.setTargetAtTime(off || st.music === false ? 0 : vol(st.musicVolume, 0.6) * 0.8, t, 0.1);
+  }
   G.on('sfx', function (e) { if (e && e.name) E.sfx(e.name); });
 
   // ---- ambient sound bed (R5.10): one quiet looping layer per floor, crossfaded on change.
@@ -127,10 +221,16 @@
   function buildBed(kind) {
     const out = ac.createGain(), stops = [];
     out.gain.value = 0.0001;
-    out.connect(master);
+    out.connect(ambBus);
     const add = function (node, vol) { const g = ac.createGain(); g.gain.value = vol; node.connect(g); g.connect(out); return g; };
     const osc = function (type, f, vol) { const o = ac.createOscillator(); o.type = type; o.frequency.value = f; o.start(); stops.push(o); return add(o, vol); };
     let n;
+    const file = files['amb_' + kind];
+    if (file && file.buf) {
+      const s = ac.createBufferSource(); s.buffer = file.buf; s.loop = true; s.start(0, Math.random() * file.buf.duration);
+      stops.push(s); add(s, 1 / BED_VOL * 0.5);
+      kind = 'file:' + kind;
+    } else
     switch (kind) {
       case 'wind': n = loopNoise('bandpass', 420, 0.6); stops.push(n.src, lfo(0.11, 260, n.filter.frequency)); add(n.out, 0.5); break;
       case 'water': n = loopNoise('lowpass', 700); stops.push(n.src, lfo(0.17, 240, n.filter.frequency)); add(n.out, 0.35); break;
@@ -152,7 +252,7 @@
     const pa = ac.createOscillator(), pb = ac.createOscillator(), pg = ac.createGain();
     pa.type = pb.type = 'sine'; pa.frequency.value = 1661; pb.frequency.value = 1667.5; pg.gain.value = 0;
     pa.connect(pg); pb.connect(pg); pg.connect(out); pa.start(); pb.start(); stops.push(pa, pb);
-    return { kind: kind, out: out, stops: stops, pallor: pg };
+    return { kind: kind.replace(/^file:/, ''), file: kind.indexOf('file:') === 0, out: out, stops: stops, pallor: pg };
   }
   function bedOn() { const S = G.state; return !!(S && S.settings && S.settings.sfx !== false && S.settings.ambience !== false); }
   function swapBed() {
@@ -176,11 +276,15 @@
   }
   function tickBed() {
     if (!ac || ac.state !== 'running') return;
+    tickVolumes();
+    tickMusic();
     if ((bed ? bed.kind : 'none') !== (bedOn() ? wantBed : 'none')) swapBed();
+    else if (bed && !bed.file && files['amb_' + bed.kind] && files['amb_' + bed.kind].buf) { const k = bed.kind; bed.kind = '?'; wantBed = k; swapBed(); }
     if (!bed) return;
     const now = ac.currentTime;
     bed.pallor.gain.setTargetAtTime(wantPallor >= 3 ? (wantPallor - 2) * 0.012 : 0, now, 1.5);
-    if (now < nextEv) return;
+    if (now < nextEv || bed.file) return;
+    toBus = ambBus;
     if (bed.kind === 'drip' || bed.kind === 'water') {
       const f = 1400 + Math.random() * 1400;
       tone('sine', f, f * 0.55, 0.09, 0.05 + Math.random() * 0.04);
@@ -193,12 +297,19 @@
       noise(0.03, 0.12, 0, 'highpass', 3000, 2000);
       nextEv = now + 0.15 + Math.random() * 0.9;
     } else nextEv = now + 2;
+    toBus = null;
   }
 
   U.audio = {
     unlock: unlock, names: Object.keys(R), isRunning: function () { return !!ac && ac.state === 'running'; },
     setBed: function (kind, pallorTier) { wantBed = typeof kind === 'string' ? kind : 'none'; wantPallor = pallorTier | 0; },
-    tick: function () { try { tickBed(); } catch (err) { /* audio must never break the game */ } },
+    tick: function () { try { tickBed(); } catch (err) { toBus = null; /* audio must never break the game */ } },
+    addFile: addFile,
+    setMusic: function (track) { mus.want = typeof track === 'string' ? track : null; },
+    musicTrack: function () { return mus.cur ? mus.cur.url.replace(/^.*music_|\.[a-z0-9]+$/g, '') : 'none'; },
+    files: function () { const o = {}; for (const n in files) o[n] = files[n].music ? 'stream' : files[n].buf ? 'decoded' : 'pending'; return o; },
+    BEDS: ['wind', 'drone', 'drip', 'water', 'fire', 'heart', 'choir'],
+    MUSIC: ['title', 'town', 'crypt', 'caves', 'inferno', 'abyss', 'rift', 'boss', 'echo'],
     bedKind: function () { return bed ? bed.kind : 'none'; },
   };
 })();

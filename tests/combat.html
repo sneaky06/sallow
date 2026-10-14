@@ -549,7 +549,7 @@ window.startHarness = function () {
       ok(!bad.length, cid + ': ' + n + ' skills well-formed (' + nAct + ' active / ' + nPas + ' passive)', bad.join('; '));
       ok(tagSeen.single && tagSeen.aoe && tagSeen.defense && lvl1Attack && nPas >= 4, cid + ': has single, aoe, defense tags + a level-1 attack');
     }
-    ok(Object.keys(SK).length === 72, '72 skills total', Object.keys(SK).length);
+    ok(Object.keys(SK).length === 76, '76 skills total (R6.3: +4 dash augments)', Object.keys(SK).length);
 
     section('Bestiary');
     for (const th of C.THEMES) {
@@ -899,7 +899,7 @@ window.startHarness = function () {
     ok(p.anim === 'idle' && Math.abs(p.x - midX) < 0.05, 'releasing the stick stops (tap destination was cancelled)');
     // speed
     const y1 = p.y; G.input.move.x = 1; step(1); G.input.move.x = 0;
-    ok(Math.abs((p.x - midX) - 4.2) < 0.3 && Math.abs(p.y - y1) < 0.01, 'base move speed ≈ 4.2 tiles/s', (p.x - midX).toFixed(2));
+    ok(Math.abs((p.x - midX) - game.BASE_SPEED) < 0.3 && Math.abs(p.y - y1) < 0.01, 'base move speed ≈ ' + game.BASE_SPEED + ' tiles/s', (p.x - midX).toFixed(2));
     // tap a monster → attack until dead
     let killed = null; const o5 = G.on('monster:killed', function (e) { killed = e; });
     const drops0 = H.drops, xp0 = p.xp;
@@ -1196,11 +1196,38 @@ ok(back.hp < 1e6 && front[0].hp < 1e6 && front[1].hp < 1e6, 'Whirlwind hits all 
     ok(ca0 && ca0.id === 'dash' && ca0.name && ca0.desc && C.ICON_SHAPES.indexOf(ca0.icon.shape) >= 0 && Math.abs(ca0.cooldown - 2.75) < 1e-9 && ca0.cdRemaining === 0, 'R4.4 getClassAction(): Ranger Dash, cooldown improved by Acrobatics (' + (ca0 && ca0.cooldown) + ' s)');
     const rx = p.x; G.input.move.x = -1; G.emit('input:classaction', {}); G.input.move.x = 0;
     ok(Math.abs((rx - p.x) - 3.3) < 0.15 && game.getEffect(p, 'invuln') && game.getClassAction().cdRemaining > 2.5, 'input:classaction dashes ~3 tiles along the stick with brief invulnerability', (rx - p.x).toFixed(2));
-    const rx2 = p.x; G.emit('input:classaction', {});
-    ok(p.x === rx2, 'Dash respects its cooldown');
+    const rx2 = p.x; G.input.move.x = -1; G.emit('input:classaction', {}); G.input.move.x = 0;
+    ok(p.x < rx2 - 2.5 && game.getClassAction().charges === 0 && game.getClassAction().maxCharges === 2, 'R6.3: the Ranger has 2 charges — a second Dash goes, then the charges are spent');
+    const rx2b = p.x; G.emit('input:classaction', {});
+    ok(p.x === rx2b && !game.getClassAction().ready, 'Dash respects its charges');
     step(3); const foeD = dummy(p.x + 1.5, p.y, 1e6); step(0.1); const rx3 = p.x; G.emit('input:classaction', {});
-    ok(p.x < rx3 - 2.5 && Math.hypot(p.x - foeD.x, p.y - foeD.y) > 4, 'idle Dash goes away from the nearest enemy');
-    ok(['warrior', 'sorcerer', 'necromancer'].every(function (c) { fresh(c, true); return game.getClassAction() === null; }) && !game.SKILLS.dodge_roll.cast && game.SKILLS.dodge_roll.kind === 'passive', 'other classes have no class action; Dodge Roll became the Acrobatics passive');
+    ok(p.x < rx3 - 2.5 && Math.hypot(p.x - foeD.x, p.y - foeD.y) > 4, 'idle Dash goes away from the nearest enemy (one charge back after its cooldown)');
+    // R6.3: every class dashes
+    const charges = {};
+    ['warrior', 'sorcerer', 'necromancer', 'ranger'].forEach(function (c) { fresh(c, true); const a = game.getClassAction(); charges[c] = a && a.charges + '/' + a.maxCharges + ' ' + a.name; });
+    ok(charges.warrior.indexOf('1/1') === 0 && charges.sorcerer.indexOf('2/2') === 0 && charges.necromancer.indexOf('2/2') === 0 && charges.ranger.indexOf('2/2') === 0 && !game.SKILLS.dodge_roll.cast,
+      'R6.3 every class has a class action with charges: ' + JSON.stringify(charges));
+    p = fresh('warrior', true); let sc = dummy(p.x + 1.5, p.y + 0.1, 1e6);
+    sc.stats.hpMax = 1e6; G.input.move.x = 1; G.emit('input:classaction', {}); G.input.move.x = 0;
+    ok(sc.hp < 1e6 && game.isStunned(sc) && Math.abs(sc.y - p.y) > 0.5, 'Shoulder Charge strikes, stuns and shoves aside a foe in its path', 'hp ' + sc.hp + ' dy ' + (sc.y - p.y).toFixed(2));
+    p.skills.ground_slam = 3; game.recomputeStats(p); step(5); sc = dummy(p.x + 4, p.y, 1e6);
+    G.input.move.x = 1; G.emit('input:classaction', {}); G.input.move.x = 0; step(0.2);
+    ok(game.getEffect(sc, 'slow') && game.getClassAction().cooldown < 4.5, 'Ground Slam: the charge ends in a slowing slam; cooldown shorter (' + game.getClassAction().cooldown + ' s)');
+    p = fresh('sorcerer', true); const bx = p.x; G.input.move.x = 1; G.emit('input:classaction', {}); G.input.move.x = 0;
+    ok(Math.abs(p.x - bx - 3.5) < 0.6 && game.getEffect(p, 'invuln'), 'Sorcerer Blink jumps ~3.5 tiles', (p.x - bx).toFixed(2));
+    p.skills.rime_step = 2; game.recomputeStats(p); const zr0 = game.zones.length; const fz = dummy(p.x + 2, p.y, 1e6); G.input.move.x = 1; G.emit('input:classaction', {}); G.input.move.x = 0; step(1);
+    ok(game.zones.length > zr0 && fz.hp < 1e6 && game.getEffect(fz, 'chill'), 'Rime Step: Blink leaves a frost trail that chills and hurts');
+    p = fresh('ranger', true); p.skills.tumble_shot = 1; game.recomputeStats(p); const tf = dummy(p.x + 5, p.y, 1e6); step(0.1); const pr0 = S.projectiles.length;
+    G.input.move.x = -1; G.emit('input:classaction', {}); G.input.move.x = 0;
+    ok(S.projectiles.length - pr0 === 3, 'Tumble Shot: a Dash looses a free 3-arrow Multishot at the nearest foe', S.projectiles.length - pr0);
+    p = fresh('necromancer', true); p.skills.grave_swap = 1; p.skills.raise_skeleton = 1; p.skillBar = ['raise_skeleton', null, null, null]; game.recomputeStats(p); p.mp = p.stats.mpMax;
+    game.useSkill(0); step(0.5);
+    const sk0 = S.entities.find(function (e) { return e.summon && !e.dead; }); sk0.x = p.x + 3; sk0.y = p.y; step(0.05);
+    const nx = p.x, ny = p.y; G.input.move.x = 1; G.emit('input:classaction', {}); G.input.move.x = 0;
+    ok(Math.abs(sk0.x - nx) < 0.01 && Math.abs(sk0.y - ny) < 0.01 && p.x > nx + 2 && sk0.tauntT > S.time && game.getEffect(sk0, 'bone_swap'), 'Grave Swap: Grave Step trades places with a minion, which is shielded and taunts');
+    const plans = ['warrior', 'ranger', 'sorcerer', 'necromancer'].every(function (c) { const aug = { warrior: 'ground_slam', ranger: 'dodge_roll', sorcerer: 'rime_step', necromancer: 'grave_swap' }[c];
+      return ['single', 'aoe', 'balanced'].every(function (m) { return game.BUILDS[c][m].order.some(function (s) { return s[0] === aug; }); }); });
+    ok(plans, 'every auto-build plan takes its class\'s dash augment');
     p = fresh('sorcerer', true); p = toLevel(p, 30); p.skills = { fire_bolt: 1, fireball: 1, chain_lightning: 5, frost_nova: 1, teleport: 1, meteor: 1 }; p.skillBar = ['fireball', 'chain_lightning', 'frost_nova', 'teleport']; game.recomputeStats(p); p.mp = p.stats.mpMax = 1e5;
     const grp = [dummy(p.x + 5, p.y, 1e6), dummy(p.x + 5.8, p.y + 0.6, 1e6), dummy(p.x + 5.6, p.y - 0.7, 1e6)]; const lone = dummy(p.x + 5, p.y + 7, 1e6); step(0.1);
     game.ctl.targetId = grp[0].id; game.useSkill(0); step(1.2);
@@ -1425,9 +1452,9 @@ ok(back.hp < 1e6 && front[0].hp < 1e6 && front[1].hp < 1e6, 'Whirlwind hits all 
     p = onFloor(['hasted', 'bloodlust', 'armoured']);
     const hm = game.createMonster('skeleton', p.x + 3, p.y, 6), base = game.MONSTERS.skeleton;
     S.map.mods = []; const plain = game.createMonster('skeleton', p.x + 3, p.y, 6); S.map.mods = ['hasted', 'bloodlust', 'armoured'];
-    ok(hm.speed === base.spd * 1.25 && Math.abs(hm.dmgMax / plain.dmgMax - 1.25) < 1e-9 && Math.abs(hm.stats.hpMax / plain.stats.hpMax - 1.4) < 0.02, 'Quickened / Bloodlust / Ironhide change monster stats');
+    ok(Math.abs(hm.speed - base.spd * game.SPEED_SCALE * 1.25) < 1e-9 && Math.abs(hm.dmgMax / plain.dmgMax - 1.25) < 1e-9 && Math.abs(hm.stats.hpMax / plain.stats.hpMax - 1.4) < 0.02, 'Quickened / Bloodlust / Ironhide change monster stats');
     const mn = game.createMinion('minion_skeleton', p.x, p.y, p, 1);
-    ok(mn.speed === game.MONSTERS.minion_skeleton.spd, 'player minions are untouched by floor modifiers');
+    ok(mn.speed === game.MONSTERS.minion_skeleton.spd * game.SPEED_SCALE, 'player minions are untouched by floor modifiers');
     p = onFloor(['burning', 'frostbite', 'leeching']); god(p);
     const fe = game.createMonster('skeleton', p.x + 1, p.y, 6); fe.ai.st = 'chase'; fe.hp = fe.stats.hpMax * 0.5; S.entities.push(fe);
     step(4);
@@ -1529,7 +1556,7 @@ ok(back.hp < 1e6 && front[0].hp < 1e6 && front[1].hp < 1e6, 'Whirlwind hits all 
     ok(C.WALKABLE[T.WATER] && C.WALKABLE[T.LAVA] && game.W.walkable(31.5, 21.5) && game.W.walkable(20.5, 26.5), 'shallow WATER and LAVA are walkable');
     p.x = 30.1; p.y = 21.5; game.onPlayerMoved(true); step(0.1);
     let x0 = p.x, hp0 = p.hp; G.input.move.x = 1; step(0.5); G.input.move.x = 0;
-    ok(Math.abs((p.x - x0) - 4.2 * C.SLOW_TILE_SPEED * 0.5) < 0.15 && p.hp === hp0, 'wading through water: speed × ' + C.SLOW_TILE_SPEED + ', no damage', (p.x - x0).toFixed(2));
+    ok(Math.abs((p.x - x0) - game.BASE_SPEED * C.SLOW_TILE_SPEED * 0.5) < 0.15 && p.hp === hp0, 'wading through water: speed × ' + C.SLOW_TILE_SPEED + ', no damage', (p.x - x0).toFixed(2));
     p.x = 18.5; p.y = 26.5; game.onPlayerMoved(true); step(0.1); p.x = 19.6; p.stats.hpMax = p.hp = 1000; p.stats.hpRegen = 0;
     let lavaHits = 0; const oL = G.on('player:damaged', function () { lavaHits++; });
     step(2.05);
@@ -1538,7 +1565,7 @@ ok(back.hp < 1e6 && front[0].hp < 1e6 && front[1].hp < 1e6, 'Whirlwind hits all 
     p.stats.resFire = 75; p.hp = p.stats.hpMax; step(2.05);
     ok((p.stats.hpMax - p.hp) / p.stats.hpMax * 100 < lost * 0.4, 'fire resistance reduces lava damage');
     x0 = p.x; G.input.move.x = 1; step(0.5); G.input.move.x = 0; oL();
-    ok(Math.abs((p.x - x0) - 4.2 * C.SLOW_TILE_SPEED * 0.5) < 0.15, 'lava slows as well');
+    ok(Math.abs((p.x - x0) - game.BASE_SPEED * C.SLOW_TILE_SPEED * 0.5) < 0.15, 'lava slows as well');
     p.x = 10.5; p.y = 15.5; game.onPlayerMoved(true); p.stats.hpMax = p.hp = 1e7;
     const imp = game.createMonster('imp', 20.5, 26.5, 1), sk = game.createMonster('skeleton', 21.5, 26.5, 1), hound = game.createMonster('hellhound', 22.5, 26.5, 1), wr = game.createMonster('wraith', 30.5, 21.5, 1);
     [imp, sk, hound, wr].forEach(function (e) { e.speed = 0; e.ai.st = 'chase'; e.lockdown = true; e.dmgMin = e.dmgMax = 0; S.entities.push(e); });
@@ -1672,7 +1699,7 @@ ok(back.hp < 1e6 && front[0].hp < 1e6 && front[1].hp < 1e6, 'Whirlwind hits all 
     m.hp = 170; healthy.hp = 900; bossE.hp = Math.round(bossE.stats.hpMax * 0.12); step(0.05);
     game.playerHit(m, { pct: 100, type: 'phys', skill: false }); game.playerHit(healthy, { pct: 100, type: 'phys', skill: false }); game.playerHit(bossE, { pct: 100, type: 'phys', skill: false });
     ok(m.dead && !healthy.dead && !bossE.dead, 'executioner: enemies below 15% life die when hit; healthy ones and a boss at 12% do not');
-    bossE.hp = Math.round(bossE.stats.hpMax * 0.052); game.playerHit(bossE, { pct: 100, type: 'phys', skill: false });
+    bossE.hp = Math.round(bossE.stats.hpMax * 0.05) + 5; game.playerHit(bossE, { pct: 100, type: 'phys', skill: false });
     ok(bossE.dead, 'executioner: bosses below 5%');
     freeRolls();
     // hoarder
@@ -2061,6 +2088,53 @@ ok(back.hp < 1e6 && front[0].hp < 1e6 && front[1].hp < 1e6, 'Whirlwind hits all 
     ok(!game.getEffect(p, 'close_call') && p.hp < hpS, 'no close call for staying in the circle or never being in it');
     oX();
 
+
+    // ------------------------------------------------------------------
+    section('R6 difficulty pass');
+    ok(game.monsterLevel(3) === 3 && (function () { const q = fresh('warrior', true); toLevel(q, 20); return game.monsterLevel(3) === 17 && game.monsterLevel(30) === 30; })(),
+      'out-level scaling: monsters are at most 3 levels below the player (depth 3 at level 20 → level 17)');
+    ok(game.hpScale(8) / ((1 + 0.25 * 7) * Math.pow(1.06, 7)) > 2.7 && game.DMM(3) > game.DMM(20) && game.createMonster('skeleton', 1, 1, 5).speed === game.MONSTERS.skeleton.spd * game.SPEED_SCALE,
+      'monster life ×' + game.HPM(8).toFixed(1) + ' from level 6, damage ×' + game.DMM(3).toFixed(2) + ' early → ×' + game.DMM(20).toFixed(2) + ' deep, monsters ' + game.SPEED_SCALE + '× faster');
+
+    section('R6.1 Go deeper? (Pallor preview + confirm)');
+    p = fresh('warrior', false); S.flags.pallorUnlocked = true; S.flags.pallor = 25;
+    const pv = game.previewPallor(35);
+    ok(pv.value === 35 && pv.tier === 2 && pv.tierUp && pv.effects.length >= 3 && pv.loot.rarity === 40 && game.nextPallorValue(5) === 35, 'previewPallor(35): tier II, its effects and loot boost', JSON.stringify(pv));
+    let sdTile = null;
+    for (let y = 0; y < S.map.h && !sdTile; y++) for (let x = 0; x < S.map.w; x++) if (S.map.tiles[y * S.map.w + x] === C.TILE.STAIRS_DOWN) { sdTile = { x: x, y: y }; break; }
+    const uiWas = G.ui; G.ui = G.ui || {}; let asked = null; const oSC = G.on('stairs:confirm', function (e) { asked = e; });
+    const d0s = S.depth;
+    p.x = sdTile.x + 0.5; p.y = sdTile.y + 0.5; game.onPlayerMoved(true); game.ctl.intent = { type: 'stairs', x: sdTile.x, y: sdTile.y, st: 'stairs_down' }; step(0.1);
+    ok(asked && asked.depth === d0s + 1 && asked.nextValue === 25 + game.pallorGain(d0s + 1) && S.depth === d0s, 'stairs down with Pallor unlocked: stairs:confirm { depth, nextValue }, no descent yet', JSON.stringify(asked));
+    ok(game.confirmDescend() && S.depth === d0s + 1 && S.flags.pallor === 25 + game.pallorGain(d0s + 1), 'confirmDescend() takes the stairs (Pallor rises as for any stair)');
+    ok(!game.confirmDescend(), 'a stale confirmDescend() does nothing');
+    oSC(); G.ui = uiWas; S.flags.pallorUnlocked = false; S.flags.pallor = 0;
+
+    section('R6.2 the Echo');
+    p = fresh('sorcerer', true); toLevel(p, 12); game.setAutoBuild('aoe');
+    for (let i = 0; i < 30; i++) game.noteStyle(p.skillBar[0]);
+    for (let i = 0; i < 10; i++) game.noteStyle('attack');
+    for (let i = 0; i < 5; i++) game.noteStyle('dash');
+    game.noteStyle('potion', 0.3);
+    const sty = game.getStyle();
+    ok(sty.shares[p.skillBar[0]] > 0.6 && sty.shares.dash > 0.1 && sty.hpAt < 0.45 && jsonable(p.style), 'player.style tallies actions (decaying) and the potion threshold', JSON.stringify(sty));
+    S.flags.corpse = { depth: 3, seed: 777, x: 10.5, y: 10.5, gold: 500, items: [] };
+    p.gold = 1000; game.kill(p, null); G.scenes.respawn();
+    ok(S.flags.echo && S.flags.echo.depth === 3 && S.flags.echo.gold === 500 && S.flags.echo.snap.classId === 'sorcerer' && jsonable(S.flags.echo), 'an abandoned corpse becomes state.flags.echo (with a snapshot of you)');
+    const ec1 = S.flags.echo; S.flags.corpse = { depth: 4, seed: 1, x: 5, y: 5, gold: 9, items: [] };
+    game.kill(p, null); G.scenes.respawn();
+    ok(S.flags.echo === ec1, 'one Echo at a time: a second abandoned corpse does not replace it');
+    G.scenes.enterDungeon(3);
+    const echo = S.entities.find(function (e) { return e.echo; });
+    ok(echo && echo.name === 'Echo of Test' && echo.classId === 'sorcerer' && echo.equipment && echo.hp >= p.stats.hpMax * 2.5 && echo.kit.moves.length >= 3 && echo.anim === 'die',
+      'entering that depth: the Echo lies there (echo: true, your class, gear, ' + (echo && echo.kit.moves.map(function (m) { return m.id; }).join('/')) + ')');
+    const sp = game.W.free(echo.x + 4, echo.y, 4); p.x = sp.x; p.y = sp.y; game.onPlayerMoved(true); p.hp = p.stats.hpMax = 1e6;
+    let rose = 0; const oRise = G.on('echo:rise', function () { rose++; }); const said = []; const oTx = G.on('fx:text', function (e) { said.push(e.text); });
+    step(8);
+    ok(rose === 1 && p.hp < 1e6 && said.some(function (s) { return echo.kit.moves.some(function (m) { return m.name === s && m.id !== 'attack'; }); }), 'it rises (echo:rise), fights back with your skills, telegraphed', said.filter(function (s) { return /[A-Z]/.test(s); }).slice(0, 4).join());
+    oRise(); oTx();
+    const gE0 = p.gold, drops0 = H.drops; echo.hp = 1; game.playerHit(echo, { pct: 100, type: 'phys', skill: false });
+    ok(echo.dead && p.gold === gE0 + 500 && !S.flags.echo && H.drops === drops0 + 1 && H.lastDrop.floor === 'rare', 'killing it returns the corpse gold through reclaimCorpse + a rare-or-better drop');
     oT(); H.mods = null;
   }
 
@@ -2102,7 +2176,7 @@ ok(back.hp < 1e6 && front[0].hp < 1e6 && front[1].hp < 1e6, 'Whirlwind hits all 
     const mag = Math.hypot(mx, my);
     G.input.move.x = mag ? mx / mag : 0; G.input.move.y = mag ? my / mag : 0;
     const ca = game.getClassAction();          // R4.4: dash out of melee range or out of a telegraph
-    if (ca && ca.cdRemaining <= 0 && near && (nd < 2.2 || (mag && game.zones.some(function (z) { return z.faction === "enemy" && z.delay > 0 && Math.hypot(p.x - z.x, p.y - z.y) < z.r + 0.4; })))) { G.emit("input:classaction", {}); st.dashes = (st.dashes || 0) + 1; }
+    if (ca && (ca.ready !== undefined ? ca.ready : ca.cdRemaining <= 0) && near && (nd < 2.2 || (mag && game.zones.some(function (z) { return z.faction === "enemy" && z.delay > 0 && Math.hypot(p.x - z.x, p.y - z.y) < z.r + 0.4; })))) { G.emit("input:classaction", {}); st.dashes = (st.dashes || 0) + 1; }
     G.input.attackHeld = !!fighting;
     st.t -= 1 / 30;
     if (fighting && st.t <= 0) {
@@ -2335,6 +2409,118 @@ ok(back.hp < 1e6 && front[0].hp < 1e6 && front[1].hp < 1e6, 'Whirlwind hits all 
     return out.join('\n');
   }
   window.runMatrix = runMatrix; window.matrixTable = matrixTable;
+
+  // =====================================================================================================
+  // Difficulty probe (?real=1): per depth band, a balanced auto-build character at the expected level wearing REAL items
+  // rolled at its level (best of 4 per slot, no uniques): hits-to-kill normal/champion/rare monsters with the basic attack and
+  // the main skill, and seconds to die standing still in a melee pack (5) and a ranged group (4). runDifficulty() → __diff.text
+  // =====================================================================================================
+  function gearUp(p, lvl, rng) {
+    const I = G.items, wt = game.CLASSES[p.classId].weaponTypes;
+    for (const slot of ['weapon', 'helm', 'chest', 'gloves', 'boots', 'belt', 'amulet', 'ring', 'ring', 'offhand']) {
+      let best = null;
+      for (let k = 0, n = 0; k < 60 && n < 4; k++) {
+        const it = I.rollItem({ level: lvl, slot: slot, rng: rng });
+        if (!it || (it.rarity !== 'common' && it.rarity !== 'magic' && it.rarity !== 'rare')) continue;
+        if (slot === 'weapon' && (wt.indexOf(it.weaponType) < 0 || (p.classId !== 'warrior' && it.twoHanded && it.weaponType !== 'staff' && it.weaponType !== 'bow'))) continue;
+        if (slot === 'offhand' && p.equipment.weapon && p.equipment.weapon.twoHanded) break;
+        n++;
+        if (!best || (it.value | 0) > (best.value | 0)) best = it;
+      }
+      if (!best) continue;
+      best.reqLevel = 1;
+      const i = p.inventory.indexOf(null); p.inventory[i] = best;
+      try { I.equip(i, slot === 'ring' ? (p.equipment.ring1 ? 'ring2' : 'ring1') : undefined); } catch (e) { H.errors.push('equip ' + e); }
+      if (p.inventory[i] === best) p.inventory[i] = null;
+    }
+    game.recomputeStats(p);
+  }
+  function diffChar(cls, lvl, rng) {
+    G.scenes.startNewGame(cls, 'Probe');
+    for (const s of C.EQUIP_SLOTS) S.player.equipment[s] = null;
+    game.setAutoBuild('balanced');
+    while (S.player.level < lvl) game.gainXp(S.player.xpNext);
+    gearUp(S.player, lvl, rng);
+    return S.player;
+  }
+  function mainSkill(p) {
+    for (const id of p.skillBar) { const sk = id && game.SKILLS[id]; if (sk && sk.v && sk.v.dmg && sk.tags.indexOf('summon') < 0) return sk; }
+    return null;
+  }
+  function hitsToKill(p, e, spec, n) {
+    let tot = 0;
+    for (let i = 0; i < n; i++) { e.dead = false; e.hp = 1e9; e.effects = []; tot += game.playerHit(e, spec); }
+    e.hp = e.stats.hpMax; e.dead = false; e.effects = [];
+    const avg = tot / n;
+    return avg > 0 ? e.stats.hpMax / avg : Infinity;
+  }
+  function standStill(p, ids, depth) {
+    S.entities = S.entities.filter(function (e) { return e.type !== 'monster'; }); S.projectiles.length = 0; game.zones.length = 0;
+    p.effects = []; game.recomputeStats(p); p.hp = p.stats.hpMax; p.dead = false;
+    const spot = G.world.findFreeTileNear(S.map, S.map.spawn.x, S.map.spawn.y, 2) || S.map.spawn;
+    p.x = spot.x + 0.5; p.y = spot.y + 0.5; game.onPlayerMoved(true);
+    ids.forEach(function (id, i) {
+      const a = i / ids.length * 6.28, r = game.MONSTERS[id].atk === 'melee' ? 1.2 : 5;
+      const at = game.W.free(p.x + Math.cos(a) * r, p.y + Math.sin(a) * r, 3) || { x: p.x + 1, y: p.y };
+      const e = game.createMonster(id, at.x, at.y, game.monsterLevel ? game.monsterLevel(depth) : depth, 'normal'); e.ai.st = 'chase'; S.entities.push(e);
+    });
+    G.input.move.x = G.input.move.y = 0; G.input.attackHeld = false;
+    let t = 0;
+    while (t < 60 && !p.dead) { S.time += 1 / 30; game.update(1 / 30); t += 1 / 30; }
+    return p.dead ? t : 60;
+  }
+  function runDifficulty(opts) {
+    opts = opts || {};
+    simulating = true;
+    const depths = opts.depths || [1, 2, 3, 5, 8, 10, 15, 20, 25, 30], classes = opts.classes || Object.keys(game.CLASSES), reps = opts.reps || 3;
+    const lvlFor = opts.lvlFor || function (d) { return Math.min(60, Math.round(d * 1.15 + 1)); };
+    const pad = function (s, n) { s = String(s); return s + ' '.repeat(Math.max(1, n - s.length)); };
+    const f1 = function (v) { return !isFinite(v) ? '∞' : v < 10 ? v.toFixed(1) : String(Math.round(v)); };
+    const lines = ['Hits to kill (basic attack / main skill) and seconds to die standing still — balanced auto-build at the expected level, real items (best of 4 rolls per slot, common–rare)',
+      pad('depth', 7) + pad('lvl', 5) + pad('class', 13) + pad('normal', 12) + pad('champion', 12) + pad('rare', 12) + pad('pack(5)', 9) + pad('ranged(4)', 10) + 'hp / weapon dps'];
+    const rows = [];
+    for (const d of depths) {
+      const lvl = lvlFor(d);
+      for (const cls of classes) {
+        const acc = { n: [0, 0], c: [0, 0], r: [0, 0], pack: 0, rng: 0 };
+        let p = null;
+        for (let rep = 0; rep < reps; rep++) {
+          const rng = G.rng.create(1000 + d * 31 + rep * 7);
+          p = diffChar(cls, lvl, rng);
+          G.scenes.enterDungeon(d);
+          S.entities = S.entities.filter(function (e) { return e.type !== 'monster'; });
+          const theme = C.themeForDepth(d), pool = game.THEME_POOLS[theme];
+          const melee = pool.filter(function (id) { return game.MONSTERS[id].atk === 'melee' && game.MONSTERS[id].arch !== 'swarm'; });
+          const ranged = pool.filter(function (id) { return game.MONSTERS[id].atk !== 'melee'; });
+          const sk = mainSkill(p);
+          const basic = { pct: p.bonus.w.ranged ? 100 : 120, type: 'phys', skill: false, melee: !p.bonus.w.ranged };
+          const skill = sk ? { pct: game.applySynergies(p, sk, game.skillValues(sk, game.skillRank(p, sk.id))).dmg, type: sk.id.indexOf('fire') >= 0 ? 'fire' : sk.id.indexOf('ice') >= 0 || sk.id.indexOf('frost') >= 0 ? 'cold' : 'phys' } : basic;
+          const L = game.monsterLevel ? game.monsterLevel(d) : d;
+          const tiers = [['n', 'normal', 0], ['c', 'champion', 1], ['r', 'rare', 2]];
+          for (const tr of tiers) {
+            let hb = 0, hs = 0;
+            for (const id of melee) {
+              const e = game.createMonster(id, p.x + 2, p.y, L + tr[2], tr[1], null, tr[1] === 'normal' ? undefined : 'Extra Strong');
+              e.ai.st = 'sleep'; S.entities.push(e); game.live.foes.push(e);
+              hb += hitsToKill(p, e, basic, 60); hs += hitsToKill(p, e, skill, 60);
+              S.entities.pop(); game.live.foes.pop();
+            }
+            acc[tr[0]][0] += hb / melee.length / reps; acc[tr[0]][1] += hs / melee.length / reps;
+          }
+          acc.pack += standStill(p, [0, 1, 2, 3, 4].map(function (i) { return melee[i % melee.length]; }), d) / reps;
+          acc.rng += standStill(p, [0, 1, 2, 3].map(function (i) { return ranged[i % ranged.length]; }), d) / reps;
+        }
+        const w = p.bonus.w;
+        rows.push({ depth: d, level: lvl, cls: cls, normal: acc.n, champion: acc.c, rare: acc.r, pack: acc.pack, ranged: acc.rng });
+        lines.push(pad(d, 7) + pad(lvl, 5) + pad(cls, 13) + pad(f1(acc.n[0]) + ' / ' + f1(acc.n[1]), 12) + pad(f1(acc.c[0]) + ' / ' + f1(acc.c[1]), 12) + pad(f1(acc.r[0]) + ' / ' + f1(acc.r[1]), 12) +
+          pad(f1(acc.pack) + 's', 9) + pad(f1(acc.rng) + 's', 10) + p.stats.hpMax + ' / ' + Math.round((w.min + w.max) / 2 * w.aps));
+      }
+    }
+    simulating = false;
+    window.__diff = { rows: rows, text: lines.join('\n') };
+    return window.__diff;
+  }
+  window.runDifficulty = runDifficulty;
 
   window.runTests = runTests; window.runSim = runSim; window.simRun = simRun;
 
