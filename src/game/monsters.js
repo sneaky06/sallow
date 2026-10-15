@@ -19,15 +19,16 @@
   // the multipliers on top of the R5 curves; DMM is heaviest early so the first floors ramp quickly into the first boss.
   game.HPM = function (L) { return 1.6 + 1.2 * Math.min(1, Math.max(0, (L - 1) / 5)); };
   game.DMM = function (L) { return (1.15 + 1.15 * Math.min(1, Math.max(0, (17 - L) / 12))) * (L < 2 ? 0.8 : L < 3 ? 0.9 : 1); };
-  game.hpScale = function (L) { return (1 + 0.25 * (L - 1)) * Math.pow(1.06, L - 1) * ramp(L, 0.9) * game.HPM(L); };
-  game.dmgScale = function (L) { return 1.12 * (1 + 0.22 * (L - 1)) * Math.pow(1.05, L - 1) * ramp(L, 0.85) * game.DMM(L); };
+  game.hpScale = function (L) { return (1 + 0.25 * (L - 1)) * Math.pow(1.06, L - 1) * ramp(L, 0.9) * game.HPM(L) * game.DEEP_HP(L); };
+  game.dmgScale = function (L) { return 1.12 * (1 + 0.22 * (L - 1)) * Math.pow(1.05, L - 1) * ramp(L, 0.85) * game.DMM(L) * game.DEEP_DMG(L); };
   game.SPEED_SCALE = 1.2;           // R6.3: the player moves ~19% faster; monsters keep pace
   game.XP_MULT = 1.8;               // tougher monsters, same generous levelling pace per minute
   // Out-levelling no longer trivialises a floor: monsters are never more than 3 levels below the player.
-  game.monsterLevel = function (depth) {
-    const p = G.state.player;
-    return Math.max(Math.max(1, depth | 0), p ? (p.level | 0) - 3 : 1);
-  };
+  // R14: depth drives difficulty, not player level — monsters are the floor's level (elites add their offsets). Past depth 15
+  // the curve steepens (DEEP_HP / DEEP_DMG) so depths 25–30 and the endgame below are very hard for an on-level hero.
+  game.monsterLevel = function (depth) { return Math.max(1, depth | 0); };
+  game.DEEP_HP = function (L) { return 1 + 0.035 * Math.pow(Math.max(0, L - 15), 1.3); };
+  game.DEEP_DMG = function (L) { return 1 + 0.025 * Math.pow(Math.max(0, L - 15), 1.25); };
   game.xpScale = function (L) { return (1 + 0.2 * (L - 1)) * Math.pow(1.03, L - 1); };
 
   const RARITY_MULT = {
@@ -101,10 +102,11 @@
 
   // Player minion: toughness follows monster damage growth, damage follows monster life growth, so it stays relevant.
   game.createMinion = function (monsterId, x, y, p, mult) {
-    const def = M[monsterId];
-    const e = game.createMonster(monsterId, x, y, p.level, 'normal', null, true);
-    const hp = Math.round(def.hp * game.dmgScale(p.level) * (1 + p.level * 0.08) * mult);
-    const dm = game.hpScale(p.level) * mult * (1 + (p.stats.skillDmgPct || 0) / 100);
+    const def = M[monsterId], S0 = G.state;
+    const L = S0.scene === 'dungeon' && S0.depth > 0 ? Math.min(p.level, game.monsterLevel(S0.depth) + 5) : p.level;          // R14: minions grow with the floor, at most 5 above it
+    const e = game.createMonster(monsterId, x, y, L, 'normal', null, true);
+    const hp = Math.round(def.hp * game.dmgScale(L) * (1 + L * 0.08) * mult);
+    const dm = game.hpScale(L) * mult * (1 + (p.stats.skillDmgPct || 0) / 100);
     e.stats.hpMax = hp; e.hp = hp;
     e.dmgMin = def.dmg[0] * dm; e.dmgMax = def.dmg[1] * dm;
     e.atkCd = def.cd / (1 + (p.bonus.minionAS || 0) / 100);

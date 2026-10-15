@@ -2089,8 +2089,8 @@ ok(back.hp < 1e6 && front[0].hp < 1e6 && front[1].hp < 1e6, 'Whirlwind hits all 
 
     // ------------------------------------------------------------------
     section('R6 difficulty pass');
-    ok(game.monsterLevel(3) === 3 && (function () { const q = fresh('warrior', true); toLevel(q, 20); return game.monsterLevel(3) === 17 && game.monsterLevel(30) === 30; })(),
-      'out-level scaling: monsters are at most 3 levels below the player (depth 3 at level 20 → level 17)');
+    ok(game.monsterLevel(3) === 3 && (function () { const q = fresh('warrior', true); toLevel(q, 20); return game.monsterLevel(3) === 3 && game.monsterLevel(30) === 30; })() && game.DEEP_HP(30) > 2 && game.DEEP_HP(15) === 1,
+      'R14: monster level follows depth only (depth 3 stays 3 for a level-20 hero); the curve steepens past depth 15 (life ×' + game.DEEP_HP(30).toFixed(2) + ' at 30)');
     ok(game.hpScale(8) / ((1 + 0.25 * 7) * Math.pow(1.06, 7)) > 2.7 && game.DMM(3) > game.DMM(20) && game.createMonster('skeleton', 1, 1, 5).speed === game.MONSTERS.skeleton.spd * game.SPEED_SCALE,
       'monster life ×' + game.HPM(8).toFixed(1) + ' from level 6, damage ×' + game.DMM(3).toFixed(2) + ' early → ×' + game.DMM(20).toFixed(2) + ' deep, monsters ' + game.SPEED_SCALE + '× faster');
 

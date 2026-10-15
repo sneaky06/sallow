@@ -367,3 +367,12 @@ player-level scaling at all), and the depth curve gets steeper so the last floor
 is where a strong player wants to be. Out-levelling a floor makes it easier but pays less: when the player is more than 5 levels above
 the floor's level, XP per kill falls off (−15% per level beyond 5, floor 10%) and item level / rarity of drops follow the floor, not the
 player — so delving deeper is always the better reward. Shallow farming stays possible for gold, materials and Curator pieces.
+
+### R15 — return trips and the lead dev's writing pass (2026-10-15)
+- **Return quests:** a few quests per act send the player back to earlier floors after they have moved on (e.g. carry something to a
+  refugee camp on a cleansed floor, recover an item left at depth 3 during Act III, read a grave the player passed at the start), so they
+  feel how far they have come: shallow monsters melt, the camps have grown, NPCs remark on the change. Story writes; UI tracks (goal
+  kinds `visit { depth, after }`, `retrieve { depth, item }`).
+- **Writing pass:** the lead dev will rewrite every player-facing text (dialogue, UI labels, item names and descriptions). All text must
+  be easy to find and edit without reading code: story text stays in `src/ui/story_data.js`; UI labels move into one table
+  `src/ui/strings.js`; item, monster and skill names stay in their data tables. `docs/WRITING_GUIDE.md` lists every place text lives.

@@ -380,7 +380,7 @@
     if (killer && killer.faction === 'player' && killer.summon && game.perkMinionKill) game.perkMinionKill(p, killer, t);          // R11 perks
     else if (game.perkKill) game.perkKill(p, t);
     if (t.xp > 0) {
-      const over = p.level - t.level - 5;
+      const over = p.level - (game.monsterLevel ? game.monsterLevel(S.depth) : t.level) - 5;          // R14: beyond 5 levels above the floor, −15% per level (min 10%)
       game.gainXp(t.xp * (over > 0 ? Math.max(0.1, 1 - over * 0.15) : 1) * (1 + fr.xpGain / 100));
     }
     if (!t.noLoot && G.items && G.items.dropLoot) {
