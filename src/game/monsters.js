@@ -86,6 +86,7 @@
         e.radius *= 1.2;
       }
     }
+    if (rarity !== 'boss') e.radius = Math.min(e.radius, 0.44);          // R16: 1-tile corridors — bigger bodies could not leave their room (the sprite keeps its size)
     if (rarity === 'boss') {
       // boss hits are a big share of a life bar early on; deeper, where everything else also hurts, they grow a little slower
       // R6: bosses take half of the life multiplier (their hits carry the full one): long fights, not endless ones
@@ -214,6 +215,7 @@
       if (count >= MAX_MONSTERS) return null;
       const at = spread ? spotNear(rng, s.x, s.y, spread) : (W.free(s.x + 0.5, s.y + 0.5, 3) || { x: s.x + 0.5, y: s.y + 0.5 });
       const e = game.createMonster(id, at.x, at.y, mlvl + (LVL[rarity] || 0), rarity, rng, shared);
+      if (!unwedge(e)) return null;          // R16: never spawn wedged in a wall or prop
       S.entities.push(e);
       count++;
       return e;
@@ -251,6 +253,7 @@
         if (M[id].arch === 'swarm') n = Math.ceil(n * 1.6);
         else if (M[id].arch === 'brute') n = Math.max(1, Math.ceil(n * 0.5));
         if (has('horde')) n = Math.ceil(n * 1.4);
+        n = Math.round(n * (1 + Math.min(0.6, Math.max(0, depth - 3) * 0.02))) + Math.floor(depth / 12);          // R16: packs swell toward the corruption's centre (+2% per depth past 3, +1 per 12 depths)
         if (map.cleansed) n = Math.max(1, Math.round(n * 0.6));          // R7.7: a cleansed act is quieter
         const support = rng.chance(0.3) ? pickType(rng, pool, depth, id) : null;
         let champs = 0;
@@ -258,6 +261,7 @@
         for (let i = champs; i < n; i++) add(support && i > 0 && i % 3 === 0 ? support : id, s, 'normal', 2);
       } else if (s.kind === 'monster') {
         add(pickType(rng, pool, depth), s, 'normal', 0);
+        if (depth >= 12 && rng.chance(Math.min(0.6, depth * 0.015))) add(pickType(rng, pool, depth), s, 'normal', 2);          // R16: denser deep floors
       }
     }
     if (legend) {            // no elite spot on this floor: promote the monster furthest from the entrance
@@ -272,6 +276,7 @@
         S.entities[S.entities.indexOf(far)] = L;
       }
     }
+    for (const e of S.entities) if (e.type === 'monster') unwedge(e);          // R16: legendary promotions, bosses — nobody starts wedged
     bias = null;
     S.map = prevMap || map;
   };
@@ -298,6 +303,22 @@
     }
   }
   game.onMonsterHurt = function (e) { if (e.ai && e.ai.st === 'sleep') wake(e, true); };
+
+  // R16 pathing: a body that does not fit where it stands is moved to the nearest spot it fits (rings of 0.5 tiles, up to 3).
+  function unwedge(e) {
+    if (W.canStand(e.x, e.y, e.radius)) return true;
+    for (let r = 0.5; r <= 3; r += 0.5) {
+      for (let k = 0; k < 12; k++) {
+        const a = k / 12 * Math.PI * 2, x = e.x + Math.cos(a) * r, y = e.y + Math.sin(a) * r;
+        if (W.canStand(x, y, e.radius)) { e.x = x; e.y = y; if (e.ai) { e.ai.hx = x; e.ai.hy = y; } return true; }
+      }
+    }
+    const t = W.free(e.x, e.y, 4);
+    if (t && W.canStand(t.x, t.y, e.radius)) { e.x = t.x; e.y = t.y; if (e.ai) { e.ai.hx = t.x; e.ai.hy = t.y; } return true; }
+    return false;
+  }
+  game.unwedge = unwedge;
+  game.unstuckCount = 0;
 
   function moveToward(e, tx, ty, dt, sm, crowd) {
     const ai = e.ai;
@@ -338,6 +359,24 @@
       const dist = Math.hypot(tx - e.x, ty - e.y);
       if (ai.pgD !== undefined && dist > ai.pgD - 0.25 * e.speed * sm && !ai.path) { ai.nd = 2.5; ai.rp = 0; }
       ai.pgD = dist; ai.pgT = 0;
+    }
+    // R16 watchdog: chasing for 2.5 s and moved less than 0.25 tiles → stuck. First a fresh path; the second time in a row,
+    // nudge the body to the nearest spot within 1.5 tiles where it fits and is closer to its target.
+    ai.wdT = (ai.wdT || 0) + dt;
+    if (ai.wdT >= 2.5) {
+      const moved = Math.hypot(e.x - (ai.wdX === undefined ? e.x + 1 : ai.wdX), e.y - (ai.wdY === undefined ? e.y : ai.wdY));
+      if (moved < 0.25 && Math.hypot(tx - e.x, ty - e.y) > 1.5) {
+        ai.stuckN = (ai.stuckN || 0) + 1;
+        ai.path = null; ai.rp = 0; ai.nd = 3;
+        if (ai.stuckN >= 2) {
+          const d0 = Math.hypot(tx - e.x, ty - e.y);
+          for (let k = 0; k < 16; k++) {
+            const a = k / 16 * Math.PI * 2, r = 0.6 + (k % 3) * 0.45, x = e.x + Math.cos(a) * r, y = e.y + Math.sin(a) * r;
+            if (W.canStand(x, y, e.radius) && Math.hypot(tx - x, ty - y) < d0 + 0.5) { e.x = x; e.y = y; ai.stuckN = 0; game.unstuckCount++; break; }
+          }
+        }
+      } else ai.stuckN = 0;
+      ai.wdT = 0; ai.wdX = e.x; ai.wdY = e.y;
     }
     e.facing = Math.atan2(gy - e.y, gx - e.x);
     relax(e, 'walk');

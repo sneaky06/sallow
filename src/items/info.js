@@ -258,10 +258,10 @@
 
   // 'up' | 'down' | 'same' | null. Weapons are judged on offence first (a clearly harder-hitting weapon is an upgrade even
   // if it costs a shield), whatever class favours them; everything else on the class-weighted score.
-  I.verdict = function (item) {
+  I.verdict = function (item, ignoreReq) {
     const p = G.state.player;
     if (!p || !isEquip(item)) return null;
-    if ((item.reqLevel || 1) > (p.level || 1)) return null;
+    if (!ignoreReq && !I.meetsRequirements(item, p).ok) return null;      // R16.9: can't equip it (yet) -> no verdict; see I.verdictSoon
     const eq = p.equipment || {};
     for (const s of C.EQUIP_SLOTS) if (eq[s] === item) return null;
     const prof = D.classProfile(p);
@@ -483,6 +483,14 @@
       }
       const lvl = (p && p.level) || 1;
       lines.push({ text: 'Requires Level ' + item.reqLevel + '  ·  Item Level ' + item.ilvl, color: item.reqLevel > lvl ? COL.red : COL.grey });
+      const rq = I.meetsRequirements(item, p);      // R16.9
+      tip.requirements = rq;
+      tip.soon = I.verdictSoon(item);
+      if (item.classArmor && D.REQ.classTag[item.classArmor]) lines.push({ text: D.REQ.classTag[item.classArmor], color: COL.grey });
+      for (const k in item.req || {}) {
+        const miss = rq.missing.some(function (m) { return m.kind === k; });
+        lines.push({ text: 'Requires ' + item.req[k] + ' ' + D.REQ.statNames[k], color: miss ? COL.red : COL.grey });
+      }
       if (item.type === 'weapon') {
         const fav = favouredBy(item.weaponType);
         if (fav.length) lines.push({ text: 'Favoured by ' + fav.join(', '), color: COL.grey });

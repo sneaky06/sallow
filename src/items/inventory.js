@@ -148,7 +148,8 @@
     const item = p && p.inventory[invIndex];
     if (!item) return false;
     if (!D.isEquip(item)) return fail('Cannot equip that');
-    if ((item.reqLevel || 1) > (p.level || 1)) return fail('Requires level ' + item.reqLevel);
+    const rq = I.meetsRequirements(item, p);
+    if (!rq.ok) return fail(rq.text);
     const plan = D.planEquip(p.equipment, item, D.classProfile(p), targetSlot);
     // the equipped item's own cell is freed, every further displaced item needs a free one
     if (plan.out.length - 1 > freeCells(p.inventory, C.INV_SIZE)) return fail('Inventory full');
@@ -254,6 +255,8 @@
         break;
       case 'trophy':
         return fail('Sell it to a merchant');
+      case 'socket_tool':
+        return fail('Use it from the item menu');
       case 'chisel': {
         let host = null;
         for (const s of SOCKET_ORDER) {

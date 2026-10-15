@@ -564,6 +564,11 @@
 /* ---------- Revision 12 ---------- */
 .ed-chip{flex:1 1 auto;min-width:64px;font-size:11px!important;padding:2px 6px!important}
 .ed-step{display:flex;align-items:center;gap:6px;margin:4px 0}.ed-step span{flex:1;font-weight:normal;font-size:11px;color:var(--ash)}.ed-step b{min-width:44px;text-align:center;font-size:12px}
+.ed-bbhead{width:100%;justify-content:space-between}
+.ed-vs{margin:6px 9px;padding:4px 0;border-top:1px dashed #8a7a5a}
+.ed-vsrow{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:4px}
+.ed-vscell b{display:block;font-size:11px;line-height:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ed-vscell small{display:block;font-size:9px;line-height:11px;color:#4a3d2a;font-weight:normal}
 .ed-fbox{margin-bottom:8px}
 .ed-loyal{margin-top:2px;font-size:10px;font-weight:normal;color:var(--brass-hi)}.ed-loyal small{color:var(--ash)}
 .ed-fbtns{display:grid;grid-template-columns:2fr 1fr 1fr;gap:4px;margin-top:6px}

@@ -19,15 +19,27 @@
     { name: 'Blues', f: { rarity: 'rare' } },
   ];
 
-  function store() {
+  // R16.7: the ground loot filter is the same builder with its own saved filter + presets (state.settings.lootFilterRules = { cur, presets }).
+  // There the filter says what to HIDE: a matching item is not shown and cannot be picked up (gold, lore, quest items, Legendary tiers and sets always pass).
+  const LOOT_DEFAULT = Object.assign({}, DEFAULT, { enabled: false, rarity: 'common', upgrades: false, socketed: false, corrupted: false });
+  const LOOT_PRESETS = [{ name: 'Hide grey', f: { rarity: 'common' } }, { name: 'Hide green', f: { rarity: 'uncommon' } }, { name: 'Hide blue', f: { rarity: 'rare' } }];
+  function store(source) {
+    const loot = source === 'loot', key = loot ? 'lootFilterRules' : 'sellFilter', base = loot ? LOOT_DEFAULT : DEFAULT, presets = loot ? LOOT_PRESETS : PRESETS;
     const st = S.settings;
-    if (!st.sellFilter || typeof st.sellFilter !== 'object') st.sellFilter = {};
-    const sf = st.sellFilter;
-    if (!sf.cur) sf.cur = Object.assign({}, DEFAULT);
-    if (!Array.isArray(sf.presets)) sf.presets = PRESETS.map(function (p) { return { name: p.name, f: Object.assign({}, DEFAULT, p.f) }; });
+    if (!st[key] || typeof st[key] !== 'object') st[key] = {};
+    const sf = st[key];
+    if (!sf.cur) sf.cur = Object.assign({}, base);
+    if (!Array.isArray(sf.presets)) sf.presets = presets.map(function (p) { return { name: p.name, f: Object.assign({}, base, p.f) }; });
     return sf;
   }
-  const cur = function () { return store().cur; };
+  const cur = function (source) { return store(source).cur; };
+  // is this item hidden by the ground loot filter right now? (the game and the label drawer call this)
+  ui._lootHides = function (item) {
+    const sf = S.settings.lootFilterRules;
+    if (!sf || !sf.cur || !sf.cur.enabled || !item) return false;
+    return matches(item, sf.cur);
+  };
+  ui._lootFilterOn = function () { const sf = S.settings.lootFilterRules; return !!(sf && sf.cur && sf.cur.enabled); };
   const save = function () { if (G.meta && G.meta.save) G.meta.save(); };
 
   // R13: the crate's bulk rate starts at 50% and rises with loyalty (G.items.bulkRate(kind), kind = 'sell' | 'salvage')
@@ -73,6 +85,7 @@
 
   // source: 'bag' | 'surface'. -> [{ it, i }] newest index last
   function pool(source) {
+    if (source === 'loot') return (S.groundItems || []).filter(function (g) { return g && g.item; }).map(function (g, i) { return { it: g.item, i: i }; });
     const list = source === 'surface' ? (Array.isArray(S.surface) ? S.surface : []) : ((S.player && S.player.inventory) || []);
     const out = [];
     list.forEach(function (it, i) { if (it) out.push({ it: it, i: i }); });
@@ -130,7 +143,8 @@
   // ---------- the builder ----------
   function builder(source, after) {
     let close = null, box = null;
-    const f = cur();
+    const loot = source === 'loot';
+    const f = cur(source);
     const chip = function (label, on, fn) { return h('button', { type: 'button', class: 'ed-btn ed-chip' + (on ? ' on' : ''), 'aria-pressed': on ? 'true' : 'false', onclick: function () { ui._sfx('click'); fn(); save(); fill(); } }, label); };
     const stepper = function (label, key, step, max) {
       return h('div', { class: 'ed-step' }, h('span', { text: label }),
@@ -139,11 +153,13 @@
         ui._btn('+', function () { f[key] = Math.min(max, (f[key] | 0) + step); save(); fill(); }));
     };
     const fill = function () {
-      const sf = store(), pv = preview(source, f);
+      const sf = store(source), pv = preview(source, f);
       box.replaceChildren.apply(box, [
-        h('div', { class: 'ed-h', text: TX.filter.sellSalvageFilter }),
+        h('div', { class: 'ed-h', text: loot ? TX.filter.groundLootFilter : TX.filter.sellSalvageFilter }),
+        loot ? h('div', { class: 'ed-note', text: TX.filter.lootFilterExplain }) : null,
+        loot ? chip(f.enabled ? TX.filter.filterIsOn : TX.filter.filterIsOff, !!f.enabled, function () { f.enabled = !f.enabled; }) : null,
         h('div', { class: 'ed-seg', style: 'flex-wrap:wrap' }, sf.presets.map(function (p, i) {
-          return ui._btn(p.name, function () { Object.keys(f).forEach(function (k) { delete f[k]; }); Object.assign(f, DEFAULT, JSON.parse(JSON.stringify(p.f))); save(); fill(); }, '');
+          return ui._btn(p.name, function () { Object.keys(f).forEach(function (k) { delete f[k]; }); Object.assign(f, loot ? LOOT_DEFAULT : DEFAULT, JSON.parse(JSON.stringify(p.f))); if (loot) f.enabled = true; save(); fill(); }, '');
         })),
         h('div', { class: 'ed-note', text: TX.filter.rarityAtOrBelow }),
         h('div', { class: 'ed-seg' }, RARITIES.map(function (r) { const rr = C.RARITY[r]; const b = chip(rr ? rr.name : r, f.rarity === r, function () { f.rarity = r; }); b.style.color = rr ? rr.color : ''; return b; })),
@@ -163,13 +179,13 @@
             save(); ui.toast(TX.filter.presetSaved, '#a89f8f'); fill();
           }),
           ui._btn(TX.filter.deletePreset, function () {
-            const i = sf.presets.findIndex(function (p) { return JSON.stringify(Object.assign({}, DEFAULT, p.f)) === JSON.stringify(f); });
+            const i = sf.presets.findIndex(function (p) { return JSON.stringify(Object.assign({}, loot ? LOOT_DEFAULT : DEFAULT, p.f)) === JSON.stringify(f); });
             if (i >= 0) { sf.presets.splice(i, 1); save(); fill(); } else ui._sfx('error');
           }))]);
     };
     box = h('div', { class: 'ed-list ed-fbuilder' });
     fill();
-    close = ui._modal(ui._dialog([box], [
+    close = ui._modal(ui._dialog([box], loot ? [ui._btn(TX.common.done, function () { close(); if (after) after(); }, 'gold')] : [
       ui._btn(TX.common.sell, function () { confirmRun(source, f, 'sell', function () { close(); if (after) after(); }); }, 'gold'),
       ui._btn(TX.common.salvage, function () { confirmRun(source, f, 'salvage', function () { close(); if (after) after(); }); }),
       ui._btn(TX.common.done, function () { close(); if (after) after(); })]));

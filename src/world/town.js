@@ -66,6 +66,7 @@
     rect(8, 9, 12, 2, T.PATH);
     npc('elder', 11, 9);
     prop('sign', 13, 9, true);
+    npc('curator', 16, 9);              // R7.11: the Curator keeps the collection beside the Elder's house
 
     // Mystic (north-east): house flanked by crystals.
     rect(27, 5, 5, 4, T.WALL);
@@ -104,7 +105,9 @@
 
     // Two more homes along the south road.
     rect(13, 30, 4, 4, T.WALL);
-    rect(24, 30, 4, 4, T.WALL);
+    rect(24, 30, 6, 4, T.WALL);        // the inn: a wider house, a porch and a fire to sit by (R16)
+    rect(22, 34, 9, 1, T.PATH);
+    prop('campfire', 27, 34, true, { interact: 'inn', look: 'inn_fire', light: 5 });
     prop('sign', 22, 35, true);
     prop('barrel', 17, 31, true);
     prop('crate', 23, 31, true);

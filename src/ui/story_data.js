@@ -584,6 +584,39 @@
       before: ['There is a grave by the stair on two. You walked past it your first day. I watched you go.', 'Go back. Read me the name. My eyes are no good and my legs are worse.'],
       after: ['...My wife. Yes.', 'Forty years she has been down there, and now the floor is quiet enough to visit. Thank you. Go away now.'],
       rewards: { gold: 3000, xp: 12000, item: ['legendary'] } },
+
+    // R16 crate capacity: six challenge quests, chain: 'crate'. Rewards `crate: n` add to state.flags.crateBonus
+    // (25 → 300: 25 + 35 + 45 + 50 + 55 + 65 = 275).
+    { id: 'cq_wick_1', giver: 'stashkeeper', giverName: 'Old Wick', chain: 'crate', requiresAct: 1, name: 'A Bigger Crate',
+      desc: 'Send 25 items up the chute. Old Wick wants to see you can fill the crate before he builds you a bigger one.', goal: { kind: 'chute', n: 25 },
+      before: ['That crate up top is a coffin for one. Fill it a few times and I will knock out the back and add a room.'],
+      after: ['Full, emptied, full again. Right. Hammer and nails.', 'Room for more of the dead\'s belongings. I never thought I would build that.'],
+      rewards: { xp: 1000, crate: 25 } },
+    { id: 'cq_pell_1', giver: 'camp:pell', giverName: 'Pell the Ferryman', chain: 'crate', requiresAct: 2, name: 'A Second Chain',
+      desc: 'Reach depth 15. Pell will run a second chain up the chute from his camp to carry heavier loads.', goal: { kind: 'depth', n: 15 },
+      before: ['One chain carries one crate. Two chains carry more. I need to know the shaft holds as far as fifteen.'],
+      after: ['Fifteen and the shaft is sound. I spliced the second chain this morning. Don\'t lean on it.'],
+      rewards: { xp: 4000, crate: 35 } },
+    { id: 'cq_orlen_1', giver: 'merchant', giverName: 'Orlen the Peddler', chain: 'crate', requiresAct: 2, name: 'Warehouse',
+      desc: 'Find 10 items of Rare quality or better. Orlen will rent you half his storeroom for the crate overflow.', goal: { kind: 'found', n: 10, rarity: ['rare'] },
+      before: ['My storeroom is empty. Nobody had anything worth storing for a year.', 'Show me you will fill it with good stock and it is yours. Half of it.'],
+      after: ['Half my storeroom. I am a generous man. Write that down somewhere.'],
+      rewards: { xp: 5000, crate: 45 } },
+    { id: 'cq_isra_1', giver: 'curator', giverName: 'Isra Vell', chain: 'crate', requiresAct: 2, name: 'Shelving',
+      desc: 'Register 15 pieces with the Curator. In return she lends the crate her empty shelves.', goal: { kind: 'collect', n: 15 },
+      before: ['I built shelves for every set I meant to complete. Most are still empty.', 'Bring me fifteen pieces and the rest of the shelves can hold your things until I need them.'],
+      after: ['Fifteen lines struck. The empty shelves are yours. Try not to put anything living on them.'],
+      rewards: { xp: 6000, crate: 50 } },
+    { id: 'cq_wick_2', giver: 'stashkeeper', giverName: 'Old Wick', chain: 'crate', requiresAct: 3, name: 'The Cellar',
+      desc: 'Open 20 chests in the Hellscape. Old Wick is digging out the cellar under the crate and needs the iron fittings.', goal: { kind: 'chests', n: 20, minDepth: 21 },
+      before: ['There is a cellar under the crate. Sealed when the founders were young. I want it open.', 'Hinges and bands from the deep chests. Twenty of them.'],
+      after: ['Cellar\'s open. It was full of old grain sacks and one very old shoe.', 'I did not look in the shoe. Your crate is bigger.'],
+      rewards: { xp: 14000, crate: 55 } },
+    { id: 'cq_wick_3', giver: 'stashkeeper', giverName: 'Old Wick', chain: 'crate', requiresAct: 3, name: 'Everything Comes Up',
+      desc: 'Send 200 items up the chute. Old Wick will give you the whole yard.', goal: { kind: 'chute', n: 200 },
+      before: ['If you send it up, I will keep it. All of it. I have stopped asking what for.', 'Two hundred more, and the yard is yours.'],
+      after: ['The yard, the cellar, the shed and my patience. All yours.', 'When you go down for good, I will keep it for whoever comes next. There is always someone next.'],
+      rewards: { xp: 20000, crate: 65, mark: 1 } },
   ];
 
   // Converted to the SIDE line shape that quests.js reads: { id, role, npc, giver (display name), act, requires, name,
@@ -620,6 +653,80 @@
     'camp:twins': { act: 3, line: 'We have a stall.  /  A stall with a roof.  /  The roof is a shield.  /  It is still a roof.' },
     'camp:ada': { act: 3, line: 'I baptised a baby in rift water this morning. It was warm. Nobody screamed. Not even me.' },
     'camp:tam': { act: 3, line: 'No grey notes this week. I check every morning. I think he has stopped watching the camp. He is watching you.' },
+  };
+
+
+  // ---------- R16.14 class goals: names and one-line flavour, keyed by goal id ----------
+  // Proposed ids `<classId>_<slug>`; combat defines the counters in state.flags.classGoals and matches these ids (rename freely
+  // here if combat picks other ids). `measure` is the suggested condition; `title` is awarded with the goal (null = none).
+  const CLASS_GOALS = {
+    warrior: [
+      { id: 'warrior_stagger', name: 'Shoulder of the Mountain', flavour: 'Stun 50 enemies with Shoulder Charge.', measure: 'stun 50 with shoulder charge', title: null },
+      { id: 'warrior_unbroken', name: 'Brannoc\'s Heir', flavour: 'Block 1,000 blows. He held for forty days; you can hold for this.', measure: 'block 1000 hits', title: 'the Unbent' },
+      { id: 'warrior_crowd', name: 'In the Thick of It', flavour: 'Hit 8 enemies with a single swing.', measure: '8 enemies in one hit', title: null },
+      { id: 'warrior_lastblood', name: 'Not Yet', flavour: 'Kill a boss while below 10% life.', measure: 'boss kill under 10% hp', title: null },
+      { id: 'warrior_tree', name: 'Iron Discipline', flavour: 'Put 30 points into a single skill tree.', measure: '30 points in one tree', title: null },
+      { id: 'warrior_perk', name: 'Sworn Path', flavour: 'Finish a perk branch.', measure: 'complete a perk branch', title: null },
+      { id: 'warrior_bare', name: 'The Old Way', flavour: 'Clear a floor with an S grade without drinking a potion.', measure: 'S grade, no potions', title: 'Ironhide' },
+      { id: 'warrior_hundred', name: 'Hundred-Breaker', flavour: 'Kill 100 elites.', measure: '100 elite kills', title: 'Breaker of Hundreds' },
+    ],
+    ranger: [
+      { id: 'ranger_longshot', name: 'Wren\'s Distance', flavour: '100 kills from 8 tiles or more.', measure: '100 kills at >= 8 tiles', title: null },
+      { id: 'ranger_untouched', name: 'Never Where the Claws Land', flavour: 'Kill a boss without being hit.', measure: 'boss kill, no damage taken', title: 'the Untouched' },
+      { id: 'ranger_dance', name: 'Ropewalker', flavour: 'Dash 1,000 times.', measure: '1000 dashes', title: null },
+      { id: 'ranger_volley', name: 'Rain', flavour: 'Kill 5 enemies with a single volley.', measure: '5 kills in one skill use', title: null },
+      { id: 'ranger_flow', name: 'The Thread Pulled Tight', flavour: 'Reach a Flow chain of 5 ten times.', measure: '10 flow chains of 5', title: null },
+      { id: 'ranger_tree', name: 'Fletcher\'s Patience', flavour: 'Put 30 points into a single skill tree.', measure: '30 points in one tree', title: null },
+      { id: 'ranger_perk', name: 'Marked Trail', flavour: 'Finish a perk branch.', measure: 'complete a perk branch', title: null },
+      { id: 'ranger_cartographer', name: 'Every Step Counted', flavour: 'Explore 100% of 25 floors.', measure: '25 floors at 100% explored', title: 'the Cartographer' },
+    ],
+    sorcerer: [
+      { id: 'sorcerer_shatter', name: 'Glass Men', flavour: 'Shatter 50 frozen enemies.', measure: 'kill 50 frozen enemies', title: null },
+      { id: 'sorcerer_pyre', name: 'Varr\'s Customer', flavour: 'Have 20 enemies burning at once.', measure: '20 burning simultaneously', title: null },
+      { id: 'sorcerer_chain', name: 'The Storm Remembers', flavour: 'Let one lightning strike jump 6 times.', measure: 'a 6-jump chain', title: null },
+      { id: 'sorcerer_glass', name: 'Paper Robes', flavour: 'Reach depth 20 without dying since your last return to town.', measure: 'depth 20 in one trip, no death', title: 'Paper-Robed' },
+      { id: 'sorcerer_overload', name: 'Burnt Out', flavour: 'Cast 100 spells in one floor.', measure: '100 casts on a floor', title: null },
+      { id: 'sorcerer_tree', name: 'Single Element', flavour: 'Put 30 points into a single skill tree.', measure: '30 points in one tree', title: null },
+      { id: 'sorcerer_perk', name: 'Formula', flavour: 'Finish a perk branch.', measure: 'complete a perk branch', title: null },
+      { id: 'sorcerer_salt', name: 'Odile\'s Lesson', flavour: 'Kill 500 enemies while moving.', measure: '500 kills while moving', title: 'Saltwalker' },
+    ],
+    necromancer: [
+      { id: 'necromancer_legion', name: 'Crane\'s Congregation', flavour: 'Your minions kill 1,000 enemies.', measure: '1000 minion kills', title: null },
+      { id: 'necromancer_army', name: 'A Full Graveyard', flavour: 'Command 10 minions at once.', measure: '10 minions alive', title: null },
+      { id: 'necromancer_curse', name: 'Ashby\'s Toll', flavour: 'Curse 500 enemies.', measure: '500 enemies cursed', title: null },
+      { id: 'necromancer_recycle', name: 'Nothing Wasted', flavour: 'Raise 300 corpses.', measure: '300 corpses used', title: null },
+      { id: 'necromancer_hands', name: 'Clean Hands', flavour: 'Kill a boss without landing a hit yourself.', measure: 'boss kill, 0 player hits', title: 'the Clean-Handed' },
+      { id: 'necromancer_tree', name: 'Deep Study', flavour: 'Put 30 points into a single skill tree.', measure: '30 points in one tree', title: null },
+      { id: 'necromancer_perk', name: 'Grave Rite', flavour: 'Finish a perk branch.', measure: 'complete a perk branch', title: null },
+      { id: 'necromancer_sexton', name: 'Bell, Book and Spade', flavour: 'Kill 200 undead.', measure: '200 skeleton/wraith kills', title: 'the Sexton' },
+    ],
+  };
+
+  // ---------- R16.16 the inn and its keeper ----------
+  // greet: one line by state.flags.warmth (0..3). statLines: shown when the hero sits by the fire, first match wins (most
+  // specific first); `stat` is a key of state.flags.stats, `gte` the threshold. {n} = that stat's value.
+  const INN = {
+    name: 'The Banked Hearth',
+    keeper: 'Dory Ashcombe',
+    look: 'Broad, red-knuckled woman in a leather apron scorched at the hem; a poker always in one hand; one eye milky from a cinder.',
+    voice: 'Loud, warm, blunt as a ladle. Keeps count of everything you have ever done and is not shy about it.',
+    greet: [
+      'Sit close. The fire is mostly smoke, but smoke is warmer than nothing.',
+      'The fire caught properly this morning. First time in a year. Sit down before I cry on you.',
+      'Full house tonight. Full! People drinking and arguing. I could kiss every one of them. I will not.',
+      'Too warm to wear a coat in my own inn. Whatever you did down there, do not undo it.',
+    ],
+    statLines: [
+      { stat: 'deaths', gte: 50, line: 'Fifty times dead and still ordering ale. The rift does not want you, and neither does the grave.' },
+      { stat: 'kills', gte: 10000, line: '{n} dead by your hand. I keep a tally on the beam. I ran out of beam.' },
+      { stat: 'closeCalls', gte: 500, line: 'They say you dance between the blows. {n} times. My husband could not dance between two chairs.' },
+      { stat: 'chests', gte: 500, line: '{n} chests. There will be nothing left down there for the next one. Good.' },
+      { stat: 'potions', gte: 300, line: '{n} potions. You drink more than my regulars, and they are serious men.' },
+      { stat: 'goldEarned', gte: 100000, line: 'You have carried more gold up that stair than this town saw in a century. Buy a round.' },
+      { stat: 'deaths', gte: 10, line: 'Ten deaths. Sit by the fire a while. It is how the living remind themselves.' },
+      { stat: 'kills', gte: 1000, line: 'A thousand kills. The Shallows are quieter for it. So is my inn, when you walk in.' },
+      { stat: null, line: 'Sit. The fire does not ask questions. I do, but later.' },        // fallback
+    ],
   };
 
   // ---------- R12.8 milestones: names and one-line flavour per counter; tier titles low → high ----------
@@ -701,5 +808,5 @@
   ];
 
   meta.STORY = { NAMES, TAGLINE, TITLE, OLD_TITLES, OPENING, ACTS, STEPS, FINALE, PALLOR_INTRO, BOSS_LINES, WORLD_BOSS_IDS,
-    BOSSES, ECHO, ADVENTURERS, FALLEN_COMBINED, CURATOR, CAMP, SIDE, VENDOR_QUESTS, RETURN_LINES, CAMP_GROWTH, MILESTONES, TOWN, LORE };
+    BOSSES, ECHO, ADVENTURERS, FALLEN_COMBINED, CURATOR, CAMP, SIDE, VENDOR_QUESTS, RETURN_LINES, CAMP_GROWTH, CLASS_GOALS, INN, MILESTONES, TOWN, LORE };
 })();

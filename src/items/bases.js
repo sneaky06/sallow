@@ -240,6 +240,7 @@
     flask_rejuv: { name: 'Rejuvenation Flask', rarity: 'uncommon', icon: { shape: 'potion', color: '#b65bff', accent: '#ffe45b' }, desc: 'Use: fully restores Life and Mana.', value: function (l) { return 15 + l * 3; } },
     tome_xp:     { name: 'Tome of Lessons', rarity: 'uncommon', icon: { shape: 'tome', color: '#3a8a6a', accent: '#ffe45b' }, desc: 'Use: grants a burst of experience.', value: function (l) { return 50 + l * 10; } },
     chisel:      { name: "Jeweler's Chisel", rarity: 'rare', icon: { shape: 'key', color: '#c8d0e0', accent: '#b65bff' }, desc: 'Use: cuts a new socket into an equipped item.', value: function (l) { return 150 + l * 15; } },
+    socket_tool: { name: 'Socket Tool', rarity: 'rare', icon: { shape: 'key', color: '#b8c4d8', accent: '#ffe45b' }, desc: 'Add a socket to any item, anywhere (from the item menu). It may shatter; the item never does.', value: function (l) { return 200 + l * 25; } },
     tome_skill:  { name: 'Tome of Insight', rarity: 'legendary', icon: { shape: 'tome', color: '#e8d8a0', accent: '#b65bff' }, desc: 'Use: grants one skill point.', value: function (l) { return 400 + l * 20; } },
     trophy:      { name: "Champion's Trophy", rarity: 'rare', icon: { shape: 'skull', color: '#d9bd6a', accent: '#8a1a22' }, desc: 'A grisly prize. Worth good gold to any merchant.', value: function (l) { return 60 + l * 12; } },
   };

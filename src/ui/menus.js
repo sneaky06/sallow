@@ -183,6 +183,7 @@
         volRows(),
         toggleRow('Loot labels', 'Hide ground loot below this quality', h('span', { style: 'color:' + rar.color, text: filterLabel }),
           function () { st.lootFilter = FILTERS[(FILTERS.indexOf(cur) + 1) % FILTERS.length]; }),
+        toggleRow(TX.loot.groundLootFilter, TX.loot.hiddenItemsCannotBe, h('span', { class: ui._lootFilterOn && ui._lootFilterOn() ? 'ed-gold' : 'ed-dim', text: ui._lootFilterOn && ui._lootFilterOn() ? TX.loot.on : TX.loot.off }), function () { if (ui._openFilter) ui._openFilter('loot', ui._refreshNow); }),
         toggleRow('Auto-pickup gold', null, !!st.autoPickupGold, function () { st.autoPickupGold = !st.autoPickupGold; }),
         toggleRow('Auto-pickup Rare+', 'Walk over Rare and better gear to take it', !!st.autoPickupRare, function () { st.autoPickupRare = !st.autoPickupRare; }),
         toggleRow('Auto-sort bag', 'Keep new loot in your chosen order', st.autoSort !== false, function () { st.autoSort = st.autoSort === false; }),
@@ -227,15 +228,46 @@
   ui._register('settings', { alias: 'menu' });
 
   // ---------- big map ----------
+  // R16: tap a discovered thing to see what it is (G.engine.mapPick(x, y) in canvas pixels -> { kind, name, x, y } | null, explored tiles only);
+  // piles left behind because the bag was full (ground entries with leftBehind) are listed underneath.
   ui._register('map', {
-    render: function () {
-      const cv = h('canvas', { class: 'ed-mapbig', width: 240, height: 240 });
+    render: function (view) {
+      const size = Math.max(200, Math.min(360, window.innerWidth - 24, window.innerHeight - 190));
+      const cv = h('canvas', { class: 'ed-mapbig', width: size, height: size, style: 'width:' + size + 'px;height:' + size + 'px' });
       const ctx = cv.getContext('2d');
       if (ctx && G.engine && G.engine.drawMinimap && S.map) {
-        try { G.engine.drawMinimap(ctx, 240, 240); } catch (err) { console.error('[ui map]', err); }
+        try { G.engine.drawMinimap(ctx, size, size); } catch (err) { console.error('[ui map]', err); }
       }
+      cv.addEventListener('click', function (e) {
+        const r = cv.getBoundingClientRect();
+        const x = (e.clientX - r.left) * size / r.width, y = (e.clientY - r.top) * size / r.height;
+        let hit = null;
+        if (G.engine && typeof G.engine.mapPick === 'function') { try { hit = G.engine.mapPick(x, y); } catch (err) { hit = null; } }
+        ui._sfx('click');
+        view.pick = hit && (hit.name || hit.kind) ? hit : { none: true };
+        ui._refreshNow();
+      });
+      const card = view.pick
+        ? h('div', { class: 'ed-box ed-mappick' }, view.pick.none ? h('span', { class: 'ed-dim', text: TX.map.nothingKnownThere })
+          : [h('b', { class: 'ed-gold', text: view.pick.name || view.pick.kind }), view.pick.name && view.pick.kind && view.pick.kind !== view.pick.name ? h('small', { text: ' · ' + view.pick.kind }) : null])
+        : h('div', { class: 'ed-note', text: TX.map.tapAnythingYouHave });
+      // piles left behind
+      const piles = {}, p = S.player;
+      (S.groundItems || []).forEach(function (g) {
+        if (!g || !g.leftBehind || !g.item || g.item.type === 'gold') return;
+        const k = g.pileId != null ? g.pileId : 'g' + g.id;
+        const e = piles[k] || (piles[k] = { n: 0, best: g.item, x: g.x, y: g.y });
+        e.n++;
+        if (ui._rarityOrder(g.item.rarity) > ui._rarityOrder(e.best.rarity)) e.best = g.item;
+      });
+      const rows = Object.keys(piles).map(function (k) {
+        const e = piles[k], d = p ? Math.round(Math.hypot(e.x - p.x, e.y - p.y)) : 0;
+        return h('div', { class: 'ed-row', style: 'min-height:44px' }, ui._icon(e.best.icon, 32),
+          h('span', { class: 'n', style: 'color:' + ui._rarityColor(e.best.rarity) }, e.n + (e.n === 1 ? TX.map.item : TX.map.items) + ' · ' + (e.best.name || ''), h('small', { text: d + TX.map.tilesAway })));
+      });
       return ui._frame(TX.common.map, null, h('div', { class: 'ed-body' },
-        h('div', { class: 'ed-center', style: 'margin-bottom:6px', text: ui._themeName(S.depth) + (S.depth > 0 ? TX.menus.depth + S.depth : '') }), cv));
+        h('div', { class: 'ed-center', style: 'margin-bottom:6px', text: ui._themeName(S.depth) + (S.depth > 0 ? TX.menus.depth + S.depth : '') }), cv, card,
+        rows.length ? h('div', { class: 'ed-h', text: TX.map.leftBehind }) : null, rows));
     },
   });
 })();

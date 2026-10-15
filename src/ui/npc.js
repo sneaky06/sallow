@@ -12,7 +12,7 @@
   const NPC = {
     // Buyback lives at the top of every Sell tab (R3 navigation pass: one tab fewer, one tap per item back).
     merchant:    { title: TX.npc.merchant,     line: TX.npc.coinFirstQuestionsAfter,          tabs: [['buy', TX.npc.buy], ['sell', TX.common.sell], QT] },
-    blacksmith:  { title: TX.npc.blacksmith,   line: TX.npc.steelDoesNotLie,             tabs: [['buy', TX.npc.buy], ['forge', TX.npc.forge], ['sell', TX.common.sell], QT] },
+    blacksmith:  { title: TX.npc.blacksmith,   line: TX.npc.steelDoesNotLie,             tabs: [['buy', TX.npc.buy], ['forge', TX.npc.forge], ['sockets', TX.sockets.sockets2], ['sell', TX.common.sell], QT] },
     mystic:      { title: TX.npc.mystic,       line: TX.npc.theVeilIsThin,    tabs: [['gamble', TX.npc.gamble], ['enchant', TX.npc.reroll], ['buy', TX.npc.buy], ['sell', TX.common.sell], QT] },
     healer:      { title: TX.npc.healer,       line: TX.npc.sitBleedQuietlyThis,       tabs: [['heal', TX.npc.heal], QT] },
     // R7.10: the Relics tab appears once the player holds a relic (and stays after the combine)
@@ -132,11 +132,16 @@
   }
 
   // R2.7 buyback, shown at the top of the Sell tab: one tap on a row buys it back (no popup — the price is on the row).
+  let bbOpen = false;
   function buybackRows(p, max) {
     let list = [];
     if (G.items && G.items.getBuyback) { try { list = G.items.getBuyback() || []; } catch (err) { console.error('[ui buyback]', err); list = []; } }
     if (!list.length) return null;
-    const box = h('div', { class: 'ed-box', style: 'margin-bottom:8px' }, h('div', { class: 'ed-h', text: TX.npc.soldTapToBuy }));
+    // R16: a collapsed dropdown, so the bag itself is visible without scrolling
+    const box = h('div', { class: 'ed-box ed-bb', style: 'margin-bottom:8px' },
+      h('button', { type: 'button', class: 'ed-btn ed-bbhead', 'aria-expanded': bbOpen ? 'true' : 'false', onclick: function () { ui._sfx('click'); bbOpen = !bbOpen; ui._refreshNow(); } },
+        TX.sell.buyBack + ' (' + list.length + ') ' + (bbOpen ? '▴' : '▾')));
+    if (!bbOpen) return box;
     list.forEach(function (entry, i) {
       if (max && i >= max) return;
       if (!entry || !entry.item) return;
@@ -206,6 +211,26 @@
           return { acts: acts.concat(ui._unsocketActions(item, slot)), info: info };
         })),
         ui._invGrid(p, 'forge', 'blacksmith', function (it) { return !!it.slot || it.type === 'gem'; })));
+  }
+
+  // R16.8 Blacksmith: add a socket to any chosen item for gold; the price climbs steeply with every socket, up to 6
+  function socketsTab(p) {
+    const rows = (ui._gearList ? ui._gearList(false) : []).map(function (r) {
+      const it = r.item, n = it.sockets ? it.sockets.length : 0;
+      let cost = null;
+      try { cost = G.items && G.items.socketCost ? G.items.socketCost(it) : null; } catch (err) { cost = null; }
+      const b = h('button', { type: 'button', class: 'ed-row', onclick: function () {
+        ui._sfx('click');
+        if (!cost) return;
+        ui._confirm(TX.sockets.addASocketTo2 + it.name + '?', TX.sockets.addSocket + fmt(cost.gold) + 'g', function () { const ok2 = call('addSocket', it); ui._sfx(ok2 ? 'equip' : 'error'); ui._refreshNow(); },
+          { note: TX.sockets.thisItemHasN + n + TX.sockets.ofSocketsTheNext + (n + 1) + TX.sockets.costsMoreStill });
+      } }, ui._icon(it.icon, 32),
+        h('span', { class: 'n', style: 'color:' + ui._rarityColor(it.rarity) }, it.name, h('small', { text: r.where + ' · ' + TX.sockets.sockets + n + '/6' + (cost ? TX.sockets.nextOne + (n + 1) : '') })),
+        h('span', { class: cost ? ((p.gold || 0) >= cost.gold ? 'ed-gold' : 'ed-bad') : 'ed-dim', text: cost ? fmt(cost.gold) + ' g' : TX.sockets.full }));
+      if (!cost || (p.gold || 0) < cost.gold) b.style.opacity = '.7';
+      return b;
+    });
+    return h('div', { class: 'ed-body' }, h('div', { class: 'ed-note', style: 'margin-bottom:6px', text: TX.sockets.chooseAnItemThe }), rows.length ? rows : h('div', { class: 'ed-note', text: TX.sockets.youCarryNothingTo }));
   }
 
   // Mystic: reroll one affix of a rare-or-better item for gem dust + gold (R3.2). Pick the item, then the line to change.
@@ -299,6 +324,7 @@
     if (r && r.mats) parts.push(ui._matsText ? ui._matsText(r.mats) : 'materials');
     if (r && r.mark) parts.push(r.mark + TX.npc.mark + (r.mark > 1 ? 's' : ''));
     if (r && r.tome) parts.push(r.tome + TX.npc.skillPoint + (r.tome > 1 ? 's' : ''));
+    if (r && r.crate) parts.push('+' + r.crate + ' crate slots');
     if (r && r.loyalty) parts.push('+' + Math.round((r.loyalty.amount || 0.1) * 100) + TX.npc.crate + (r.loyalty.kind === 'salvage' ? 'salvage' : 'sell') + TX.npc.rate);
     return parts.join(', ');
   }
@@ -401,6 +427,7 @@
       else if (view.tab === 'sell') body = sellTab(vrole, p);
       else if (view.tab === 'forge') body = forgeTab(p);
       else if (view.tab === 'gamble') body = gambleTab(p);
+      else if (view.tab === 'sockets') body = socketsTab(p);
       else if (view.tab === 'heal') body = healTab(p);
       else if (view.tab === 'enchant') body = enchantTab(p);
       else if (view.tab === 'quests') body = h('div', { class: 'ed-body' }, questList(true, role, view.person && view.person.id));

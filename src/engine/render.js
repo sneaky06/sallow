@@ -138,7 +138,7 @@
       const gs = S.groundItems || [], n = Math.min(gs.length, 120);
       for (let i = 0; i < n; i++) {
         const g = gs[i], r = g && g.item && C.RARITY[g.item.rarity];
-        if (r && glowOf(g.item.rarity) >= 3 && Math.random() < 0.45 && (!map.explored || map.explored[Math.floor(g.y) * map.w + Math.floor(g.x)])) {
+        if (r && glowOf(g.item.rarity) >= 3 && filterAllows(g) && Math.random() < 0.45 && (!map.explored || map.explored[Math.floor(g.y) * map.w + Math.floor(g.x)])) {
           U.fx.particle(g.x + (Math.random() - 0.5) * 0.5, g.y + (Math.random() - 0.5) * 0.5, 2, 0, 0, 26 + Math.random() * 20, 0.6, 1, Math.random() < 0.3 ? '#ffffff' : r.color, -4);
         }
       }
@@ -322,6 +322,75 @@
   function npcLook(e) {
     const N = G.game && G.game.NPCS;
     return N && N[e.role] ? null : ROLE_LOOK[e.role] || null;
+  }
+
+  // R16 path readability: map.route (the main way through: [{x,y}], flat [x,y,...] or a w*h Uint8Array mask) gets a faint warm
+  // glow on its floor, map.openings ([{x,y}] doorways / gaps into rooms) a pair of small lit notches. After lighting, subtle.
+  const routes = new WeakMap();
+  function routeCells(map) {
+    let r = routes.get(map);
+    if (r) return r;
+    const R0 = map.route, n = map.w * map.h, out = [];
+    if (R0 && R0.length === n && typeof R0[0] === 'number' && !Array.isArray(R0)) { for (let i = 0; i < n; i++) if (R0[i]) out.push(i); }
+    else if (Array.isArray(R0)) {
+      if (R0.length && typeof R0[0] === 'number') { for (let i = 0; i + 1 < R0.length; i += 2) out.push((R0[i + 1] | 0) * map.w + (R0[i] | 0)); }
+      else for (let i = 0; i < R0.length; i++) { const c = R0[i]; if (c && isFinite(c.x) && isFinite(c.y)) out.push((c.y | 0) * map.w + (c.x | 0)); }
+    }
+    r = { cells: out, ops: Array.isArray(map.openings) ? map.openings.filter(function (o) { return o && isFinite(o.x) && isFinite(o.y); }) : [] };
+    routes.set(map, r);
+    return r;
+  }
+  let routeTile = null;
+  function drawRoute(ctx, map, ox, oy, W, H) {
+    if (!map.route && !map.openings) return;
+    const R0 = routeCells(map), exp = map.explored, vis = map.kind !== 'town' ? map.visible : null, mw = map.w;
+    if (!routeTile) {
+      routeTile = U.makeCanvas(64, 32);
+      const x = routeTile.getContext('2d'), g = x.createRadialGradient(32, 16, 2, 32, 16, 32);
+      g.addColorStop(0, 'rgba(255,190,120,1)'); g.addColorStop(1, 'rgba(255,190,120,0)');
+      x.fillStyle = g; x.beginPath(); x.moveTo(0, 16); x.lineTo(32, 0); x.lineTo(64, 16); x.lineTo(32, 32); x.closePath(); x.fill();
+    }
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.imageSmoothingEnabled = true;
+    for (let k = 0; k < R0.cells.length; k++) {
+      const i = R0.cells[k];
+      if (exp && !exp[i]) continue;
+      const tx = i % mw, ty = (i / mw) | 0, sx = (tx - ty) * HW - ox, sy = (tx + ty) * HH - oy;
+      if (sx < -32 || sy < -16 || sx > W + 32 || sy > H + 16) continue;
+      ctx.globalAlpha = (vis && !vis[i] ? 0.06 : 0.13) + 0.05 * Math.sin(V.time * 1.2 - k * 0.25);    // a slow pulse travels along the route
+      ctx.drawImage(routeTile, sx - 16, sy, 32, 16);
+    }
+    ctx.imageSmoothingEnabled = false;
+    ctx.globalCompositeOperation = 'source-over';
+    for (let k = 0; k < R0.ops.length; k++) {
+      const o = R0.ops[k], i = (o.y | 0) * mw + (o.x | 0);
+      if (exp && !exp[i]) continue;
+      const x = o.x + 0.5, y = o.y + 0.5, sx = Math.round((x - y) * HW - ox), sy = Math.round((x + y) * HH - oy);
+      if (sx < -20 || sy < -20 || sx > W + 20 || sy > H + 20) continue;
+      ctx.globalAlpha = 0.55 + 0.2 * Math.sin(V.time * 2 + k);
+      ctx.fillStyle = '#e8c890';
+      ctx.fillRect(sx - 13, sy - 1, 4, 1); ctx.fillRect(sx - 12, sy, 2, 1);
+      ctx.fillRect(sx + 9, sy - 1, 4, 1); ctx.fillRect(sx + 10, sy, 2, 1);
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  // R16 loot filter: G.items.lootFilterAllows(item) === false hides a ground item (the items team owns the rules; gold,
+  // lore, quest, Legendary tiers and sets always pass there). Asked at most twice a second per item; missing → shown.
+  const lfCache = new Map();
+  let lfSettings = null;
+  function filterAllows(g) {
+    const fn = G.items && G.items.lootFilterAllows, item = g && g.item;
+    if (typeof fn !== 'function' || !item) return true;
+    const st = G.state.settings;
+    if (st !== lfSettings) { lfSettings = st; lfCache.clear(); }
+    let c = lfCache.get(g.id);
+    if (c && V.time - c.t < 0.5 && V.time >= c.t) return c.ok;
+    let ok = true;
+    try { ok = fn(item) !== false; } catch (err) { ok = true; }
+    if (!c) { if (lfCache.size > 600) lfCache.clear(); c = { t: 0, ok: true }; lfCache.set(g.id, c); }
+    c.t = V.time; c.ok = ok;
+    return ok;
   }
 
   // R12 quest markers above NPCs: G.meta.npcQuestState(role, else id) → null | 'available' | 'active' | 'ready',
@@ -997,6 +1066,7 @@
       if (!g || !isFinite(g.x) || !isFinite(g.y)) continue;
       const idx = Math.floor(g.y) * mw + Math.floor(g.x);
       if (exp && !exp[idx]) continue;
+      if (!filterAllows(g)) continue;                       // R16: filtered-out loot is not shown at all
       if (seen.get(g.id) === undefined) { if (seen.size > 500) seen.clear(); seen.set(g.id, spill(g)); }
       if (g.pileId == null) { pushItem(1, g, g.x, g.y, -0.3, true); continue; }
       let pl = pileMap.get(g.pileId);
@@ -1141,6 +1211,7 @@
       }
     }
     drawSpills(ctx, ox, oy);
+    drawRoute(ctx, map, ox, oy, W, H);
     drawGaps(ctx, ox, oy, W, H, map);
     drawEmbers(ctx, ox, oy, W, H, map);
     for (let i = 0; i < nBadges; i++) {           // pile count badges, after lighting so they stay readable
@@ -1268,8 +1339,9 @@
     water: abgr(50, 100, 170, 235), lava: abgr(230, 100, 30, 235), door: abgr(190, 140, 70, 240), grass: abgr(70, 110, 66, 230),
     deepWater: abgr(22, 44, 84, 235), deepLava: abgr(255, 170, 40, 235), chasm: abgr(14, 10, 20, 235), blocked: abgr(30, 28, 36, 235),
     path: abgr(150, 124, 92, 235), down: abgr(255, 150, 40, 255), up: abgr(140, 200, 255, 255),
+    charted: abgr(84, 80, 92, 140), chartedWall: abgr(44, 40, 52, 140),
   };
-  const MM_PROP = { chute: '#5be0c8', surface_crate: '#d8a050', portal: '#b65bff', waypoint: '#4ac8ff', dungeon_entrance: '#ff7a2a', stash: '#ffd94a', shrine: '#fff0a0', chest: '#e8b040', corpse: '#7fe8ff' };
+  const MM_PROP = { inn: '#ffb050', inn_fire: '#ffb050', chute: '#5be0c8', surface_crate: '#d8a050', portal: '#b65bff', waypoint: '#4ac8ff', dungeon_entrance: '#ff7a2a', stash: '#ffd94a', shrine: '#fff0a0', chest: '#e8b040', corpse: '#7fe8ff' };
 
   E.drawMinimap = function (ctx, w, h) {
     if (!ctx || !(w > 0) || !(h > 0)) return;
@@ -1285,9 +1357,12 @@
     const exp = map.explored && map.explored.length === tiles.length ? map.explored : null;
     const tnt = map.taint && map.taint.length === tiles.length ? map.taint : null;
     const vis = map.kind !== 'town' && map.visible && map.visible.length === tiles.length ? map.visible : null;
+    // R16: map.revealed (true or Uint8Array) charts the map without lifting the fog in the world view (relic maps etc.)
+    const rev = map.revealed === true ? true : map.revealed && map.revealed.length === tiles.length ? map.revealed : null;
     for (let i = 0; i < mw * mh; i++) {
       const t = tiles[i];
-      if (t === T.VOID || (exp && !exp[i])) { mm32[i] = 0; continue; }
+      if (t === T.VOID) { mm32[i] = 0; continue; }
+      if (exp && !exp[i]) { mm32[i] = rev && (rev === true || rev[i]) ? (C.WALKABLE[t] ? MMC.charted : t === T.WALL ? MMC.chartedWall : 0) : 0; continue; }
       const lit = !vis || vis[i];
       mm32[i] = t === T.WALL ? (lit ? MMC.wall : MMC.wallDim) : t === T.WATER ? MMC.water : t === T.LAVA ? MMC.lava : t === T.DOOR ? MMC.door
         : t === T.STAIRS_DOWN ? MMC.down : t === T.STAIRS_UP ? MMC.up : t === T.GRASS ? MMC.grass : t === T.PATH || t === T.BRIDGE ? MMC.path : t === T.DEEP_WATER ? MMC.deepWater : t === T.DEEP_LAVA ? MMC.deepLava : t === T.CHASM ? MMC.chasm
@@ -1299,6 +1374,8 @@
     const whole = w >= 220 || !hasP;
     const s = whole ? Math.min(w, h * 2) / (mw + mh) * 0.98 : Math.max(1.5, w / 44);
     const cx = whole ? mw / 2 : p.x, cy = whole ? mh / 2 : p.y;
+    // remembered for mapPick (taps on the full map are in the same canvas pixels as w / h)
+    pick.map = map; pick.w = w; pick.h = h; pick.s = s; pick.cx = cx; pick.cy = cy; pick.whole = whole;
     ctx.imageSmoothingEnabled = false;
     ctx.beginPath(); ctx.rect(0, 0, w, h); ctx.clip();
     ctx.translate(w / 2, h / 2);
@@ -1324,6 +1401,14 @@
       if (!lm || lm.id !== 'dash_gap' || !Array.isArray(lm.gap)) continue;
       for (let j = 0; j < lm.gap.length; j++) { const g = lm.gap[j]; if (!exp || exp[g.y * mw + g.x]) mark(g.x + 0.5, g.y + 0.5, big * 0.9, '#9fe0ff'); }
     }
+    // R16 left-behind loot (bag was full): a pulsing magenta pin with a dark rim until it is picked up
+    const gis = S.groundItems || [], on = (performance.now() % 900) < 600;
+    for (let i = 0; i < gis.length; i++) {
+      const g = gis[i];
+      if (!leftBehind(g) || !isFinite(g.x) || !isFinite(g.y) || (exp && !exp[Math.floor(g.y) * mw + Math.floor(g.x)])) continue;
+      mark(g.x, g.y, big * 1.5, '#0b0910');
+      mark(g.x, g.y, big * (on ? 1.15 : 0.9), '#ff5ad0');
+    }
     const ents = S.entities || [];
     for (let i = 0; i < ents.length; i++) {
       const e = ents[i];
@@ -1336,5 +1421,54 @@
       mark(p.x, p.y, big * 1.1, (performance.now() % 600) < 420 ? '#ffffff' : '#ffd94a');
     }
     ctx.restore();
+  };
+
+  // ---------------------------------------------------------------- R16 map tap: what is under (sx, sy)?
+  // sx, sy = pixels on the canvas last drawn with drawMinimap (the same units as its w / h). Returns the nearest discovered
+  // thing within a finger's reach → { kind, name, x, y } (x, y in tiles), or null. Only explored tiles count.
+  const pick = { map: null, w: 0, h: 0, s: 1, cx: 0, cy: 0, whole: false };
+  function leftBehind(g) { return !!g && (g.leftBehind === true || !!(g.item && g.item.leftBehind === true)); }
+  const PICK_PROP = {
+    chute: 'Chute', surface_crate: 'Surface crate', portal: 'Town portal', waypoint: 'Waypoint', dungeon_entrance: 'Way down', stash: 'Stash',
+    shrine: 'Shrine', chest: 'Chest', corpse: 'Your corpse', campfire: 'Campfire', inn: 'The inn', inn_fire: 'Fire at the inn', well: 'Well', fountain: 'Fountain',
+  };
+  E.mapPick = function (sx, sy) {
+    const S = G.state, map = S.map;
+    if (!map || pick.map !== map || !(pick.s > 0) || !isFinite(sx) || !isFinite(sy)) return null;
+    const a = (sx - pick.w / 2) / pick.s, b = (sy - pick.h / 2) * 2 / pick.s;      // a = x - y, b = x + y (relative)
+    const wx = pick.cx + (a + b) / 2, wy = pick.cy + (b - a) / 2;
+    const reach = Math.max(1.2, 9 / pick.s), mw = map.w;
+    const exp = map.explored && map.explored.length === map.tiles.length ? map.explored : null;
+    const seen = function (x, y) { const tx = Math.floor(x), ty = Math.floor(y); return tx >= 0 && ty >= 0 && tx < mw && ty < map.h && (!exp || exp[ty * mw + tx]); };
+    let best = null, bd = reach;
+    const consider = function (kind, name, x, y, bias) {
+      if (!seen(x, y)) return;
+      const d = Math.hypot(x - wx, y - wy) - (bias || 0);
+      if (d < bd) { bd = d; best = { kind: kind, name: name, x: Math.round(x * 10) / 10, y: Math.round(y * 10) / 10 }; }
+    };
+    for (let i = 0; i < map.tiles.length; i++) {
+      const t = map.tiles[i];
+      if (t === T.STAIRS_DOWN || t === T.STAIRS_UP) consider('stairs', t === T.STAIRS_DOWN ? 'Stairs down' : 'Stairs up', (i % mw) + 0.5, ((i / mw) | 0) + 0.5, 0.3);
+    }
+    const props = map.props || [];
+    for (let i = 0; i < props.length; i++) {
+      const pr = props[i];
+      if (!pr || !PICK_PROP[pr.type] || (pr.used && pr.type !== 'chest')) continue;
+      consider(pr.type === 'shrine' && pr.look === 'rift_shrine' ? 'shrine' : pr.type, pr.name || (pr.look === 'rift_shrine' ? 'Rift shrine' : PICK_PROP[pr.type]), pr.x + 0.5, pr.y + 0.5, 0.2);
+    }
+    const camps = Array.isArray(map.camps) ? map.camps : [];
+    for (let i = 0; i < camps.length; i++) { const c = camps[i]; if (c && c.fire) consider('camp', c.name || 'Camp', c.fire.x + 0.5, c.fire.y + 0.5, 0.3); }
+    const lms = Array.isArray(map.landmarks) ? map.landmarks : [];
+    for (let i = 0; i < lms.length; i++) { const l = lms[i]; if (l && l.name) consider('landmark', l.name, l.x + (l.w || 1) / 2, l.y + (l.h || 1) / 2); }
+    const evs = Array.isArray(map.events) ? map.events : [];
+    for (let i = 0; i < evs.length; i++) { const v = evs[i]; if (v && isFinite(v.x) && isFinite(v.y)) consider('event', v.name || 'Event', v.x + 0.5, v.y + 0.5, 0.2); }
+    const gis = S.groundItems || [];
+    for (let i = 0; i < gis.length; i++) {
+      const g = gis[i];
+      if (leftBehind(g)) consider('pile', 'Left behind: ' + String((g.item && g.item.name) || 'loot'), g.x, g.y, 0.5);
+    }
+    const ents = S.entities || [];
+    for (let i = 0; i < ents.length; i++) { const e = ents[i]; if (e && e.type === 'npc' && !e.dead) consider('npc', String(e.name || e.role || 'Someone'), e.x, e.y, 0.2); }
+    return best;
   };
 })();

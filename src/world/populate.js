@@ -154,13 +154,11 @@
       const nTorch = Math.max(1, Math.round(Math.min(6, (r.w + r.h) / 5) * deco.torch));
       if (r.lm) { roomTorches(r, nTorch); continue; }
       switch (r.type) {
-        case 'boss': {
-          for (let k = 0; k < 4; k++) {
-            const x = r.cx + (k & 1 ? 4 : -4), y = r.cy + (k & 2 ? 3 : -3);
-            if (canSolid(x, y)) add(ctx.theme === 'crypt' || ctx.theme === 'inferno' ? 'pillar' : 'crystal', x, y, true,
-              ctx.theme === 'crypt' || ctx.theme === 'inferno' ? null : { light: GLOW_LIGHT });
-          }
-          for (let k = rng.int(3, 6); k > 0; k--) softIn(r, 'bones');
+        case 'boss': {          // fixed set pieces (R16): colonnade hall (crypt, inferno) or crystal ring (caves, abyss)
+          const hall = ctx.theme === 'crypt' || ctx.theme === 'inferno';
+          const spots = hall ? [[-6, -4], [-3, -4], [3, -4], [6, -4], [-6, 4], [-3, 4], [3, 4], [6, 4]] : [[-4, -3], [4, -3], [-4, 3], [4, 3]];
+          for (const s of spots) if (canSolid(r.cx + s[0], r.cy + s[1])) add(hall ? 'pillar' : 'crystal', r.cx + s[0], r.cy + s[1], true, hall ? null : { light: GLOW_LIGHT });
+          for (let k = 0; k < 4; k++) softIn(r, 'bones');
           roomTorches(r, 6);
           break;
         }
@@ -299,7 +297,7 @@
 
     // ---- monsters ----------------------------------------------------------------------------------------
     // Budget counts every pack member; an elite is costed at 3 (leader + whatever retinue the game adds).
-    let left = Math.round(Math.min(68, 26 + depth * 2) * (ctx.isBoss ? 0.85 : 1) * (ctx.cleansed ? 0.5 : 1));
+    let left = Math.round(Math.min(68, 26 + depth * 2) * (ctx.isBoss ? 0.45 : 1) * (ctx.cleansed ? 0.5 : 1));
     const pMin = 2 + Math.min(2, Math.floor(depth / 8)), pMax = Math.min(7, 4 + Math.floor(depth / 5));
     const spawnable = function (x, y) {
       if (!gen.interior(ctx, x, y)) return false;

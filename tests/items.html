@@ -1065,7 +1065,8 @@ function harness() {
     it.sockets = [I.rollItem({ baseId: 'gem_ruby_3' }), I.rollItem({ baseId: 'blood_fury_1' })];
     const pv = I.salvagePreview(idx(it));
     ok(pv.gems === 2 && pv.gemdust === D.GEM_DUST[2] + D.BLOOD_DUST[0] && pv.materials.dust > 0, 'salvagePreview counts socketed gems and their dust', JSON.stringify(pv));
-    const pv0 = I.salvagePreview(idx(give({ level: 30, slot: 'helm', rarity: 'uncommon' })));
+    const noGem = give({ level: 30, slot: 'helm', rarity: 'uncommon' }); delete noGem.sockets;
+    const pv0 = I.salvagePreview(idx(noGem));
     ok(pv0.gems === 0 && pv0.gemdust === 0, 'no gems -> no warning');
     eq(I.salvagePreview(55).gems, 0, 'empty cell preview is safe');
     I.salvage(idx(it));
@@ -1911,7 +1912,8 @@ function harness() {
   section('R8.13 crate capacity', function () {
     const p = mkPlayer('warrior', 30);
     S.scene = 'dungeon'; S.settings = { junk: { maxRarity: 'common', action: 'sell', auto: false, keepUpgrades: false, keepSocketed: false } };
-    eq(I.SURFACE_SIZE, 300, 'SURFACE_SIZE is 300');
+    S.flags = S.flags || {}; S.flags.crateBonus = 275;
+    eq(I.SURFACE_SIZE, 300, 'SURFACE_SIZE reaches 300 with the full crate bonus');
     S.surface = []; for (let i = 0; i < I.SURFACE_SIZE - 2; i++) S.surface.push(I.rollItem({ level: 5, rarity: 'common', slot: 'helm' }));
     eq(I.surfaceSpace(), 2, 'surfaceSpace');
     const cheap = give({ level: 2, rarity: 'common', slot: 'belt' }), dear = give({ level: 40, rarity: 'common', slot: 'chest' }), mid = give({ level: 20, rarity: 'common', slot: 'boots' });
@@ -2091,6 +2093,133 @@ function harness() {
     I.buyback(0);
     gs = T.events['gold:spent'] || [];
     ok(gs.length === 1 && gs[0].what === 'buyback' && gs[0].role === 'merchant', 'buyback emits gold:spent');
+  });
+
+  section('R16 crate size, loot filter, left-behind piles', function () {
+    const p = mkPlayer('warrior', 40);
+    S.flags = { maxDepth: 1, waypoints: [1], portalDepth: 0, visits: 0, kills: 0, deaths: 0 };
+    eq(I.surfaceSize(), 25, 'the crate starts at 25');
+    eq(I.SURFACE_SIZE, 25, 'SURFACE_SIZE is a getter');
+    S.flags.crateBonus = 100; eq(I.surfaceSize(), 125, 'grows with state.flags.crateBonus');
+    S.flags.crateBonus = 9999; eq(I.surfaceSize(), 300, 'never above 300');
+    S.flags.crateBonus = 0;
+    // left behind
+    for (let i = 0; i < C.INV_SIZE; i++) p.inventory[i] = I.rollItem({ level: 5, rarity: 'common', slot: 'belt' });
+    const it = I.rollItem({ level: 20, rarity: 'rare', slot: 'boots' }), it2 = I.rollItem({ level: 20, rarity: 'rare', slot: 'helm' });
+    S.groundItems = [];
+    const g = I.dropItemAt(3.5, 3.5, it); I.dropItemAt(3.5, 3.5, it2);
+    ok(I.pickup(g.id) === false && S.groundItems.every(function (x) { return x.leftBehind === true; }), 'a pickup refused for a full bag marks the pile leftBehind');
+    const lb = I.getLeftBehind();
+    ok(lb.length === 1 && lb[0].count === 2 && lb[0].pileId, 'getLeftBehind lists the pile', JSON.stringify(lb));
+    S.groundItems = [];
+    const g3 = I.dropItemAt(8.5, 8.5, I.rollItem({ level: 20, rarity: 'rare', slot: 'ring' }));
+    const out = I.pickupPile(g3.pileId);
+    ok(out.full && S.groundItems[0].leftBehind === true, 'pickupPile with a full bag marks it too');
+    p.inventory.fill(null); S.groundItems = [];
+    // loot filter
+    const common = I.rollItem({ level: 20, rarity: 'common', slot: 'helm' }), rare = I.rollItem({ level: 20, rarity: 'rare', slot: 'helm' }), leg = I.rollItem({ level: 30, rarity: 'legendary' });
+    const sets = I.rollItem({ level: 30, rarity: 'set' }), gem = I.rollItem({ baseId: 'gem_ruby_1' }), lore = D.makeLore(1);
+    ok([common, rare, leg, sets, gem, lore].every(I.lootFilterAllows), 'everything passes with no filter');
+    I.setLootFilter({ enabled: true, maxRarity: 'uncommon' });
+    ok(!I.lootFilterAllows(common) && I.lootFilterAllows(rare) && I.lootFilterAllows(leg) && I.lootFilterAllows(sets) && I.lootFilterAllows(gem) && I.lootFilterAllows(lore), 'filtered by the matchFilter fields; Legendary, sets, gems, lore always pass');
+    const gc = I.dropItemAt(2.5, 2.5, common), gr = I.dropItemAt(2.5, 2.5, rare), gl = I.dropItemAt(2.5, 2.5, lore), gold = I.dropItemAt(2.5, 2.5, D.goldItem(30));
+    ok(I.getPile(gc.pileId).every(function (x) { return x.item !== common; }) && I.getPile(gc.pileId).some(function (x) { return x.item === rare; }), 'filtered items are hidden from the pile');
+    ok(I.pickup(gc.id) === false && S.groundItems.some(function (x) { return x.item === common; }), 'and cannot be picked up');
+    const pp = I.pickupPile(gc.pileId);
+    ok(pp.items.indexOf(rare) >= 0 && pp.items.indexOf(common) < 0 && S.groundItems.some(function (x) { return x.item === common; }), 'pickupPile skips them and leaves them on the floor');
+    I.setLootFilter({ enabled: false, maxRarity: 'uncommon' });
+    ok(I.lootFilterAllows(common), 'loosening the filter brings them back');
+    ok(I.saveLootFilterPreset('Junk', { enabled: true, maxRarity: 'common' }) && I.getLootFilterPresets().Junk && I.deleteLootFilterPreset('Junk'), 'presets');
+    S.settings = {}; S.groundItems = [];
+  });
+
+  section('R16.8 sockets and the Socket Tool', function () {
+    const p = mkPlayer('warrior', 40);
+    p.gold = 1e7;
+    const w = I.rollItem({ level: 30, rarity: 'rare', baseId: 'sword_5' }); delete w.sockets; I.addToInventory(w);
+    const costs = [];
+    for (let n = 0; n < 6; n++) { costs.push(I.socketCost(w).gold); ok(I.addSocket(idx(w)), 'blacksmith adds socket ' + (n + 1)); }
+    ok(costs.every(function (c, i) { return i === 0 || c > costs[i - 1] * 2; }) && w.sockets.length === 6, 'cost rises exponentially', costs.join());
+    ok(I.socketCost(w) === null && I.addSocket(idx(w)) === false && w.sockets.length === 6, 'six sockets is the maximum');
+    S.scene = 'dungeon';
+    const x = I.rollItem({ level: 30, rarity: 'rare', slot: 'helm' }); delete x.sockets; I.addToInventory(x);
+    ok(I.addSocket(idx(x)) === false && !x.sockets, 'the blacksmith is town-only');
+    S.scene = 'town';
+    const g0 = p.gold; I.addSocket(idx(x));
+    ok(g0 - p.gold > 0, 'paying gold', g0 - p.gold);
+    ok(I.socketFailChance(I.rollItem({ level: 30, rarity: 'common', slot: 'helm' })) < I.socketFailChance(I.rollItem({ level: 30, rarity: 'rare', slot: 'helm' })) &&
+      I.socketFailChance(I.rollItem({ level: 30, rarity: 'rare', slot: 'helm' })) < I.socketFailChance(I.rollItem({ level: 30, rarity: 'rift' })), 'failure chance rises with rarity');
+    // tool
+    const y = I.rollItem({ level: 30, rarity: 'common', slot: 'boots' }); delete y.sockets; I.addToInventory(y);
+    const t = give({ baseId: 'socket_tool', level: 20 });
+    ok(t && t.name === 'Socket Tool' && I.useItem(idx(t)) === false, 'Socket Tool item; it is used from the item menu');
+    let ok1 = 0, fail1 = 0, itemLost = 0, toolsLeft = 0;
+    const gold0 = p.gold;
+    for (let i = 0; i < 200; i++) {
+      const z = I.rollItem({ level: 30, rarity: 'common', slot: 'boots' }); delete z.sockets;
+      p.inventory.fill(null); p.inventory[0] = z; p.inventory[1] = I.rollItem({ baseId: 'socket_tool', level: 20 });
+      const r = I.addSocket(0, { tool: 1 });
+      if (r) ok1++; else fail1++;
+      if (!p.inventory[0]) itemLost++;
+      if (p.inventory[1]) toolsLeft++;
+    }
+    ok(ok1 > 150 && fail1 > 0 && itemLost === 0 && toolsLeft === 0 && p.gold === gold0, 'the tool is always consumed, sometimes fails, never destroys the item, costs no gold', ok1 + ' ok / ' + fail1 + ' failed');
+    let drops = 0;
+    for (let i = 0; i < 3000; i++) I.rollLoot({ source: 'boss', level: 20 }).items.forEach(function (q) { if (q.baseId === 'socket_tool') drops++; });
+    ok(drops > 0 && drops < 600, 'Socket Tools drop rarely', drops + ' per 3000 boss kills');
+  });
+
+  section('R16.9 requirements and class armour', function () {
+    const p = mkPlayer('warrior', 40);
+    p.attrs = { str: 60, dex: 10, int: 5, vit: 30 };
+    const plate = I.rollItem({ level: 40, rarity: 'rare', baseId: 'heavy_chest_5' }); delete plate.classArmor; D.setReq(plate); const robe = I.rollItem({ level: 40, rarity: 'rare', baseId: 'cloth_chest_5' });
+    const sword = I.rollItem({ level: 40, rarity: 'rare', baseId: 'sword_5' }), bow = I.rollItem({ level: 40, rarity: 'rare', baseId: 'bow_5' }), ring = I.rollItem({ level: 40, rarity: 'rare', slot: 'ring' });
+    ok(plate.req.str > 0 && robe.req.int > 0 && sword.req.str > 0 && bow.req.dex > 0 && Object.keys(ring.req).length === 0, 'requirements by weight class and weapon type; jewellery has none');
+    const young = I.rollItem({ level: 4, rarity: 'rare', baseId: 'heavy_chest_1' });
+    ok(Object.keys(young.req).length === 0, 'no attribute requirement below item level 8');
+    let ca = 0, n = 0;
+    for (let i = 0; i < 1000; i++) { const a = I.rollItem({ level: 40, rarity: 'rare', slot: 'chest' }); n++; if (a.classArmor) { ca++; if (a.req[D.CLASS[a.classArmor].primary] === undefined) ca -= 1000; } }
+    ok(ca > 100 && ca < 350, 'about a fifth of armour is class armour, requiring the class primary stat', ca + '/' + n);
+    const mr = I.meetsRequirements(robe, p);
+    ok(!mr.ok && mr.missing[0].kind === 'int' && /Intelligence/.test(mr.text), 'meetsRequirements names what is missing', JSON.stringify(mr));
+    p.attrs.str = 200; p.level = 40;
+    ok(I.meetsRequirements(plate, p).ok, 'enough Strength: ok');
+    p.attrs.str = 5;
+    const wp = give({ level: 40, rarity: 'rare', baseId: 'heavy_chest_5' });
+    clearEvents();
+    ok(I.equip(idx(wp)) === false && T.events['ui:toast'].length === 1 && /Strength/.test(T.events['ui:toast'][0].text), 'equip refuses with a clear reason');
+    const tip = I.getTooltip(wp);
+    ok(tip.requirements && !tip.requirements.ok && tip.lines.some(function (l) { return /Requires \d+ Strength/.test(l.text) && l.color === '#ff5b5b'; }), 'the tooltip shows the unmet requirement in red');
+    ok(I.verdict(wp) === null, 'no verdict for what you cannot equip');
+    p.attrs.str = 200;
+    const w2 = give({ level: 40, rarity: 'rare', baseId: 'heavy_chest_5' }); p.attrs.str = 5;
+    p.equipment.chest = I.rollItem({ level: 1, rarity: 'common', baseId: 'heavy_chest_1' });
+    ok(I.verdictSoon(w2) === true && I.getTooltip(w2).soon === true, 'an unusable upgrade is flagged "soon"');
+    p.attrs.str = 200;
+    ok(I.verdictSoon(w2) === false && I.verdict(w2) === 'up', 'once the requirement is met it is a plain upgrade');
+    // old saves
+    const old = JSON.parse(JSON.stringify(plate)); delete old.req; delete old.classArmor;
+    p.inventory[0] = old; I.migrateState();
+    ok(old.req && old.req.str === plate.req.str, 'old items derive requirements on load');
+    p.attrs = undefined;
+    ok(I.meetsRequirements(plate, p).ok, 'players without attribute data only face the level requirement');
+  });
+
+  section('R16.9 worn gear is never stripped by requirements', function () {
+    const p = mkPlayer('warrior', 40);
+    p.attrs = { str: 5, dex: 5, int: 5, vit: 5 };
+    const old = I.rollItem({ level: 40, rarity: 'rare', baseId: 'heavy_chest_5' }); delete old.req; delete old.classArmor;
+    p.equipment.chest = old; p.inventory[0] = I.rollItem({ level: 40, rarity: 'rare', baseId: 'sword_5' }); delete p.inventory[0].req;
+    const before = I.getEquipmentMods(p).armor;
+    I.migrateState(); I.migrateItem && D.migrateItem(old);
+    ok(p.equipment.chest === old && old.req && old.req.str > 5 && !I.meetsRequirements(old, p).ok, 'loading an old save derives requirements but keeps the item equipped');
+    eq(I.getEquipmentMods(p).armor, before, 'and it keeps working at full strength');
+    ok(I.getTooltip(old).lines.some(function (l) { return /Requires \d+ Strength/.test(l.text) && l.color === '#ff5b5b'; }), 'its unmet requirement shows in red');
+    const other = give({ level: 40, rarity: 'rare', baseId: 'heavy_helm_5' });
+    p.attrs.str = 500; I.equip(idx(other)); p.attrs.str = 5;
+    ok(p.equipment.helm === other && p.equipment.chest === old, 'requirements only gate new equips; equipping something else leaves worn gear alone');
+    G.emit('scene:changed', { scene: 'town' });
+    ok(p.equipment.chest === old && p.equipment.helm === other, 'scene changes never unequip');
   });
 
   section('Starter gear', function () {

@@ -308,3 +308,21 @@ Status: tests/combat.html → 484/484, 0 errors; real index.html with perks boug
   1 + 0.025·(L−15)^1.25 past level 15 (×2.2 life / ×1.7 damage at 30, ×3.9 / ×2.8 at 45).
 - XP per kill: −15% per level the hero is beyond 5 above the **floor** level (min 10%). Drops roll at the monster's (floor) level.
 - Player minions take the floor's level + 5 at most (they scaled with the hero before and would now outgrow the floor).
+
+## R16 Wave A (combat) — new file src/game/classgoals.js (manifest: last)
+Status: tests/combat.html → 494/494, 0 errors.
+- #9 Attributes: manual mode keeps `attrPoints` for `G.game.spendAttr(attr)` (stats follow `p.attrs`); auto-build still spends them.
+- #7 Loot filter: `G.items.lootFilterAllows(item)` (guarded; `G.game.lootAllowed`) — filtered items are skipped by taps, the LOOT
+  mode/button and single pickups (piles go through G.items.pickupPile, which applies it on the items side). Gold always passes.
+- #12 Packs: size ×(1 + 2% per depth past 3, max +60%) + 1 per 12 depths; from depth 12 single spawns may bring a second monster.
+- #13 Pathing: `game.unwedge(e)` at spawn (every monster after population, incl. legendary promotions and bosses); a movement
+  watchdog in moveToward (2.5 s, < 0.25 tiles → fresh path; twice → nudge ≤ 1.5 tiles toward the target; `game.unstuckCount`);
+  collision radius capped at 0.44 for non-bosses (1-tile corridors). Harness `runStuck({ floors, bossFloors })` (?real=1,
+  deterministic seeds): ordinary floors 1 stuck of 168 chasers, boss floors 4 of 144 (Choir adds), 0 wedged at spawn.
+- #14 Class goals: `G.game.CLASS_GOALS[classId]` (7 each: 4 shared — finish a perk branch, 20 ranks in a tree, Flow ×8, reach depth
+  30 — and 3 class feats), `G.game.getClassGoals() → [{ id, name, desc, goal, n, done, reward: { mark? | title? } }]`,
+  `state.flags.classGoals = { id: { n, done } }`, event `classgoal:done { id, reward }`. Marks are feats `goal_<id>` in player.feats;
+  titles go to `state.flags.titles`. Counted at: Shoulder Charge stuns, basic swings hitting 3+, act bosses killed (Warrior);
+  kills from 8+ tiles, kills while moving, Close Calls (Ranger); shatters, freezes, Close Calls within 1 s of a Blink (Sorcerer);
+  minion kills, Corpse Explosions, 8 minions at once (Necromancer). Names are placeholders for the story team.
+- Wave B data: harness `runTTK()` (?real=1) — see the round report.

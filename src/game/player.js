@@ -135,7 +135,9 @@
       game.playerHit(t, { pct: 120, type: 'phys', skill: false, melee: true });      // melee pays for its risk with harder swings
       // R8.11: the swing cleaves a short arc — everyone else in it takes half
       const sweep = p.bonus.staffSweep, arc = sweep ? K.around(p.x, p.y, 1.7) : K.arc(p, p.facing, 1.7, 0.85), splash = sweep ? 60 : (p.bonus.cleavePct || 60);          // perks Quarterstaff, Second Swing
-      for (let i = 0; i < arc.length; i++) if (arc[i] !== t && !arc[i].dead) game.playerHit(arc[i], { pct: splash, type: 'phys', skill: false, melee: true, noProc: true });
+      let others = 0;
+      for (let i = 0; i < arc.length; i++) if (arc[i] !== t && !arc[i].dead) { game.playerHit(arc[i], { pct: splash, type: 'phys', skill: false, melee: true, noProc: true }); others++; }
+      if (others >= 2 && game.goalAdd) game.goalAdd('w_cleave_three');          // R16 class goal
       return;
     }
     const bow = w.type === 'bow';
@@ -222,6 +224,7 @@
     if (sk.tags.indexOf('aoe') >= 0 && (sk.tg === 'melee' || sk.tg === 'self') && sk.tags.indexOf('summon') < 0) U.fx('ring', p.x, p.y, { radius: 2.4, color: sk.icon.color, duration: 0.25 });      // R8.11: aoe reads as aoe
     sk.cast(p, t, V, aim, sk, corpse);
     if (game.perkAfterCast) game.perkAfterCast(p, sk);
+    if (sk.id === 'corpse_explosion' && game.goalAdd) game.goalAdd('n_corpses');          // R16 class goal
     if (myth.echo_cast && sk.tg !== 'corpse' && sk.tg !== 'dir' && sk.tags.indexOf('mobility') < 0 && U.chance(25) && !(t && t.dead && (sk.tg === 'melee' || sk.tg === 'enemy'))) {
       U.text(p.x, p.y - 1.3, 'Echo', COL.shadow, true); U.fx('ring', p.x, p.y, { radius: 1.2, color: COL.shadow, duration: 0.3 }); U.sfx('cast');
       sk.cast(p, t, V, aim, sk, corpse);       // mythic: free second cast
@@ -391,6 +394,7 @@
         if (nl < 0.05) { nx = -Math.sin(ang); ny = Math.cos(ang); } else { nx /= nl; ny /= nl; }
         for (let s = 0; s < 6; s++) if (!W.move(e, nx * 0.2, ny * 0.2)) break;
         game.applyStatus(e, 'stun', 0.4);
+        if (game.goalAdd && !e.dead) game.goalAdd('w_charge_stun');          // R16 class goal
         if (e.ai) e.ai.path = null;
       }
       if (hit.length) { U.shake(3, 0.15); U.sfx('hit'); }
@@ -418,6 +422,7 @@
     setAnim(p, 'walk', 0.2);
     if (game.relicDash) game.relicDash(p, x0, y0);          // R7.10 relic dash powers
     if (game.perkDash) game.perkDash(p, x0, y0);          // R11 dash perks
+    game.lastDashT = S.time;
     if (game.noteStyle) game.noteStyle('dash');
     return true;
   };
@@ -568,6 +573,13 @@
   }
 
   // G.items.pickup with the midas mythic hooked in: gold picked up heals 2% and stacks +5% damage (6 s, up to 10).
+  // R16: the ground loot filter (G.items.lootFilterAllows) — filtered items are ignored by taps, LOOT and auto-pickup.
+  function lootAllowed(item) {
+    if (!item || !(G.items && G.items.lootFilterAllows)) return true;
+    try { return G.items.lootFilterAllows(item) !== false; } catch (err) { return true; }
+  }
+  game.lootAllowed = lootAllowed;
+
   function pickup(p, g) {
     if (!(G.items && G.items.pickup)) return false;
     const gold0 = p.gold, isGold = g.item && g.item.type === 'gold';
@@ -586,6 +598,7 @@
   // only on a long-press (input:longpress / G.game.openPileAt). Gold goes through pickup() so the midas mythic still fires.
   function takeGround(p, g) {
     const I = G.items, pid = g.pileId;
+    if (!lootAllowed(g.item)) return;          // R16 loot filter
     if (pid === undefined || pid === null || !(I && I.pickupPile && I.getPile)) { pickup(p, g); return; }
     let pile = null;
     try { pile = I.getPile(pid); } catch (err) { console.error('[game] getPile failed', err); pile = null; }
@@ -634,6 +647,7 @@
       if (d < bd) { bd = d; best = { type: 'npc', id: e.id }; }
     }
     for (const g of S.groundItems) {
+      if (!lootAllowed(g.item)) continue;
       const d = Math.hypot(g.x - p.x, g.y - p.y);
       if (d < bd) { bd = d; best = { type: 'item', id: g.id }; }
     }
@@ -661,7 +675,7 @@
     if (!e || !canAct()) return;
     const S = G.state, p = S.player, x = e.x, y = e.y;
     for (const g of S.groundItems) {          // R8.9: a tap on a pile always loots, even with a monster standing on it
-      if (g.item && g.item.type !== 'gold' && Math.hypot(g.x - x, g.y - y) < 0.55) { ctl.path = null; ctl.intent = { type: 'item', id: g.id }; return; }
+      if (g.item && g.item.type !== 'gold' && lootAllowed(g.item) && Math.hypot(g.x - x, g.y - y) < 0.55) { ctl.path = null; ctl.intent = { type: 'item', id: g.id }; return; }
     }
     let best = null, bd = 1e9;
     const foes = game.live.foes;
@@ -678,6 +692,7 @@
     }
     bd = 0.8; best = null;
     for (const g of S.groundItems) {
+      if (!lootAllowed(g.item)) continue;          // R16: filtered loot is invisible to taps
       const d = Math.hypot(g.x - x, g.y - y);
       if (d < bd) { bd = d; best = g; }
     }
@@ -712,7 +727,7 @@
     let best = null, bd = 1e9;
     const mv = G.input.move, mm = Math.hypot(mv.x, mv.y);
     for (const g of S.groundItems) {
-      if (!g.item || g.item.type === 'gold' || am.tried[g.id] > S.time || (g.pileId != null && am.tried['p' + g.pileId] > S.time)) continue;
+      if (!g.item || g.item.type === 'gold' || !lootAllowed(g.item) || am.tried[g.id] > S.time || (g.pileId != null && am.tried['p' + g.pileId] > S.time)) continue;
       const d = Math.hypot(g.x - p.x, g.y - p.y);
       let ok = d <= 2.4;
       if (!ok && d <= 4 && mm > 0.3) ok = ((g.x - p.x) * mv.x + (g.y - p.y) * mv.y) / (d * mm) > 0.8;          // walking toward it
@@ -947,5 +962,6 @@
     if (game.updateEvents) game.updateEvents(dt);
     if (game.updatePillars) game.updatePillars(dt);
     if (game.perkTick && !p.dead) game.perkTick(p, dt);          // R11 perk timers
+    if (game.goalTick && !p.dead) game.goalTick(p);
   };
 })();

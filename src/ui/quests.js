@@ -307,6 +307,8 @@
       L[rewards.loyalty.kind] = Math.min(0.3, Math.round(((L[rewards.loyalty.kind] || 0) + (+rewards.loyalty.amount || 0.1)) * 100) / 100);
       parts.push(TX.quests.betterCrate + (rewards.loyalty.kind === 'sell' ? 'sell' : 'salvage') + TX.npc.rate);
     }
+    // R16 challenge quests grow the surface crate (flags.crateBonus, up to 300 slots in all)
+    if (rewards.crate > 0) { S.flags.crateBonus = Math.min(275, ((S.flags.crateBonus | 0) + (rewards.crate | 0))); parts.push('+' + (rewards.crate | 0) + ' crate slots'); }
     if (rewards.gold) {
       p.gold = (p.gold || 0) + rewards.gold;
       G.emit('gold:changed', { gold: p.gold, delta: rewards.gold });

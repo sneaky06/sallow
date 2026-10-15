@@ -26,9 +26,11 @@
 
   function selectAll(ta) { try { ta.focus(); ta.select(); ta.setSelectionRange(0, ta.value.length); } catch (err) { /* ignore */ } }
 
-  ui._exportDialog = function () {
+  // lite: leave out the stash and the surface crate (much shorter; importing it keeps the ones already on that device)
+  ui._exportDialog = function (lite) {
+    lite = lite === true;                  // (a click handler passes the event)
     if (!G.meta || !G.meta.exportCode) return;
-    G.meta.exportCode().then(function (code) {
+    G.meta.exportCode({ lite: !!lite }).then(function (code) {
       if (!code) { ui.toast(TX.savecode.nothingToExportYet, '#ff5b5b'); return; }
       const ta = h('textarea', { class: 'ed-code', readonly: true, rows: '6', 'aria-label': 'Save code', spellcheck: 'false' });
       ta.value = code;
@@ -46,7 +48,8 @@
       };
       close = ui._modal(ui._dialog([h('div', { class: 'ed-h', text: TX.savecode.saveCode }),
         h('div', { class: 'ed-note', style: 'margin-bottom:6px', text: TX.savecode.pasteThisIntoImport }),
-        ta], [ui._btn(TX.savecode.copy, copy, 'gold'), ui._btn(TX.common.close, function () { close(); })]));
+        h('div', { class: 'ed-note', style: 'margin-top:4px', text: code.length.toLocaleString() + TX.savecode.characters + (lite ? TX.savecode.liteNote : '') }),
+        ta], [ui._btn(TX.savecode.copy, copy, 'gold'), ui._btn(lite ? TX.savecode.fullCode : TX.savecode.shorterCode, function () { close(); ui._exportDialog(!lite); }), ui._btn(TX.common.close, function () { close(); })]));
       setTimeout(function () { selectAll(ta); }, 50);
     });
   };

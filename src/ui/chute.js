@@ -8,6 +8,12 @@
   const TX = ui.S;
   const h = ui._h, fmt = ui._fmt;
 
+  // R16: the crate starts small and grows with challenge quests: G.items.surfaceSize() = 25 + flags.crateBonus
+  function crateSize() {
+    if (G.items && typeof G.items.surfaceSize === 'function') { try { const n = +G.items.surfaceSize(); if (n > 0) return n; } catch (err) { /* fall through */ } }
+    return (G.items && G.items.SURFACE_SIZE) || 25 + ((S.flags && S.flags.crateBonus) | 0);
+  }
+  ui._crateSize = crateSize;
   function surface() { if (!Array.isArray(S.surface)) S.surface = []; return S.surface; }
   ui._surfaceCount = function () { return Array.isArray(S.surface) ? S.surface.filter(Boolean).length : 0; };
   const has = function (fn) { return G.items && typeof G.items[fn] === 'function'; };
@@ -45,7 +51,7 @@
       ui._refreshNow();
     };
     // R8.13: the crate up top holds a fixed number of items; a full one refuses everything
-    const size = (G.items && G.items.SURFACE_SIZE) || C.SURFACE_SIZE || 20;
+    const size = crateSize();
     const used = surface().filter(Boolean).length;
     let space = size - used;
     if (G.items && typeof G.items.surfaceSpace === 'function') { try { space = G.items.surfaceSpace() | 0; } catch (err) { /* keep ours */ } }
@@ -171,7 +177,7 @@
 
   function surfaceRender(view) {
     surfaceView(view);
-    const size = (G.items && G.items.SURFACE_SIZE) || 300;
+    const size = crateSize();
     const list = syncGrid(view);
     // one pass: junk / wanted counts and the three mass-sell tiers
     let wantedN = 0, junkN = 0;

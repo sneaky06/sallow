@@ -119,6 +119,48 @@
   }
   ui._cell = cell;
 
+  // ---------- R16.9 requirements and R16.11 auto-compare ----------
+  const REQ = { str: 'Strength', dex: 'Dexterity', int: 'Intelligence', vit: 'Vitality' };
+  // stat requirements the items team puts on gear (item.req / item.requires = { str, dex, int }), red while you fall short; plus the reason
+  // G.items.canEquip(item) gives when it will refuse you
+  function reqLines(item) {
+    const out = [], p = S.player, need = item.req || item.requires || item.reqStats;
+    if (need && typeof need === 'object' && p) {
+      for (const k in REQ) {
+        if (!(need[k] > 0)) continue;
+        const have = (p.stats && p.stats[k]) || 0;
+        out.push(h('div', { class: 'ed-tipline ' + (have < need[k] ? 'ed-bad' : 'ed-note'), text: TX.req.requires + REQ[k] + ' ' + need[k] + (have < need[k] ? TX.req.youHave + Math.floor(have) + ')' : '') }));
+      }
+    }
+    if (item.slot && G.items && typeof G.items.canEquip === 'function' && !wornIn(item)) {
+      let r = null;
+      try { r = G.items.canEquip(item); } catch (err) { r = null; }
+      const why = r === false ? TX.req.cannotEquipYet : (r && r.ok === false ? (r.reason || TX.req.cannotEquipYet) : null);
+      if (why) out.push(h('div', { class: 'ed-tipline ed-bad', text: TX.req.cannotEquip + why }));
+    }
+    return out;
+  }
+  function equippedFor(item) {
+    const eq = (S.player && S.player.equipment) || {};
+    const slots = item.slot === 'ring' ? ['ring1', 'ring2'] : [item.slot];
+    return slots.map(function (s) { return eq[s]; }).filter(function (w) { return w && w !== item; });
+  }
+  // "This | Worn": the item beside what it would replace (both rings for a ring), with Power for each
+  function vsBlock(item) {
+    if (!item.slot || wornIn(item)) return null;
+    const worn = equippedFor(item);
+    const pw = function (x) { try { return G.items && G.items.power ? G.items.power(x) : null; } catch (err) { return null; } };
+    const cellOf = function (x, title) {
+      return h('div', { class: 'ed-vscell' }, h('small', { text: title }),
+        h('b', { style: 'color:' + (ui._ink(ui._rarityColor(x.rarity)) || '#222'), text: x.name }),
+        h('small', { text: (pw(x) != null ? TX.compare.power + pw(x) + ' · ' : '') + (x.mods || []).slice(0, 2).map(modText).join(', ') }));
+    };
+    const box = h('div', { class: 'ed-vs' });
+    if (!worn.length) { box.appendChild(h('div', { class: 'ed-note', text: TX.compare.nothingWornThere })); return box; }
+    worn.forEach(function (w, i) { box.appendChild(h('div', { class: 'ed-vsrow' }, cellOf(item, i ? '' : TX.compare.thisOne), cellOf(w, i ? '' : TX.compare.wornNow))); });
+    return box;
+  }
+
   // ---------- tooltip ----------
   // Simple by default (R3.4): name + tier, ONE headline number with its change vs what is worn, the affixes in plain
   // words, then the actions. Everything else (base stats, requirements, the full comparison) sits behind "Details".
@@ -200,6 +242,9 @@
         extraLines(item, null).forEach(function (n) { body.push(n); });
         const lvl = (S.player && S.player.level) || 1;
         if (item.reqLevel > lvl) body.push(h('div', { class: 'ed-tipline ed-bad', text: TX.inventory.requiresLevel + item.reqLevel }));
+        reqLines(item).forEach(function (n) { body.push(n); });
+        if (opts.compare !== false && opts.price == null) { const vs = vsBlock(item); if (vs) body.push(vs); }
+        else if (opts.compare !== false && opts.price != null) { const vs2 = vsBlock(item); if (vs2) body.push(vs2); }
       } else {
         // full view: every line the items team wrote; effect lines keep their plate
         let fxShown = 0;
@@ -427,7 +472,35 @@
       choose('Replace which ring?', ['ring1', 'ring2'].map(function (slot, i) {
         return { item: eq[slot], sub: i ? 'Second ring' : 'First ring', fn: function () { ok(call('equip', index, slot)); } };
       }));
-    } else ok(call('equip', index));
+    } else equipTry(index, item);
+  }
+  // a refused equip says why: the items module toasts it; when it does not, canEquip() supplies the reason
+  function equipTry(index, item, slot) {
+    const r = call('equip', index, slot);
+    if (r === false) {
+      ui._sfx('error');
+      if (G.items && typeof G.items.canEquip === 'function') { try { const c = G.items.canEquip(item); if (c && c.ok === false && c.reason && !document.querySelector('.ed-toast')) ui.toast(c.reason, '#ff8a7a'); } catch (err) { /* ignore */ } }
+    }
+    return r;
+  }
+
+  // R16.8 the Socket Tool: pick any item, see its chance to fail first (the tool can shatter, never the item)
+  function gearList(skipFull) {
+    const p = S.player, rows = [];
+    C.EQUIP_SLOTS.forEach(function (slot) { const it = p.equipment && p.equipment[slot]; if (it) rows.push({ item: it, where: TX.sockets.equipped }); });
+    (p.inventory || []).forEach(function (it) { if (it && it.slot) rows.push({ item: it, where: TX.sockets.inYourPack }); });
+    return rows.filter(function (r) { return !skipFull || (r.item.sockets ? r.item.sockets.length : 0) < 6; });
+  }
+  ui._gearList = gearList;
+  function socketToolPick(tool, toolIndex) {
+    const rows = gearList(true).map(function (r) {
+      let fail = null;
+      try { if (G.items && G.items.socketFailChance) fail = Math.round(G.items.socketFailChance(r.item) * 100); } catch (err) { fail = null; }
+      return { item: r.item, sub: r.where + ' · ' + TX.sockets.sockets + (r.item.sockets ? r.item.sockets.length : 0) + '/6' + (fail != null ? TX.sockets.failChance + fail + '%' : ''),
+        fn: function () { const ok2 = call('addSocket', r.item, { tool: toolIndex }); ui._sfx(ok2 ? 'equip' : 'error'); ui._refreshNow(); } };
+    });
+    if (!rows.length) { ui._sfx('error'); ui.toast(TX.sockets.nothingToAddA, '#a89f8f'); return; }
+    choose(TX.sockets.addASocketTo, rows);
   }
 
   // Gem → pick a piece of gear with an empty socket (worn gear first, then the pack).
@@ -543,7 +616,8 @@
         a.push({ label: TX.inventory.combine3, disabled: (item.qty || 1) < 3, fn: function () { ok(call('combineGems', index)); } });
       }
     }
-    if (item.type === 'consumable' && ctx === 'inv') {
+    if (item.baseId === 'socket_tool' && ctx === 'inv') a.push({ label: TX.sockets.addASocket, cls: 'gold', fn: function () { socketToolPick(item, index); } });
+    else if (item.type === 'consumable' && ctx === 'inv') {
       const tome = item.baseId === 'tome_skill';        // R7.4 Tome of Insight: one skill point
       a.push({ label: tome ? 'Read (+1 skill point)' : 'Use', cls: 'gold', fn: function () { ok(call('useItem', index)); } });
     }
@@ -822,14 +896,8 @@
   }
   ui._clearJunk = clearJunk;
 
-  function junkButton() {
-    const n = junkCount(), rules = junkRules();
-    const town = S.scene === 'town';
-    const b = ui._btn((town ? (rules.action === 'salvage' ? 'Salvage junk' : 'Sell junk') : 'Junk') + (n ? ' (' + n + ')' : ''), clearJunk, n && town ? 'gold' : '');
-    if (!n) b.disabled = true;
-    if (!town) b.setAttribute('aria-label', 'Junk: send it down a chute');
-    return b;
-  }
+  // R16: nothing is sold or salvaged for you any more: no junk button in the bag. Junk is only marked; the chute panel sends it up.
+  function junkButton() { return null; }
   ui._junkButton = junkButton;
 
   // The rules themselves: five one-tap rows. Used in the pause menu and (as a popup) on vendors and in the bag.
@@ -845,8 +913,7 @@
     const onOff = function (v) { return v ? 'On' : 'Off'; };
     return [
       row('Junk is', what, lvl === 'none' ? 'ed-dim' : 'ed-gold', function () { r.maxRarity = JUNK_LEVELS[(JUNK_LEVELS.indexOf(lvl) + 1) % JUNK_LEVELS.length]; }),
-      row('Clear junk by', r.action === 'salvage' ? 'Salvaging' : 'Selling', 'ed-gold', function () { r.action = r.action === 'salvage' ? 'sell' : 'salvage'; }),
-      row('Automatic', onOff(r.auto), r.auto ? 'ed-good' : 'ed-bad', function () { r.auto = !r.auto; }),
+      row('Queue for the chute', onOff(r.auto), r.auto ? 'ed-good' : 'ed-bad', function () { r.auto = !r.auto; }),
       row('Keep upgrades', onOff(r.keepUpgrades), r.keepUpgrades ? 'ed-good' : 'ed-bad', function () { r.keepUpgrades = !r.keepUpgrades; }),
       row('Keep gear with gems', onOff(r.keepSocketed), r.keepSocketed ? 'ed-good' : 'ed-bad', function () { r.keepSocketed = !r.keepSocketed; }),
       h('div', { class: 'ed-note', text: TX.inventory.setPiecesLegendaryItems + (r.auto

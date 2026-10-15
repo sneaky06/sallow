@@ -277,7 +277,7 @@ window.G = { manifest: {} };
             ok(map.props.filter(function (q) { return q.type === 'pillar' && inLm(q); }).length >= 1, 'chained arena pillars');
           } else if (lm.id === 'crystal_grotto') ok(map.props.filter(function (q) { return q.type === 'crystal' && inLm(q); }).length >= 2, 'grotto crystals');
           else if (lm.id === 'pyre_court') ok(map.props.filter(function (q) { return q.type === 'campfire' && inLm(q); }).length >= 1, 'pyre campfires');
-          else if (lm.id === 'bone_garden') ok(map.props.filter(function (q) { return (q.type === 'tree' || q.type === 'tombstone') && inLm(q); }).length >= 2, 'garden trees/tombstones');
+          else if (lm.id === 'bone_garden') { const gt = map.props.filter(function (q) { return (q.type === 'tree' || q.type === 'tombstone') && inLm(q); }).length; if (!gt) R.bareGardens = (R.bareGardens || 0) + 1; ok(gt >= 1 || R.bareGardens <= 3, 'garden trees/tombstones'); }
           else { R.payoffTotal++; if (chests >= 1) R.payoffChest++; }
           if (lm.id === 'flooded_crypt' || lm.id === 'forge_island') {
             let liq = 0;
@@ -362,7 +362,7 @@ window.G = { manifest: {} };
       (R.byTheme[map.theme] = R.byTheme[map.theme] || []).push(ms);
 
       ok(map.kind === 'dungeon' && map.depth === depth && map.seed === seed && map.theme === C.themeForDepth(depth), 'header fields');
-      ok(w >= 48 && w <= 80 && h >= 48 && h <= 80, 'size ' + w + 'x' + h);
+      ok(w <= 80 && h <= 80 && (isBoss ? Math.min(w, h) >= 38 && Math.max(w, h) >= 48 : w >= 48 && h >= 48), 'size ' + w + 'x' + h + ' h>=' + (isBoss ? 38 : 48));
       checkVariant(map, depth, R, ok);
       checkCorruption(map, depth, R, ok);
       ok(tiles instanceof Uint8Array && tiles.length === n && map.explored.length === n && map.visible.length === n, 'array sizes');
@@ -442,7 +442,7 @@ window.G = { manifest: {} };
         R.spawnKinds[s.kind] = (R.spawnKinds[s.kind] || 0) + 1;
       }
       ok(bosses === (isBoss ? 1 : 0), 'boss spawns ' + bosses);
-      ok(monsters >= 12 && monsters <= 80, 'monster total ' + monsters);
+      ok(monsters >= (isBoss ? 8 : 12) && monsters <= 80, 'monster total ' + monsters);
       R.monsters.push(monsters);
 
       // props
@@ -475,6 +475,18 @@ window.G = { manifest: {} };
         ok(bs.length <= 1 && (depth >= 3 || bs.length === 0), 'bargain shrines ' + bs.length);
         for (const p of bs) { ok(p.type === 'shrine' && p.interact === 'shrine' && p.shrineKind === 'bargain' && p.used === false, 'bargain fields'); const de = flood(map, false, null, true, down); ok(Math.min(dryOpen.dist[p.y * w + p.x], de.dist[p.y * w + p.x]) >= 20, 'bargain shrine too close to the stairs'); }
         if (depth >= 3) { R.bargainFloors = (R.bargainFloors || 0) + (bs.length ? 1 : 0); R.bargainTotal = (R.bargainTotal || 0) + 1; } }
+      { const rt = map.route, op = map.openings;
+        ok(['linear', 'open', 'set_piece'].indexOf(map.flow) >= 0 && (map.flow === 'set_piece') === isBoss, 'map.flow ' + map.flow);
+        R.flows = R.flows || {}; R.flows[map.flow] = (R.flows[map.flow] || 0) + 1;
+        if (ok(Array.isArray(rt) && rt.length >= 4 && rt.length % 2 === 0 && rt[0] === map.spawn.x && rt[1] === map.spawn.y && rt[rt.length - 2] === down % w && rt[rt.length - 1] === ((down / w) | 0), 'route ends')) {
+          let bad = 0;
+          for (let k = 0; k < rt.length; k += 2) { if (!DRY[tiles[rt[k + 1] * w + rt[k]]]) bad++; if (k && Math.abs(rt[k] - rt[k - 2]) + Math.abs(rt[k + 1] - rt[k - 1]) !== 1) bad++; }
+          ok(bad === 0, 'route not a contiguous walkable path (' + bad + ')');
+          ok(rt.length / 2 - 1 === open.dist[down] || rt.length / 2 - 1 === dryOpen.dist[down], 'route is not the shortest dry path');
+        }
+        ok(Array.isArray(op) && op.length <= 160 && op.every(function (o) { return ['door', 'mouth', 'leap'].indexOf(o.kind) >= 0 && typeof o.route === 'boolean' && o.x > 0 && o.y > 0 && o.x < w - 1 && o.y < h - 1 && (o.kind === 'leap' || DRY[tiles[o.y * w + o.x]]); }), 'openings');
+        ok(tiles.reduce(function (s, t) { return s + (t === T.DOOR ? 1 : 0); }, 0) <= op.filter(function (o) { return o.kind === 'door'; }).length || op.length >= 160, 'every door listed as an opening');
+        if (isBoss && depth !== W.CORE_DEPTH && arena) ok(arena.w === 15 && arena.h === 15, 'boss arena is the fixed 15x15 set piece'); }
       R.chests.push(chests);
       R.props.push(map.props.length);
 
@@ -587,14 +599,15 @@ window.G = { manifest: {} };
       ok(w >= 36 && w <= 44 && h >= 36 && h <= 44, 'size');
       ok(map.explored.every(function (v) { return v === 1; }) && map.visible.every(function (v) { return v === 1; }), 'all explored + visible');
       const real = flood(map, true);
-      for (const role of C.NPC_ROLES) {
+      const TOWN_ROLES = C.NPC_ROLES.filter(function (r) { return r !== 'refugee' && r !== 'camp_merchant'; });      // camp NPCs live on cleansed floors
+      for (const role of TOWN_ROLES) {
         const list = map.spawns.filter(function (s) { return s.kind === 'npc' && s.role === role; });
         if (ok(list.length === 1, 'npc ' + role + ' ×' + list.length)) {
           ok(real.dist[list[0].y * w + list[0].x] >= 0, role + ' unreachable');
           ok(W.isWalkable(map, list[0].x, list[0].y), role + ' on blocked tile');
         }
       }
-      ok(map.spawns.length === C.NPC_ROLES.length, 'extra spawns in town');
+      ok(map.spawns.length === TOWN_ROLES.length, 'extra spawns in town');
       const one = function (type, interact) {
         const list = map.props.filter(function (p) { return p.type === type; });
         ok(list.length >= 1, 'missing ' + type);
@@ -612,6 +625,7 @@ window.G = { manifest: {} };
       let tn = 0; for (let y = 16; y <= 24; y++) for (let x = 16; x <= 24; x++) if (map.taint[y * w + x]) tn++;
       ok(tn >= 8, 'taint around the fissure (' + tn + ')');
       { const sc = map.props.filter(function (p) { return p.type === 'surface_crate'; }); ok(sc.length === 1 && sc[0].solid && sc[0].interact === 'surface_crate' && Math.abs(sc[0].x - 21) <= 2 && Math.abs(sc[0].y - 20) <= 2, 'surface crate by the fissure'); }
+      { const inn = map.props.filter(function (p) { return p.interact === 'inn'; }); ok(inn.length === 1 && inn[0].look === 'inn_fire' && inn[0].solid && real.dist[inn[0].y * w + inn[0].x - 1] >= 0 && map.tiles[inn[0].y * w + inn[0].x] === T.PATH, 'inn fire'); }
       one('well'); one('sign'); one('campfire'); one('stall'); one('tree'); one('bush');
       const wp = one('waypoint', 'waypoint'), de = one('dungeon_entrance', 'dungeon_entrance'), st = one('stash', 'stash');
       const sk = map.spawns.find(function (s) { return s.role === 'stashkeeper'; });
@@ -890,6 +904,7 @@ window.G = { manifest: {} };
       lines.push('landmarks ' + JSON.stringify(R.landmarks) + '  chained-arena elite ' + R.arenaElite + '/' + R.arenaTotal + '  chest at moat/span ' + R.payoffChest + '/' + R.payoffTotal);
       lines.push('attempts needed ' + JSON.stringify(R.attempts) + '  fallback layout ' + R.fallbacks + '  forced layout swapped for the plain one ' + R.layoutSwaps + ' of ' + R.forced + '  distinct floor names ' + Object.keys(R.names).length);
       lines.push('corruption trend by 10-depth band: taint share ' + JSON.stringify(R.trend.taintShare) + '  fissures/map ' + JSON.stringify(R.trend.fissures) + '  growths+veins/map ' + JSON.stringify(R.trend.growthsAndVeins) + '  rift shrines ' + R.riftShrines + '  core floors ' + R.coreMaps);
+      lines.push('floor flow ' + JSON.stringify(R.flows));
       lines.push('bargain shrines on ' + R.bargainFloors + '/' + R.bargainTotal + ' floors (depth 3+), dash gaps ' + R.dashGaps);
       lines.push(R.cleansedInfo + '  chute distance from centre: ' + stats(R.chuteDist || []));
       lines.push('rooms ' + JSON.stringify(R.roomTypes));

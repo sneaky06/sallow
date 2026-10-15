@@ -115,6 +115,7 @@
     it.rarity = rarity;
     it.ilvl = ilvl;
     it.reqLevel = reqLevel(ilvl);
+    if (D.setReq) D.setReq(it, rng);      // R16.9 attribute requirements / class armour
     it.icon = { shape: def.icon.shape, color: def.icon.color, accent: def.icon.accent };
     const look = D.rollLook(def, rng);       // R5.9 appearance family
     if (look) it.look = look;
@@ -369,17 +370,17 @@
   // n: item count weights; floors: rarity floor for the first items (rest for the remainder); boost: rare+ odds multiplier.
   const SOURCES = {
     monster:  { n: [[0, 66], [1, 30], [2, 4]], goldP: 0.45, goldM: 1, potP: 0.07, gemP: 0.008, miscP: 0.004, matP: 0.01, clsP: 0.02, boost: 1, floors: [] },
-    champion: { n: [[1, 25], [2, 50], [3, 25]], goldP: 1, goldM: 3, potP: 0.3, gemP: 0.06, miscP: 0.03, matP: 0.12, clsP: 0.15, riftP: 0.04, trophyP: 0.06, tomeP: 0.002, boost: 1.6, floors: ['uncommon'] },
-    rare:     { n: [[3, 40], [4, 40], [5, 20]], goldP: 1, goldM: 6, potP: 0.5, gemP: 0.15, miscP: 0.06, matP: 0.3, loreP: 0.04, clsP: 0.4, clsQty: [1, 2], riftP: 0.2, trophyP: 0.25, tomeP: 0.004, boost: 2.5, floors: ['rare', 'uncommon'] },
-    boss:     { n: [[7, 25], [8, 35], [9, 25], [10, 15]], goldP: 1, goldM: 20, pots: [2, 3], gems: 1, gemP: 0.4, miscP: 0.5, matP: 1, loreP: 0.3, clsP: 1, clsQty: [2, 4], riftP: 1, riftQty: [2, 5], tomeP: 0.05, trophyP: 0.5, boost: 4,
+    champion: { n: [[1, 25], [2, 50], [3, 25]], goldP: 1, goldM: 3, potP: 0.3, gemP: 0.06, miscP: 0.03, matP: 0.12, clsP: 0.15, riftP: 0.04, trophyP: 0.06, toolP: 0.003, tomeP: 0.002, boost: 1.6, floors: ['uncommon'] },
+    rare:     { n: [[3, 40], [4, 40], [5, 20]], goldP: 1, goldM: 6, potP: 0.5, gemP: 0.15, miscP: 0.06, matP: 0.3, loreP: 0.04, clsP: 0.4, clsQty: [1, 2], riftP: 0.2, trophyP: 0.25, toolP: 0.012, tomeP: 0.004, boost: 2.5, floors: ['rare', 'uncommon'] },
+    boss:     { n: [[7, 25], [8, 35], [9, 25], [10, 15]], goldP: 1, goldM: 20, pots: [2, 3], gems: 1, gemP: 0.4, miscP: 0.5, matP: 1, loreP: 0.3, clsP: 1, clsQty: [2, 4], riftP: 1, riftQty: [2, 5], tomeP: 0.05, trophyP: 0.5, toolP: 0.08, boost: 4,
       floors: ['rare', 'rare'], rest: 'uncommon', lvl: 2 },
     // legendary-tier monsters (R3.6): a small boss, with three times the usual Legendary Elite odds on top of the boost
-    legendary: { n: [[5, 35], [6, 40], [7, 25]], goldP: 1, goldM: 12, pots: [1, 2], gems: 0, gemP: 0.5, miscP: 0.25, matP: 0.6, loreP: 0.15, boost: 3, clsP: 0.8, clsQty: [1, 3], riftP: 0.6, tomeP: 0.04, trophyP: 0.5, elite: 3,
+    legendary: { n: [[5, 35], [6, 40], [7, 25]], goldP: 1, goldM: 12, pots: [1, 2], gems: 0, gemP: 0.5, miscP: 0.25, matP: 0.6, loreP: 0.15, boost: 3, clsP: 0.8, clsQty: [1, 3], riftP: 0.6, tomeP: 0.04, toolP: 0.06, trophyP: 0.5, elite: 3,
       floors: ['rare', 'rare'], rest: 'uncommon', lvl: 1 },
-    chest:    { n: [[2, 30], [3, 45], [4, 25]], goldP: 1, goldM: 5, potP: 0.5, gemP: 0.15, miscP: 0.08, matP: 0.15, loreP: 0.04, clsP: 0.12, riftP: 0.1, tomeP: 0.003, boost: 2, floors: ['uncommon'] },
+    chest:    { n: [[2, 30], [3, 45], [4, 25]], goldP: 1, goldM: 5, potP: 0.5, gemP: 0.15, miscP: 0.08, matP: 0.15, loreP: 0.04, clsP: 0.12, riftP: 0.1, tomeP: 0.003, toolP: 0.01, boost: 2, floors: ['uncommon'] },
     barrel:   { n: [[0, 86], [1, 14]], goldP: 0.35, goldM: 0.6, potP: 0.08, gemP: 0.004, miscP: 0, matP: 0, boost: 0.8, floors: [] },
     // R6.2: the reward for killing your own Echo — a few good drops, the first guaranteed rare-or-better (opts.floor can raise it)
-    echo:     { n: [[2, 45], [3, 40], [4, 15]], goldP: 1, goldM: 8, potP: 0.5, gemP: 0.3, miscP: 0.1, matP: 0.5, loreP: 0.1, clsP: 0.8, clsQty: [1, 3], riftP: 0.5, tomeP: 0.08, trophyP: 0.3, boost: 2.5, floors: ['rare', 'uncommon'] },
+    echo:     { n: [[2, 45], [3, 40], [4, 15]], goldP: 1, goldM: 8, potP: 0.5, gemP: 0.3, miscP: 0.1, matP: 0.5, loreP: 0.1, clsP: 0.8, clsQty: [1, 3], riftP: 0.5, tomeP: 0.08, trophyP: 0.3, toolP: 0.08, boost: 2.5, floors: ['rare', 'uncommon'] },
     quest:    { n: [[1, 70], [2, 30]], goldP: 1, goldM: 8, potP: 0, gemP: 0.1, miscP: 0, matP: 0, boost: 3, floors: ['rare'] },
   };
   D.SOURCES = SOURCES;
@@ -497,6 +498,7 @@
     if (level >= D.CORRUPT.startDepth && rng.chance(src.riftP || 0)) items.push(makeMisc('mat_rift', 1, src.riftQty ? rng.int(src.riftQty[0], src.riftQty[1]) : 1));
     if (rng.chance((src.tomeP || 0) * (opts.source === 'echo' || level >= 10 ? 1 : 0.5))) items.push(makeMisc('tome_skill', level, 1));
     if (rng.chance(src.trophyP || 0)) items.push(makeMisc('trophy', level, 1));
+    if (rng.chance(src.toolP || 0)) items.push(makeMisc('socket_tool', level, 1));      // R16.8
 
     if (src.loreP && rng.chance(src.loreP)) {
       const page = rollLore(rng);

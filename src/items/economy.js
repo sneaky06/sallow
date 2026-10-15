@@ -601,7 +601,6 @@
   I.getSurface = function () { return surface(); };
 
   // Send bag items up. index | [indices]. Gold, potions and materials never occupy cells, so only real items can be sent. -> count sent
-  I.SURFACE_SIZE = 300;      // R8.13: the crate up top holds at most this many items (owned here, not by C.SURFACE_SIZE)
   I.surfaceSpace = function () { return Math.max(0, I.SURFACE_SIZE - surface().length); };
 
   I.chuteSend = function (indices) {

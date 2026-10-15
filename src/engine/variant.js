@@ -143,6 +143,32 @@
     return r;
   }
 
+  // R16 path readability: walkable ground a step brighter, walls and impassable see-through tiles (deep water, chasm) a step
+  // darker, so "where can I walk" reads at a glance. Canvas composites, once per tileset (cached per set object).
+  const LIFT = { floor: 1, path: 1, grass: 1, rubble: 1, bridge: 1, stairsDown: 1, water: 1 }, SINK = { wall: 1, deepWater: 1, chasm: 1 };
+  function adjust(c, mode, css) {
+    const o = U.makeCanvas(c.width, c.height), x = U.ctx2d(o);
+    x.drawImage(c, 0, 0);
+    x.globalCompositeOperation = mode; x.fillStyle = css; x.fillRect(0, 0, o.width, o.height);
+    x.globalCompositeOperation = 'destination-in'; x.drawImage(c, 0, 0);
+    o.hd = c.hd;
+    return o;
+  }
+  function deep(v, mode, css) {
+    if (Array.isArray(v)) return v.map(function (c) { return deep(c, mode, css); });
+    return v && v.getContext ? adjust(v, mode, css) : v;
+  }
+  const contrasted = new WeakMap();
+  function contrast(set) {
+    if (!set) return set;
+    let s = contrasted.get(set);
+    if (s) return s;
+    s = {};
+    for (const k in set) s[k] = LIFT[k] ? deep(set[k], 'screen', 'rgb(30,27,24)') : SINK[k] ? deep(set[k], 'multiply', 'rgb(210,208,216)') : set[k];
+    contrasted.set(set, s);
+    return s;
+  }
+
   const memo = new WeakMap();
   U.variant = {
     // render recipe for a map (cached; rebuilt if hand-drawn tiles arrive later)
@@ -151,6 +177,8 @@
       if (r && r.ver === ((U.assets && U.assets.ver) || 0)) return r;
       try { r = resolve(map); }
       catch (err) { console.warn('[engine] bad map.variant', err); r = resolve({ theme: map.theme, kind: map.kind }); }
+      r.set = contrast(r.set);
+      if (r.blendSet) r.blendSet = contrast(r.blendSet);
       memo.set(map, r);
       return r;
     },

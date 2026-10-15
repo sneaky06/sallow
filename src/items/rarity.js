@@ -22,6 +22,7 @@
 
   D.migrateItem = function (it) {
     fixIcon(it);
+    if (it && D.isEquip(it) && !it.req && D.setReq) D.setReq(it);      // R16.9 old saves: derive requirements
     if (!it || typeof it !== 'object' || it.rv === D.RARITY_VERSION) return it;
     if (it.type === 'gold') return it;
     if (it.rarity && D.OLD_RARITY[it.rarity]) it.rarity = D.OLD_RARITY[it.rarity];

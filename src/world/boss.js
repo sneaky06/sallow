@@ -12,8 +12,8 @@
     const rng = ctx.rng, w = ctx.w, h = ctx.h, tiles = ctx.tiles, th = ctx.theme;
     const bx0 = ctx.mx1 + 1;
     const core = !!ctx.isCore;                 // the rift core: a big round platform ringed by pits (abyss floors only)
-    const aw = core ? 17 : 15, ah = core ? 17 : rng.int(13, 15);
-    const ax = bx0 + (core ? 1 : 3), ay = rng.int(3, h - 3 - ah);
+    const aw = core ? 17 : 15, ah = core ? 17 : 15;       // R16: fixed hand-designed arenas, no per-seed variation (only the floor's orientation)
+    const ax = bx0 + (core ? 1 : 3), ay = (h - ah) >> 1;
     const acx = ax + (aw >> 1), acy = ay + (ah >> 1);
     const ex = ax + aw + 2, ey = acy - 2;
     const organic = core || th === 'caves' || th === 'abyss';
@@ -33,7 +33,7 @@
       for (let y = ay; y < ay + ah; y++) {
         for (let x = ax; x < ax + aw; x++) {
           const nx = (x - acx) / rx, ny = (y - acy) / ry;
-          if (nx * nx + ny * ny < 1 - (th === 'caves' ? rng.range(0, 0.16) : 0)) tiles[y * w + x] = T.FLOOR;
+          if (nx * nx + ny * ny < 1 - (th === 'caves' ? 0.07 * (1 + Math.cos(x * 2.1 + y * 1.3)) : 0)) tiles[y * w + x] = T.FLOOR;
         }
       }
       for (let y = ey; y < ey + 5; y++) {
@@ -41,9 +41,13 @@
           if ((x - ex - 2) * (x - ex - 2) + (y - acy) * (y - acy) <= 5.5) tiles[y * w + x] = T.FLOOR;
         }
       }
-      if (core) {         // six 2x2 rift pits on a ring, offset so the entrance and exit rows stay open
-        for (let k = 0; k < 6; k++) {
-          const a = (30 + k * 60) * Math.PI / 180, px = Math.round(acx + Math.cos(a) * 4.8 - 0.5), py = Math.round(acy + Math.sin(a) * 4.8 - 0.5);
+      if (th === 'caves' && !core) {         // brood pit: four acid pools
+        for (let k = 0; k < 4; k++) gen.rect(ctx, acx + (k & 1 ? 3 : -5), acy + (k & 2 ? 2 : -4), 3, 3, T.WATER);
+      }
+      if (core || th === 'abyss') {         // rift pits on a ring (six at the core, four elsewhere), offset so the entrance and exit rows stay open
+        const pn = core ? 6 : 4, pr = core ? 4.8 : 4.4;
+        for (let k = 0; k < pn; k++) {
+          const a = (core ? 30 + k * 60 : 45 + k * 90) * Math.PI / 180, px = Math.round(acx + Math.cos(a) * pr - 0.5), py = Math.round(acy + Math.sin(a) * pr - 0.5);
           for (let j = 0; j < 2; j++) for (let i = 0; i < 2; i++) tiles[(py + j) * w + px + i] = T.CHASM;
         }
       }
@@ -57,7 +61,7 @@
           gen.rect(ctx, k & 1 ? ax + aw - 4 : ax + 1, k & 2 ? ay + ah - 4 : ay + 1, 3, 3, T.LAVA);
         }
         for (let y = ay; y < ay + ah; y++) {
-          for (let x = ax; x < ax + aw; x++) if (tiles[y * w + x] === T.FLOOR && rng.chance(0.05)) tiles[y * w + x] = T.RUBBLE;
+          for (let x = ax; x < ax + aw; x++) if (tiles[y * w + x] === T.FLOOR && (x + 2 * y) % 7 === 0 && Math.hypot(x - acx, y - acy) > 3) tiles[y * w + x] = T.RUBBLE;
         }
       }
       gen.rect(ctx, ex, ey, 5, 5, T.FLOOR);

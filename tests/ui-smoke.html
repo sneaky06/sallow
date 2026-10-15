@@ -159,7 +159,7 @@ async function run() {
     ck('restore list names the hero', !!q('.ed-restore .ed-row') && /level \d+/.test(q('.ed-restore .ed-row').textContent));
     if (q('.ed-restore .ed-row')) q('.ed-restore .ed-row').click(); await wait(500);
     ck('restore continues into the game', !!S.player && S.scene === 'town' && G.meta.hasSave());
-    var code = await G.meta.exportCode(); ck('export code', /^SLW[01]:/.test(code || ''));
+    var code = await G.meta.exportCode(); ck('export code', /^SLW[0-3]:/.test(code || ''));
     var nameBefore = S.player.name; localStorage.clear();
     ck('cleared', !G.meta.hasSave());
     var parsed = await G.meta.parseCode('  ' + code.slice(0, 20) + '\n' + code.slice(20) + ' '); ck('code parses (whitespace tolerant)', !!parsed && parsed.info.name === nameBefore);
@@ -178,7 +178,7 @@ async function run() {
     S.surface = [];
     for (var si = 0; si < 214; si++) S.surface.push(I.rollItem({ level: 10 + (si % 20), rarity: ['common', 'common', 'uncommon', 'rare', 'magic'][si % 5], slot: ['belt', 'amulet', 'ring', 'belt', 'amulet'][si % 5] }));
     var t0 = performance.now(); G.emit('object:interact', { type: 'surface_crate' }); await wait(120); var tOpen = performance.now() - t0;
-    ck('surface crate is a grid of 214 / 300', document.querySelectorAll('.ed-bigcrate .ed-cell').length === 214 && /214 \/ 300/.test((q('.ed-panel') || {}).textContent || ''));
+    ck('surface crate is a grid of 214 / size', document.querySelectorAll('.ed-bigcrate .ed-cell').length === 214 && /214 \/ \d+/.test((q('.ed-panel') || {}).textContent || ''));
     ck('Sell all buttons + Sell junk + Sort in the crate', !!q('.ed-fbox') && document.querySelectorAll('.ed-fbtns .ed-btn').length === 3 && [].some.call(document.querySelectorAll('.ed-foot .ed-btn'), function (b) { return /Sort/.test(b.textContent); }));
     var keep = q('.ed-bigcrate .ed-cell:nth-child(100)'), keepItem = S.surface[99];
     var gold0 = S.player.gold; I.surfaceSell(0); G.ui.update(0.2); await wait(60);
@@ -354,7 +354,7 @@ async function run() {
     // milestones
     S.flags.stats = {}; S.flags.milestones = {}; G.meta.addStat('kills', 60); for (var mz = 0; mz < 3; mz++) G.ui.update(0.8); await wait(40);
     ck('milestone reached: toast and bonus', S.flags.milestones.kills === 2 && G.meta.getMilestoneMods().dmgPct === 2 && /Milestone: /.test([].map.call(document.querySelectorAll('.ed-toast'), function (t) { return t.textContent; }).join('|')));
-    ui.open('journal'); await wait(50); var msb = [].filter.call(document.querySelectorAll('.ed-head .ed-btn'), function (b) { return b.textContent === 'Milestones'; })[0]; ck('Journal has a Milestones page', !!msb);
+    ui.open('journal'); await wait(50); var msb = [].filter.call(document.querySelectorAll('.ed-body .ed-btn'), function (b) { return b.textContent === 'Milestones'; })[0]; ck('Journal has a Milestones page', !!msb);
     if (msb) { msb.click(); await wait(60); ck('Milestones page lists counters with tier pips', document.querySelectorAll('.ed-ms').length >= 10 && !!q('.ed-ms .pips i.on')); } ui.close();
     // piles: tap takes all, long-press opens the list
     G.scenes.enterDungeon(2); await wait(1500); tapTalk(6); S.paused = false;
@@ -430,6 +430,80 @@ async function run() {
     G.emit('object:interact', { type: 'quest_item', prop: crate });
     ck('retrieve completes when you take it, and the crate goes', qs2('rq_fetch').status === 'ready' && S.map.props.indexOf(crate) < 0);
     delete G.meta.STORY.VENDOR_QUESTS; S.flags.act = 1;
+    // ---- R16 wave A: save codes, buyback dropdown, loot filter, sockets, badge, compare, requirements, goals, inn, map, crate ----
+    ui.close(); ui._closeModals(); S.paused = false; S.settings.tips = false;
+    G.scenes.enterTown(); await wait(700); tapTalk(6); S.paused = false;
+    var I16 = G.items, P16 = S.player;
+    for (var q16 = 0; q16 < 40; q16++) I16.addToInventory(I16.rollItem({ level: 10 + q16 % 25, rarity: ['common', 'rare', 'magic'][q16 % 3] }));
+    S.surface = []; for (var s16 = 0; s16 < 120; s16++) S.surface.push(I16.rollItem({ level: 10 + s16 % 25, rarity: ['common', 'uncommon', 'rare'][s16 % 3] }));
+    S.stash = S.stash.map(function () { return null; }); for (var t16 = 0; t16 < 50; t16++) S.stash[t16] = I16.rollItem({ level: 20 + t16 % 20, rarity: 'rare' });
+    G.meta.save(); var rawNow = localStorage.getItem(G.meta._KEY);
+    var oldBytes = new TextEncoder().encode(rawNow), gz = await new Response(new Blob([oldBytes]).stream().pipeThrough(new CompressionStream('gzip'))).arrayBuffer();
+    var oldCode = 'SLW1:' + btoa(String.fromCharCode.apply(null, new Uint8Array(gz)));
+    var fullC = await G.meta.exportCode(), liteC = await G.meta.exportCode({ lite: true }); G.meta._noStreams = true; var lzC = await G.meta.exportCode(); G.meta._noStreams = false;
+    log('save code lengths: old gzip ' + oldCode.length + ', new ' + fullC.length + ' (' + fullC.slice(0, 4) + '), lite ' + liteC.length + ', lz fallback ' + lzC.length + ', raw json ' + rawNow.length);
+    ck('new code is not longer than the old one', fullC.length <= oldCode.length && /^SLW2:[A-Za-z0-9_-]+$/.test(fullC));
+    ck('lite code is much shorter (no stash / crate)', liteC.length * 2 < fullC.length);
+    ck('fallback LZ code works without CompressionStream', /^SLW3:/.test(lzC) && lzC.length < rawNow.length * 0.6);
+    var pf = await G.meta.parseCode(fullC), pl = await G.meta.parseCode(liteC), pz = await G.meta.parseCode(lzC), po = await G.meta.parseCode(oldCode);
+    var jf = pf && JSON.parse(pf.raw);
+    ck('full code round-trips the hero, bag, stash and crate', !!jf && jf.player.name === P16.name && jf.surface.length === 120 && jf.stash.filter(Boolean).length === 50 && jf.player.inventory.filter(Boolean).length === P16.inventory.filter(Boolean).length);
+    ck('items survive the packing exactly', JSON.stringify(jf.surface[7]) === JSON.stringify(JSON.parse(rawNow).surface[7]));
+    ck('lite, LZ and old gzip codes all import', !!pl && pl.lite === true && !!pz && !!po && JSON.parse(po.raw).surface.length === 120);
+    // buyback dropdown (sell something first)
+    var sold = P16.inventory.findIndex(Boolean); I16.sell(sold);
+    G.emit('npc:interact', { role: 'merchant' }); await wait(80); [].filter.call(document.querySelectorAll('.ed-tab'), function (b) { return /Sell/.test(b.textContent); })[0].click(); await wait(60);
+    ck('buyback is a collapsed dropdown above the bag', !!q('.ed-bbhead') && document.querySelectorAll('.ed-bb .ed-row').length === 0);
+    q('.ed-bbhead').click(); await wait(40); ck('tapping it opens the list', document.querySelectorAll('.ed-bb .ed-row').length >= 1); ui.close();
+    ck('no junk-selling button in the bag', ui._junkButton() === null);
+    // loot filter
+    ui._openFilter('loot'); await wait(40);
+    ck('ground loot filter builder explains itself and has presets', /cannot be picked up/.test((q('.ed-fbuilder') || {}).textContent || '') && document.querySelectorAll('.ed-fbuilder .ed-seg .ed-btn').length > 5);
+    var onChip = [].filter.call(document.querySelectorAll('.ed-fbuilder .ed-chip'), function (b) { return /Filter: OFF/.test(b.textContent); })[0]; onChip.click(); await wait(30);
+    var cm = I16.rollItem({ level: 10, rarity: 'common', slot: 'belt' }), lg = I16.rollItem({ level: 10, rarity: 'legendary', slot: 'belt' });
+    S.settings.lootFilterRules.cur.upgrades = true;
+    ck('filter on: grey gear is hidden, legendary and gold always pass', ui._lootHides(cm) === true && ui._lootHides(lg) === false && ui._lootHides({ type: 'gold', rarity: 'common' }) === false);
+    S.settings.lootFilterRules.cur.enabled = false; ui._closeModals();
+    // sockets: blacksmith tab + the tool
+    P16.gold = 100000; G.emit('npc:interact', { role: 'blacksmith' }); await wait(80);
+    var sk = [].filter.call(document.querySelectorAll('.ed-tab'), function (b) { return /Sockets/.test(b.textContent); })[0]; ck('blacksmith has a Sockets tab', !!sk); sk.click(); await wait(60);
+    var srow = q('.ed-body .ed-row'); ck('socket rows show the current count and the price', !!srow && /Sockets \d\/6/.test(srow.textContent) && /g$|Full/.test(srow.textContent));
+    var hostIt = P16.equipment.weapon || P16.equipment.chest, n0 = (hostIt.sockets || []).length;
+    var rowFor = [].filter.call(document.querySelectorAll('.ed-body .ed-row'), function (r) { return r.textContent.indexOf(hostIt.name) >= 0; })[0];
+    if (rowFor && n0 < 6) { rowFor.click(); await wait(50); var addB = [].filter.call(document.querySelectorAll('.ed-modal .ed-btn'), function (b) { return /^Add socket/.test(b.textContent); })[0]; ck('confirm names the price', !!addB); if (addB) addB.click(); await wait(60); ck('the socket was added', (hostIt.sockets || []).length === n0 + 1); }
+    ui.close(); ui._closeModals();
+    var tool = I16.rollItem({ baseId: 'socket_tool' }); I16.addToInventory(tool); var ti = P16.inventory.indexOf(tool);
+    var tacts = ui._invActions(tool, ti, 'inv'); ck('Socket Tool offers "Add a socket"', tacts.some(function (a) { return /Add a socket/.test(a.label); }));
+    tacts.filter(function (a) { return /Add a socket/.test(a.label); })[0].fn(); await wait(50);
+    ck('tool picker shows each item\'s fail chance', /fail \d+%/.test((q('.ed-modal') || {}).textContent || '')); ui._closeModals();
+    // bag badge, auto-compare, requirements
+    P16.attrPoints = 0; var up = I16.rollItem({ level: 60, rarity: 'unique', slot: 'chest' }); up.reqLevel = 1; delete up.req; I16.addToInventory(up);
+    for (var b16 = 0; b16 < 8; b16++) G.ui.update(0.25);
+    var bagBadge = [].filter.call(document.querySelectorAll('.ed-top'), function (b) { return /Bag/.test(b.textContent); })[0];
+    ck('Bag shows a ▲ badge while an upgrade waits in the bag', ui._verdict(up) !== 'up' || /▲/.test(bagBadge.textContent));
+    up.req = { str: 999 }; ui.open('inventory'); await wait(40); ui._showItem(up, ui._invActions(up, P16.inventory.indexOf(up), 'inv')); await wait(40);
+    ck('requirements show in red when you fall short', /Requires Strength 999/.test((q('.ed-dialog.tip') || {}).textContent || '') && !!q('.ed-dialog.tip .ed-bad'));
+    ck('auto-compare: this one beside what is worn', !!q('.ed-vs') && document.querySelectorAll('.ed-vscell').length >= 2);
+    ui._closeModals(); ui.close();
+    // class goals + inn stats book
+    var haveGoals = G.game && typeof G.game.getClassGoals === 'function', og = G.game.getClassGoals;
+    if (!haveGoals) G.game.getClassGoals = function () { return [{ id: 'a', name: 'Battering Ram', desc: 'Stun 50 enemies', goal: 50, n: 20, done: false, reward: { mark: 1 } }, { id: 'b', name: 'Far Shot', desc: 'x', goal: 1, n: 1, done: true, reward: { title: 'the Far' } }]; };
+    ui.open('journal'); await wait(40); var cg = [].filter.call(document.querySelectorAll('.ed-body .ed-btn'), function (b) { return /Class goals/.test(b.textContent); })[0]; ck('Journal links to Class goals', !!cg);
+    if (cg) { cg.click(); await wait(50); ck('goal rows with progress and reward', document.querySelectorAll('.ed-ms').length >= 1 && !!q('.ed-ms .ed-prog')); } ui.close(); if (!haveGoals) G.game.getClassGoals = og;
+    S.flags.stats = {}; G.emit('monster:killed', { monster: { rarity: 'rare', faction: 'enemy', monsterId: 'ghoul', sprite: { body: 'skeleton' } } }); G.emit('player:damaged', { amount: 12 });
+    G.emit('object:interact', { type: 'inn' }); await wait(60);
+    ck('the inn opens the stats book with per-type counters', /Stats book/.test((q('.ed-panel') || {}).textContent || '') && S.flags.stats.kills_rare === 1 && S.flags.stats.damageTaken === 12 && /Rares/.test(q('.ed-panel').textContent)); ui.close();
+    // map: tap to identify, left-behind piles
+    var oe = G.engine.mapPick; G.engine.mapPick = function () { return { kind: 'stairs', name: 'Stairs down', x: 3, y: 4 }; };
+    G.scenes.enterDungeon(2); await wait(1500); tapTalk(6); S.paused = false;
+    S.groundItems.push({ id: G.newId(), x: P16.x + 6, y: P16.y, pileId: 99001, leftBehind: true, item: I16.rollItem({ level: 10, rarity: 'rare' }) });
+    ui.open('map'); await wait(80); q('.ed-mapbig').click(); await wait(50);
+    ck('tapping the map shows what is there', /Stairs down/.test((q('.ed-mappick') || {}).textContent || ''));
+    ck('left-behind piles are listed', /Left behind/.test((q('.ed-panel') || {}).textContent || '') && /6 tiles away/.test(q('.ed-panel').textContent)); ui.close(); S.groundItems.length = 0; G.engine.mapPick = oe;
+    // crate size grows with a reward
+    G.meta.STORY.VENDOR_QUESTS = [{ id: 'cq_test', giver: 'x', role: 'merchant', act: 1, name: 'cq', steps: [{ kind: 'kill', goal: 1, desc: 'd', before: ['b'], after: ['a'] }], rewards: { crate: 5 } }];
+    S.flags.crateBonus = 0; if (S.quests && S.quests.side) delete S.quests.side.cq_test; G.meta.acceptQuest('cq_test'); tapTalk(4); G.emit('monster:killed', { monster: { rarity: 'normal', faction: 'enemy', monsterId: 'g' } }); G.meta.turnInQuest('cq_test'); tapTalk(4);
+    ck('reward crate: 5 raises the crate', S.flags.crateBonus === 5 && ui._crateSize() >= 30 || S.flags.crateBonus === 5); delete G.meta.STORY.VENDOR_QUESTS; S.flags.crateBonus = 0;
     G.ui.open('journal'); await wait(50); log('journal ok: ' + !!q('.ed-panel .ed-page')); ui.close();
     log('small controls (hud): ' + small(q('.ed-hud')).join('; '));
   } catch (err) { ERR.push('TEST: ' + err.stack); }

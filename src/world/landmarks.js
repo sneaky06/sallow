@@ -136,7 +136,8 @@
   gen.stampLandmarks = function (ctx) {
     const rng = ctx.rng, depth = ctx.depth, weights = (ctx.variantDef && ctx.variantDef.lm) || {};
     const roll = rng.next();
-    const want = depth >= 3 ? (roll < 0.5 ? 0 : roll < 0.88 ? 1 : 2) : (roll < 0.65 ? 0 : 1);
+    let want = depth >= 3 ? (roll < 0.5 ? 0 : roll < 0.88 ? 1 : 2) : (roll < 0.65 ? 0 : 1);
+    if (ctx.chainEnds && depth >= 3) want = Math.max(want, 2);      // linear floors: set pieces along the route
     if (!want) return;
     const dist0 = gen.flood(ctx, ctx.spawn.x, ctx.spawn.y);
     for (let n = 0; n < want; n++) {

@@ -344,6 +344,14 @@
     ui._setTrkTop();
   }
 
+  let upTick = 0, upN = 0;
+  function bagUpgrades(p) {
+    let n = 0;
+    const inv = p.inventory || [];
+    for (let i = 0; i < inv.length; i++) { const it = inv[i]; if (it && it.slot && ui._verdict && ui._verdict(it) === 'up') n++; }
+    return n;
+  }
+
   // ---------- slow refreshers ----------
   function refreshSkills(p) {
     skDirty = false;
@@ -436,7 +444,10 @@
     const portal = S.scene === 'dungeon';
     if (portal !== last.portal) { last.portal = portal; el.bTp.style.display = portal ? '' : 'none'; }
     const attr = p.attrPoints | 0, sp = p.skillPoints | 0;
-    if (attr !== last.attr) { last.attr = attr; el.bInv._badge.style.display = attr > 0 ? 'block' : 'none'; el.bInv._badge.textContent = attr > 0 ? '+' + attr : ''; }
+    // the Bag badge: unspent attribute points (+n), else a ▲ when the bag holds an upgrade for any slot (R16.10; looked at once a second)
+    if (++upTick >= 5 || last.attr === -1) { upTick = 0; upN = bagUpgrades(p); }
+    const bkey = attr > 0 ? '+' + attr : (upN > 0 ? '▲' : '');
+    if (bkey !== last.bagBadge) { last.bagBadge = bkey; last.attr = attr; el.bInv._badge.style.display = bkey ? 'block' : 'none'; el.bInv._badge.textContent = bkey; el.bInv._badge.style.background = bkey === '▲' ? '#4caf50' : ''; el.bInv.setAttribute('aria-label', bkey === '▲' ? 'Bag, an upgrade is waiting' : 'Bag'); }
     if (sp !== last.sp) { last.sp = sp; el.bSkl._badge.style.display = sp > 0 ? 'block' : 'none'; el.bSkl._badge.textContent = sp > 0 ? '+' + sp : ''; }
 
     // minimap
@@ -694,6 +705,8 @@
   });
   G.on('player:levelup', function (e) {
     skDirty = true;
+    const pp = S.player;
+    if (pp && pp.attrPoints > 0 && !pp.autoBuild && ui.toast) setTimeout(function () { ui.toast(TX.stats.attributePointsToSpend, '#ffd94a'); }, 900);
     ui.toast(TX.hud.level + ((e && e.level) || (S.player && S.player.level) || '') + '!', '#ffd94a');
   });
   ['skills:changed', 'player:stats', 'equipment:changed'].forEach(function (n) { G.on(n, function () { skDirty = true; }); });

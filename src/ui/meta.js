@@ -166,45 +166,144 @@
   };
 
   // ---------- export / import (save codes) ----------
-  // 'SLW1:' + base64(gzip(json)) where CompressionStream exists, else 'SLW0:' + base64(json). Both are plain text.
+  // Codes (all plain text, base64url after the tag):
+  //   SLW2  deflate-raw of the packed save          (CompressionStream; the usual one)
+  //   SLW3  our own LZ of the packed save           (phones without CompressionStream)
+  //   SLW0 / SLW1  the older codes (base64 of the raw JSON / of its gzip): still imported
+  // "Packed" = the save without what the game rebuilds on load (derived stats, cooldowns, effects, animation state) and with every
+  // repeated sub-object (icons, looks, palettes ...) stored once in a table. A "lite" code also leaves out the stash and the surface
+  // crate (importing it keeps the ones already on this device).
   function b64(bytes) { let s = ''; for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000)); return btoa(s); }
-  function unb64(t) { const s = atob(t); const a = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) a[i] = s.charCodeAt(i); return a; }
+  function b64u(bytes) { return b64(bytes).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); }
+  function unb64(t) { t = t.replace(/-/g, '+').replace(/_/g, '/'); while (t.length % 4) t += '='; const s = atob(t); const a = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) a[i] = s.charCodeAt(i); return a; }
   function pipe(bytes, stream) {
     const rs = new Response(new Blob([bytes]).stream().pipeThrough(stream));
     return rs.arrayBuffer().then(function (b) { return new Uint8Array(b); });
   }
-  // -> Promise<string|null>
-  meta.exportCode = function () {
+  const hasStreams = function () { return typeof CompressionStream === 'function' && typeof DecompressionStream === 'function' && typeof Response === 'function' && !meta._noStreams; };
+
+  // --- our own LZSS (window 64K, matches 3..258): flag byte then 8 tokens; literal = 1 byte, match = offset (2 bytes) + length-3 (1 byte)
+  function lzPack(src) {
+    const out = [], n = src.length, head = new Int32Array(1 << 16).fill(-1), prev = new Int32Array(n);
+    const hash = function (i) { return ((src[i] << 8) ^ (src[i + 1] << 4) ^ src[i + 2]) & 0xffff; };
+    let i = 0, flagPos = -1, flag = 0, bit = 0;
+    const startGroup = function () { flagPos = out.length; out.push(0); flag = 0; bit = 0; };
+    const endBit = function () { bit++; if (bit === 8) { out[flagPos] = flag; startGroup(); } };
+    startGroup();
+    while (i < n) {
+      let bestLen = 0, bestOff = 0;
+      if (i + 2 < n) {
+        let c = head[hash(i)], tries = 24;
+        while (c >= 0 && i - c <= 65535 && tries-- > 0) {
+          let l = 0; const max = Math.min(258, n - i);
+          while (l < max && src[c + l] === src[i + l]) l++;
+          if (l > bestLen) { bestLen = l; bestOff = i - c; if (l === max) break; }
+          c = prev[c];
+        }
+      }
+      const adv = bestLen >= 3 ? bestLen : 1;
+      if (bestLen >= 3) { out.push(bestOff & 255, bestOff >> 8, bestLen - 3); } else { flag |= (1 << bit); out.push(src[i]); }
+      for (let k = 0; k < adv; k++) { if (i + k + 2 < n) { const hh = hash(i + k); prev[i + k] = head[hh]; head[hh] = i + k; } }
+      i += adv; endBit();
+    }
+    out[flagPos] = flag;
+    return Uint8Array.from(out);
+  }
+  function lzUnpack(b) {
+    const out = [];
+    let i = 0;
+    while (i < b.length) {
+      const flag = b[i++];
+      for (let bit = 0; bit < 8 && i < b.length; bit++) {
+        if (flag & (1 << bit)) out.push(b[i++]);
+        else { const off = b[i] | (b[i + 1] << 8), len = b[i + 2] + 3; i += 3; const s = out.length - off; if (s < 0) throw new Error('bad lz'); for (let k = 0; k < len; k++) out.push(out[s + k]); }
+      }
+    }
+    return Uint8Array.from(out);
+  }
+
+  // --- packing: drop rebuilt state, share repeated sub-objects through a table of "\u0001<n>" references
+  const DROP_PLAYER = ['stats', 'cooldowns', 'effects', 'anim', 'animT', 'hitFlash'];
+  function packTree(data, lite) {
+    const d = JSON.parse(JSON.stringify(data));
+    if (d.player) DROP_PLAYER.forEach(function (k) { delete d.player[k]; });
+    if (lite) { delete d.stash; delete d.surface; d.lite = true; }
+    const seen = new Map(), table = [], idx = new Map();
+    const count = function (n) {
+      if (!n || typeof n !== 'object') return;
+      if (!Array.isArray(n)) { const s = JSON.stringify(n); if (s.length >= 24) seen.set(s, (seen.get(s) || 0) + 1); }
+      for (const k in n) count(n[k]);
+    };
+    count(d);
+    const walk = function (n) {
+      if (!n || typeof n !== 'object') return n;
+      if (!Array.isArray(n)) {
+        const s = JSON.stringify(n);
+        if (s.length >= 24 && seen.get(s) >= 3) { if (!idx.has(s)) { idx.set(s, table.length); table.push(null); table[idx.get(s)] = JSON.parse(s); } return '\u0001' + idx.get(s); }
+      }
+      for (const k in n) n[k] = walk(n[k]);
+      return n;
+    };
+    // walk children first so a shared parent still refers to shared children
+    d.$d = table;
+    for (const k in d) if (k !== '$d') d[k] = walk(d[k]);
+    for (let i = 0; i < table.length; i++) for (const k in table[i]) table[i][k] = walk(table[i][k]);
+    return d;
+  }
+  function unpackTree(d) {
+    const table = Array.isArray(d.$d) ? d.$d : [];
+    delete d.$d;
+    const seenRef = new Set();
+    const walk = function (n) {
+      if (typeof n === 'string') {
+        if (n.charCodeAt(0) === 1 && /^\u0001\d+$/.test(n)) { const t = table[+n.slice(1)]; return t == null ? n : walk(JSON.parse(JSON.stringify(t))); }
+        return n;
+      }
+      if (!n || typeof n !== 'object') return n;
+      for (const k in n) n[k] = walk(n[k]);
+      return n;
+    };
+    void seenRef;
+    return walk(d);
+  }
+
+  // -> Promise<string|null>. opts.lite: leave out the stash and the surface crate.
+  meta.exportCode = function (opts) {
     if (S.player) meta.save();
     const ls = store();
     let raw = null;
     try { raw = ls && ls.getItem(KEY); } catch (err) { raw = null; }
-    if (!raw || !parse(raw)) return Promise.resolve(null);
-    const bytes = new TextEncoder().encode(raw);
-    if (typeof CompressionStream === 'function' && typeof Response === 'function') {
-      return pipe(bytes, new CompressionStream('gzip')).then(function (z) { return 'SLW1:' + b64(z); }, function () { return 'SLW0:' + b64(bytes); });
+    const data = raw && parse(raw);
+    if (!data) return Promise.resolve(null);
+    let json;
+    try { json = JSON.stringify(packTree(data, !!(opts && opts.lite))); } catch (err) { console.error('[meta.exportCode]', err); return Promise.resolve(null); }
+    const bytes = new TextEncoder().encode(json);
+    if (hasStreams()) {
+      return pipe(bytes, new CompressionStream('deflate-raw')).then(function (z) { return 'SLW2:' + b64u(z); }, function () { return 'SLW3:' + b64u(lzPack(bytes)); });
     }
-    return Promise.resolve('SLW0:' + b64(bytes));
+    return Promise.resolve('SLW3:' + b64u(lzPack(bytes)));
   };
-  // text -> Promise<{ raw, info }|null>. Tolerates whitespace and surrounding quotes from copy / paste.
+  // text -> Promise<{ raw, info, lite }|null>. Tolerates whitespace and surrounding quotes from copy / paste.
   meta.parseCode = function (text) {
     const t = String(text || '').replace(/[\s"'`]+/g, '');
-    const m = /^SLW([01]):([A-Za-z0-9+/=]+)$/.exec(t);
+    const m = /^SLW([0-3]):([A-Za-z0-9+/_=-]+)$/.exec(t);
     if (!m) return Promise.resolve(null);
     let bytes;
     try { bytes = unb64(m[2]); } catch (err) { return Promise.resolve(null); }
     const done = function (b) {
-      let raw = null;
-      try { raw = new TextDecoder().decode(b); } catch (err) { raw = null; }
-      const data = raw && parse(raw);
-      return data ? { raw: raw, info: summarize(data, null) } : null;
+      let json = null, data = null;
+      try { json = new TextDecoder().decode(b); data = JSON.parse(json); if (data && data.$d) data = unpackTree(data); } catch (err) { return null; }
+      const raw = JSON.stringify(data);
+      const ok = data && parse(raw);
+      return ok ? { raw: raw, info: summarize(ok, null), lite: !!data.lite } : null;
     };
-    if (m[1] === '1') {
-      if (typeof DecompressionStream !== 'function') return Promise.resolve(null);
-      return pipe(bytes, new DecompressionStream('gzip')).then(done, function () { return null; });
-    }
-    return Promise.resolve(done(bytes));
+    const kind = m[1];
+    if (kind === '0') return Promise.resolve(done(bytes));
+    if (kind === '3') { try { return Promise.resolve(done(lzUnpack(bytes))); } catch (err) { return Promise.resolve(null); } }
+    if (!hasStreams()) return Promise.resolve(null);
+    return pipe(bytes, new DecompressionStream(kind === '2' ? 'deflate-raw' : 'gzip')).then(done, function () { return null; });
   };
+  meta._lz = { pack: lzPack, unpack: lzUnpack };
   // Make a parsed code the main save (the current hero is kept in the ring). In a running game the page must reload afterwards,
   // so saving is switched off first: the old hero in memory must not overwrite what was just imported.
   meta.applyImport = function (raw) {
@@ -214,6 +313,16 @@
       const cur = ls.getItem(KEY);
       if (cur && !parse(cur)) ls.setItem(KEY + '.unreadable', cur);
       else if (cur) pushRing(cur);
+      // a "lite" code carries no stash and no crate: keep the ones already here when it is the same hero, else start empty
+      let dd = null;
+      try { dd = JSON.parse(raw); } catch (err) { dd = null; }
+      if (dd && dd.lite) {
+        const was = cur ? parse(cur) : null;
+        const same = was && was.seed === dd.seed;
+        dd.stash = same ? was.stash : []; dd.surface = same ? (was.surface || []) : [];
+        delete dd.lite;
+        raw = JSON.stringify(dd);
+      }
       ls.setItem(KEY, raw);
       guarded = true; meta._noSave = !!S.player;
       return true;

@@ -351,8 +351,9 @@
       const right = [];
       if (ui._relicsBody && G.items && G.items.RELICS) right.push(ui._btn(TX.common.relics, function () { ui.open('relics'); }));
       if (ui._frame && G.meta && G.meta.getMilestones) right.push(ui._btn(TX.common.milestones, function () { ui.open('milestones'); }));
+      if (G.game && typeof G.game.getClassGoals === 'function') right.push(ui._btn(TX.goals.classGoals, function () { ui.open('classgoals'); }));
       if (ui._bookBody && G.items && G.items.collection) right.push(ui._btn(TX.common.book, function () { ui.open('collection'); }));
-      return ui._frame(TX.common.journal, { right: right }, h('div', { class: 'ed-body' }, h('div', { class: 'ed-list' }, story, pages)));
+      return ui._frame(TX.common.journal, null, h('div', { class: 'ed-body' }, right.length ? h('div', { class: 'ed-seg', style: 'flex-wrap:wrap;margin-bottom:8px' }, right) : null, h('div', { class: 'ed-list' }, story, pages)));
     },
   });
 

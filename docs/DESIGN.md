@@ -426,3 +426,16 @@ player — so delving deeper is always the better reward. Shallow farming stays 
 - Targets: normal monsters 3–5 hits at every depth with on-level gear; elites and legendary monsters real fights; bosses 30–60 s; enemies
   hit harder throughout. Balance every class and every build style (single target, group, balanced) to comparable DPS. Fix item power
   growth (weapon scaling, affix stacking, sockets, perks, Heat/Flow stacking) where that's the cause.
+
+### R17 — fidelity pass "B" and smooth animation (lead dev, 2026-10-15). Queued after R16 Wave A.
+Option B chosen: improve everything that survives the lead dev's hand-drawn art — not the procedural sprites themselves.
+- **Lighting:** smooth coloured light with soft falloff, soft shadows/contact shadows under entities and props, light from spells,
+  fire and loot; per-act colour grading; subtle bloom on fire, loot beams and spells; vignette; all cheap with a `lowFx` fallback.
+- **Motion:** smooth movement (sub-pixel positions, eased camera follow), animation timing tied to movement speed (walk cycle
+  matches ground speed, no foot sliding), short blend/hold frames between animations, hit-stop and knockback easing, death physics
+  (bodies settle), weapon trails on swings.
+- **Art pipeline for smooth animation:** the loader accepts **any frame count** per animation file (frames = width ÷ cell) and plays
+  them over the animation's duration, so the lead dev can draw 12–16-frame walks and 10–12-frame attacks for smooth, realistic motion;
+  optional per-file timing in `assets/assets.js` (e.g. `{ file, fps }`). ART_SPEC.md gets a "smooth animation" section recommending
+  frame counts and the Blender 3D-render route for characters.
+- Verified on phone sizes with frame-cost numbers per act, normal and lowFx.

@@ -150,3 +150,15 @@ These six quests (two per act, `chain: 'return'`) send the hero back up to floor
 
 `RETURN_LINES` gives floor banners for each act and depth band, saying how quiet the old floors have become. `CAMP_GROWTH`
 gives each camp NPC a line about how the camp has grown.
+
+## Crate, class goals and the inn (R16)
+- **Crate quests** (`chain: 'crate'`, reward `crate: n`, 25 → 300). Each act's quests are gated by `requiresAct`.
+  - Act I: Old Wick, *A Bigger Crate* (+25, chute 25).
+  - Act II: Pell, *A Second Chain* (+35, reach depth 15) · Orlen, *Warehouse* (+45, 10 Rare+) · Isra, *Shelving* (+50, register 15).
+  - Act III: Old Wick, *The Cellar* (+55, 20 Hellscape chests) · *Everything Comes Up* (+65 and a Mark, chute 200).
+- **`CLASS_GOALS`:** 8 per class, ids `<class>_<slug>`, each with a name, flavour, suggested measure and an optional title.
+  Examples: *Shoulder of the Mountain* (warrior, stun 50 with Shoulder Charge), *Wren's Distance* (ranger, 100 kills at 8+
+  tiles), *Glass Men* (sorcerer, shatter 50 frozen), *Crane's Congregation* (necromancer, 1,000 minion kills).
+- **The inn, `INN`:** *The Banked Hearth*. Dory Ashcombe is broad and red-knuckled, holds a poker, and has one cinder-milked
+  eye; she is loud, warm and keeps count. She has a greeting for each warmth stage, plus fireside lines picked by the hero's
+  stats (deaths, kills, Close Calls, chests, potions, gold), with a fallback line.

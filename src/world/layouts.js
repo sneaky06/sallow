@@ -13,6 +13,21 @@
 
   // ---- shared pieces ------------------------------------------------------------------------------------
 
+  // Rooms in one chain, nearest neighbour from the west end (no loops). Sets ctx.chainEnds.
+  function chainEdges(ctx, rooms) {
+    const left = rooms.slice().sort(function (p, q) { return p.cx - q.cx; }), order = [left.shift()];
+    while (left.length) {
+      const last = order[order.length - 1];
+      let bi = 0;
+      for (let k = 1; k < left.length; k++) if (Math.hypot(left[k].cx - last.cx, left[k].cy - last.cy) < Math.hypot(left[bi].cx - last.cx, left[bi].cy - last.cy)) bi = k;
+      order.push(left.splice(bi, 1)[0]);
+    }
+    const edges = [];
+    for (let k = 1; k < order.length; k++) edges.push([rooms.indexOf(order[k - 1]), rooms.indexOf(order[k])]);
+    ctx.chainEnds = [order[0], order[order.length - 1]];
+    return edges;
+  }
+
   // Rectangular rooms joined by corridors. o: { target, bigP, rw:[a,b], rh:[a,b], gap, cw, doorP, decorate, after }
   function rectRooms(ctx, o) {
     const rng = ctx.rng, rooms = ctx.rooms, x1 = ctx.mx1, y1 = ctx.h - 2;
@@ -29,7 +44,8 @@
     }
     for (const r of rooms) gen.rect(ctx, r.x, r.y, r.w, r.h, T.FLOOR);
     if (o.decorate) o.decorate(ctx, rooms);
-    for (const e of gen.graph(rng, rooms, o.extraP || 0.22, 20)) {
+    const edges = ctx.linear && rooms.length >= 5 ? chainEdges(ctx, rooms) : gen.graph(rng, rooms, o.extraP || 0.22, 20);      // linear floor (R16): one chain, no loops
+    for (const e of edges) {
       const a = rooms[e[0]], b = rooms[e[1]];
       gen.corridor(ctx, a.cx, a.cy, b.cx, b.cy, o.cw || 1, T.FLOOR, rng.chance(0.5));
     }
@@ -47,6 +63,8 @@
     }
     if (o.after) o.after(ctx, rooms);
   }
+
+  gen.LINEAR_OK = { ossuary_halls: 1, collapsed_catacomb: 1, flooded_crypt: 1, broken_halls: 1, ash_fields: 1 };      // layouts built by rectRooms that can run as a single chain
 
   // ---- crypt ----------------------------------------------------------------------------------------------
   L.ossuary_halls = function (ctx) {
@@ -281,7 +299,7 @@
         for (let y = r.y + 1; y < r.y + r.h - 1; y++) gen.set(ctx, x, y, rng.chance(0.55) ? T.WALL : T.RUBBLE);
       }
     }
-    for (const e of gen.graph(rng, rooms, 0.3, cell * 1.7)) {
+    for (const e of (ctx.linear && rooms.length >= 5 ? chainEdges(ctx, rooms) : gen.graph(rng, rooms, 0.3, cell * 1.7))) {
       const a = rooms[e[0]], b = rooms[e[1]];
       gen.corridor(ctx, a.cx, a.cy, b.cx, b.cy, rng.int(o.cw[0], o.cw[1]), T.FLOOR, rng.chance(0.5));
     }

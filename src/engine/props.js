@@ -198,6 +198,26 @@
       b.line(CX - 3, CY - 12 + by, CX, CY - 15 + by, tp(IRON, 1.2)); b.line(CX + 3, CY - 12 + by, CX, CY - 15 + by, tp(IRON, 1.2));
       b.rect(CX + 7, CY - 26, 1, 3, tp(IRON, 1)); b.rect(CX + 6, CY - 23, 3, 3, fr ? 0xffe08a : 0xffc860); b.set(CX + 7, CY - 22, 0xfff6d0);   // lantern
     },
+    // R16 the inn: a post with a hanging board (a tankard painted on it) and a lantern, set by the inn's door
+    inn: function (b) {
+      b.box(OX, OY, 0.62, 0.62, 0.74, 0.74, 0, 30, mat(WOODD, { noise: 0.2 }));               // post
+      b.line(CX + 4, CY - 29, CX - 10, CY - 29, tp(WOODD, 1.2)); b.line(CX + 4, CY - 28, CX - 10, CY - 28, tp(WOODD, 0.8));   // arm
+      b.line(CX - 9, CY - 27, CX - 9, CY - 24, 0x8a7a5a); b.line(CX - 1, CY - 27, CX - 1, CY - 24, 0x8a7a5a);                // chains
+      b.rect(CX - 12, CY - 24, 14, 10, tp(WOOD, 1.1)); b.rect(CX - 12, CY - 24, 14, 1, tp(WOOD, 1.4)); b.rect(CX - 12, CY - 15, 14, 1, tp(WOODD, 0.9));
+      b.rect(CX - 8, CY - 22, 5, 6, 0xc89a40); b.rect(CX - 8, CY - 22, 5, 1, 0xfff0c0); b.rect(CX - 3, CY - 21, 2, 3, 0xc89a40);   // tankard
+      b.rect(CX + 6, CY - 24, 1, 3, tp(IRON, 1)); b.rect(CX + 5, CY - 21, 3, 3, 0xffc860); b.set(CX + 6, CY - 20, 0xfff6d0);     // lantern
+    },
+    // R16 the fire at the inn: a stone hearth with a log fire (3 frames) and a high-backed chair by it — the seat that opens the stats book
+    inn_fire: function (b, fr) {
+      b.box(OX, OY, 0.08, 0.1, 0.62, 0.9, 0, 22, mat(STONE, { noise: 0.3, band: 4 }));              // chimney breast
+      b.box(OX, OY, 0.62, 0.22, 0.7, 0.78, 0, 14, function () { return 0x140a08; });                  // the opening
+      b.box(OX, OY, 0.58, 0.14, 0.72, 0.86, 14, 17, mat(STONED, { noise: 0.2 }));                     // mantel
+      b.line(CX - 3, CY - 2, CX + 3, CY - 4, tp(WOODD, 1.2)); b.line(CX - 3, CY - 4, CX + 3, CY - 2, tp(WOODD, 0.9));
+      flame(b, CX, CY - 3, 3, fr);
+      b.box(OX, OY, 0.78, 0.66, 0.96, 0.84, 0, 5, mat(WOOD));                                          // chair seat
+      b.box(OX, OY, 0.9, 0.66, 0.98, 0.84, 5, 15, mat(WOODD));                                         // chair back
+      b.set(CX + 10, CY - 3, 0x8a3020); b.set(CX + 11, CY - 2, 0x8a3020);                              // a cushion
+    },
     // R8.1 surface crate (town): a big rope-slung crate by the fissure where sent items arrive
     surface_crate: function (b) {
       b.box(OX, OY, 0.12, 0.16, 0.88, 0.84, 0, 13, function (face, a, c) {
@@ -255,10 +275,10 @@
       b.box(OX, OY, 0.3, 0.3, 0.7, 0.7, 0, 8, mat(STONED, { noise: 0.3 }));
     },
   };
-  const FRAMES = { torch: 3, campfire: 3, portal: 4, fountain: 3, waypoint: 2, shrine: 2, crystal: 2, gate: 2, chute: 2 };
+  const FRAMES = { torch: 3, campfire: 3, portal: 4, fountain: 3, waypoint: 2, shrine: 2, crystal: 2, gate: 2, chute: 2, inn_fire: 3 };
   const LIGHT = {   // [radius in tiles, colour key]
     torch: [4.2, 'warm'], campfire: [5, 'warm'], portal: [3, 'violet'], crystal: [2.4, 'cyan'], waypoint: [2.6, 'blue'],
-    shrine: [2.6, 'gold'], chute: [2.4, 'gold'], surface_crate: [1.4, 'warm'], dungeon_entrance: [2.2, "red"], fountain: [0, "blue"], corpse: [2, "cyan"],
+    shrine: [2.6, 'gold'], chute: [2.4, 'gold'], inn: [2, 'warm'], inn_fire: [5, 'warm'], surface_crate: [1.4, 'warm'], dungeon_entrance: [2.2, "red"], fountain: [0, "blue"], corpse: [2, "cyan"],
   };
   const NO_OUTLINE = { bones: 1 };
   const cache = Object.create(null);

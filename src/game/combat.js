@@ -163,6 +163,7 @@
         if (boss) dur *= 0.3; else if (elite) dur *= 0.6;
         if (t.type === 'player') dur = Math.min(dur, 1.5);
         game.addEffect(t, { id: id, t: dur, stun: true });
+        if (id === 'freeze' && src && src.type === 'player' && game.goalAdd) game.goalAdd('s_freeze');          // R16 class goal
         if (t.type === 'player' || boss || elite) game.addEffect(t, { id: 'cc_immune', t: dur + (boss ? 5 : 2.5) });
         if (t.ai) t.ai.wind = 0;      // interrupts a wind-up
         U.fx(id === 'freeze' ? 'frost' : 'spark', t.x, t.y, {});
@@ -220,6 +221,7 @@
     if (game.perkAfterHit) game.perkAfterHit(p, t, dealt, spec);          // R11 on-hit perks
     if (shatter) {          // combo (Frost Nova + fire): the frozen enemy shatters, spraying frost around it
       game.removeEffect(t, 'freeze');
+      if (game.goalAdd) game.goalAdd('s_shatter');          // R16 class goal
       U.text(t.x, t.y - 1.2, 'SHATTER', COL.cold, true); U.fx('frost', t.x, t.y, { radius: 1.5 }); U.sfx('ice');
       game.addZone({ x: t.x, y: t.y, r: 1.6, delay: 0.01, faction: 'player', pct: 60, dtype: 'cold', st: [['chill', 100, 2]], fx: 'frost', color: COL.cold });
     }
@@ -379,6 +381,7 @@
     }
     if (killer && killer.faction === 'player' && killer.summon && game.perkMinionKill) game.perkMinionKill(p, killer, t);          // R11 perks
     else if (game.perkKill) game.perkKill(p, t);
+    if (game.goalKill) game.goalKill(p, t, killer);          // R16 class goals
     if (t.xp > 0) {
       const over = p.level - (game.monsterLevel ? game.monsterLevel(S.depth) : t.level) - 5;          // R14: beyond 5 levels above the floor, −15% per level (min 10%)
       game.gainXp(t.xp * (over > 0 ? Math.max(0.1, 1 - over * 0.15) : 1) * (1 + fr.xpGain / 100));

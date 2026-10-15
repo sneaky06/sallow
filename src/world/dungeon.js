@@ -126,14 +126,15 @@
     const fallback = layoutName === 'fallback';
     let w, h;
     if (isBoss) {
-      w = Math.min(80, rng.int(42, 46) + (grow >> 1) + gen.BOSS_STRIP);
-      h = rng.int(48, 54) + (grow >> 1);
+      w = gen.BOSS_STRIP + (theme === 'abyss' ? rng.int(34, 40) : theme === 'caves' ? rng.int(30, 34) : rng.int(26, 30));          // R16: boss floors are short approaches to a fixed arena (abyss needs more room for its islands)
+      h = theme === 'abyss' ? rng.int(46, 52) : rng.int(40, 44);
     } else {
       w = rng.int(50, 62) + grow;
       h = rng.int(48, 58) + grow;
     }
     const ctx = gen.makeCtx(w, h, rng, depth, theme);
     ctx.isBoss = isBoss;
+    ctx.linear = !isBoss && depth >= 2 && !fallback && !!gen.LINEAR_OK[layoutName] && ((Math.imul(seed, 2654435761) >>> 9) & 1) === 1;
     ctx.variantDef = def;
     ctx.act = W.actForDepth(depth);
     ctx.cleansed = !isBoss && W.isCleansed(ctx.act, activeCleansed);
@@ -161,6 +162,7 @@
     // Start: on boss floors the room furthest from the arena (west), otherwise any room.
     let start = plain[0];
     if (isBoss) { for (const r of plain) if (r.cx < start.cx) start = r; } else start = rng.pick(plain);
+    if (ctx.chainEnds && plain.indexOf(ctx.chainEnds[0]) >= 0) start = ctx.chainEnds[0];       // linear floor: start at one end of the chain
     start.type = 'start';
     ctx.spawn = { x: start.cx, y: start.cy };
     for (let oy = -1; oy <= 1; oy++) {
@@ -226,7 +228,7 @@
     // ---- validation ----
     let reach = 0;
     for (let i = 0; i < ctx.n; i++) if (dist[i] >= 0) reach++;
-    if (dist[ei] < 0 || reach < (fallback ? 60 : 280)) return null;
+    if (dist[ei] < 0 || reach < (fallback ? 60 : isBoss ? 200 : 280)) return null;
     if (isBoss) {
       const arena = ctx.rooms.find(function (r) { return r.type === 'boss'; });
       const mask = new Uint8Array(ctx.n);
@@ -234,6 +236,52 @@
       if (gen.flood(ctx, ctx.spawn.x, ctx.spawn.y, mask, WALK)[ei] >= 0) return null;      // exit must lie behind the arena
     }
     return ctx;
+  }
+
+
+  // R16 path readability: the main route (spawn → stairs, flat [x, y, ...] tile list) and every opening on the floor
+  // (doors, room mouths, the leap gap) so the engine can light them. `route: true` on an opening = it lies on the main route.
+  function routeData(ctx) {
+    const w = ctx.w, dist = ctx.dist, route = [];
+    let x = ctx.exit.x, y = ctx.exit.y;
+    for (let guard = 0; guard < 4000; guard++) {
+      route.push(x, y);
+      const d = dist[y * w + x];
+      if (d <= 0) break;
+      let moved = false;
+      for (const o of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        if (dist[(y + o[1]) * w + x + o[0]] === d - 1) { x += o[0]; y += o[1]; moved = true; break; }
+      }
+      if (!moved) break;
+    }
+    const flat = [];
+    for (let k = route.length - 2; k >= 0; k -= 2) flat.push(route[k], route[k + 1]);
+    const on = new Set();
+    for (let k = 0; k < flat.length; k += 2) on.add(flat[k + 1] * w + flat[k]);
+    const near = function (px, py) {
+      for (let oy = -1; oy <= 1; oy++) for (let ox = -1; ox <= 1; ox++) if (on.has((py + oy) * w + px + ox)) return true;
+      return false;
+    };
+    const openings = [], seen = new Set();
+    const add = function (px, py, kind) {
+      const i = py * w + px;
+      if (seen.has(i) || openings.length >= 160) return;
+      seen.add(i);
+      openings.push({ x: px, y: py, kind, route: near(px, py) });
+    };
+    for (let i = 0; i < ctx.n; i++) if (ctx.tiles[i] === T.DOOR) add(i % w, (i / w) | 0, 'door');
+    for (const r of ctx.rooms) {
+      if (r.type === 'boss') continue;
+      const ring = function (px, py, ix, iy) {       // ring tile outside the rect, walkable, with walkable room tile just inside
+        if (DRY[gen.at(ctx, px, py)] && ctx.tiles[py * w + px] !== T.DOOR && DRY[gen.at(ctx, ix, iy)]) add(px, py, 'mouth');
+      };
+      for (let k = r.x; k < r.x + r.w; k++) { ring(k, r.y - 1, k, r.y); ring(k, r.y + r.h, k, r.y + r.h - 1); }
+      for (let k = r.y; k < r.y + r.h; k++) { ring(r.x - 1, k, r.x, k); ring(r.x + r.w, k, r.x + r.w - 1, k); }
+    }
+    for (const lm of ctx.landmarks) if (lm.gap) add(lm.gap[0].x, lm.gap[0].y, 'leap');
+    // route-lit ones first, so a cap never drops them
+    openings.sort(function (a, b) { return (b.route ? 1 : 0) - (a.route ? 1 : 0); });
+    return { route: flat, openings };
   }
 
   function derive(seed, attempt) {
@@ -261,6 +309,7 @@
 
     const filled = gen.populate(ctx);
     const n = ctx.w * ctx.h;
+    const rd = routeData(ctx);
     const corruption = ctx.corruption, rift = W.riftInfo(corruption);
     W.corruptVariant(variant, corruption, rift);
     let core = null;
@@ -291,6 +340,7 @@
       variant,
       floorName: pick.floorName,
       landmarks: ctx.landmarks.map(function (l) { var o = { id: l.id, name: l.name, x: l.x, y: l.y, w: l.w, h: l.h }; if (l.gap) o.gap = l.gap; return o; }),
+      flow: ctx.isBoss ? 'set_piece' : ctx.chainEnds ? 'linear' : 'open', route: rd.route, openings: rd.openings,
       act: ctx.act, cleansed: ctx.cleansed, camps: filled.camps || [],
       corruption,
       rift,
