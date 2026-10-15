@@ -143,3 +143,17 @@ item's `look.family`, e.g. `gear/rusted_mail_chest.png`). Listed in `assets/asse
   a second finger landed). Fixed stick is the default on touch devices when no layout is saved; floating still follows drift.
 - **Tools:** `tests/assets.html` regenerates ART_LIST.md / SOUND_LIST.md and writes `assets_templates/` through
   `tests/save-files.ps1` (a localhost:8399 receiver that only writes those paths).
+
+## Revision 7 (engine side) — `src/engine/rift.js`
+- **Taint:** `map.taint` 1–3 draws sinew decals on floor tiles in `map.rift.vein` (flesh red in the Hellscape, breathing with a
+  55 bpm heartbeat). `map.fissures` cells glow (rift glow; in town the fissure goes violet → gold with warmth).
+- **Town warmth** (`flags.warmth` 0–3): 0 = frost wash, dead campfires, torches at 60%; 1+ lit windows (3/8/14), chimney smoke
+  (1/3/6 roofs), 2+ warm wash and the `hearth` sound bed, 3 lanterns on paths and birds. Points are picked once per map.
+- **Hellscape** (`map.act` hellscape/endless): hue wash drifting through wrong colours, breathing sinew vignette, eyes that open
+  in unlit cells and track the player, the player light warps, ambient pulses red, `flesh` sound bed.
+- **Entities:** Fallen (`fallen` / `adv_fallen_*`) violet rim, aura, light, plate + "THE FALLEN"; world boss (`boss_world` or
+  `MONSTERS[id].worldBoss`) ember rim, pulsing Ember light, 40 px bar, "HEART OF THE RIFT"; NPC roles the game has no look for
+  (refugee, camp_merchant, curator) get engine looks and a role name when the game falls back to the merchant's.
+- **Props:** `prop.look` → `props/<look>.png` if drawn, else the base type recoloured toward `prop.tint` (by `prop.corrupt`).
+- **Templates:** gear overlays are isolated from the procedural rig by diffing the body with and without one item, then
+  converted to 2x (`assets_templates/gear/<key>/<anim>.png`); `<class>_base` bodies too. 2,185 templates in all.

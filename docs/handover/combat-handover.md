@@ -152,3 +152,56 @@ Status: tests/combat.html → 418/418, 0 console errors.
 Potions per boss kill (hp+mana / hp): warrior 5.2/3.3, ranger 5.7/4.0, sorcerer 6.4/5.1, necromancer 3.4/2.8 — same band as after the
 R6 difficulty pass. 7 of 24 runs walled (5× at the depth-5 boss). No deaths to Brannoc (9) or Wren (16) for most runs; level at 20 ≈ 32–34
 (grade XP adds ~2 levels by depth 20).
+
+## Revision 7, round 2 — final story designs (new files src/game/bosses.js, src/game/fallen.js; manifest: campaign, bosses, fallen, events)
+Status: tests/combat.html → 436/436, 0 console errors.
+
+### Act bosses aligned with story_data.js BOSSES (bosses.js; the Choir and the Hearthking in campaign.js)
+- Boss phase changes now run every frame before any special mechanic (`bossPhase` in monsters.js), so a fight's own logic can
+  never stall a phase.
+- **Morgrath the Gravelord (5)** — Sermon: slow axe sweeps; a name read every 6 s lights a grave (pulsing ring) that raises a
+  skeleton after 4 s unless you stand on it. The Count (50%): a 2-tile ring of names orbits him at 4.5 tiles; each second inside
+  it = a Named stack (+5% damage taken, 8 s, max 10; effect `named`). Last Rites (20%): no graves; three telegraphed lunges in a row.
+- **Skarn the Broodmother, "Mother" (10)** — Nest: invulnerable on the roof; an egg sac (`boss_prop` entity, `sacOf`) every 10 s
+  hatches 3 spiders unless popped; each sac popped costs her 10% (she drops at 60%, or after 45 s anyway). Web spit slows.
+  Hungry (60%): every 7 s she charges the nearest minion (else you), leaving poison pools. Mother (25%): she walks to her brood
+  and eats it (+5% each).
+- **Azgalor, the Ember Tyrant (15)** — Hoard: +2%/s while within 1.5 tiles of the fire vein (his spawn spot, white rings); range
+  pulls him off it. Molten (50%): fire lines in a grid around you every 4.5 s (rows, then columns; stand in the gaps). The
+  Promise (20%): a meteor on your spot every second while he roars names ("… FORGOT ME").
+- **Xal'thuun, the Hollow Star (20)** — Gaze: a cone beam sweeping at 0.45 rad/s (spark line); in it with line of sight =
+  cold ticks + chill; walls block it. Hollow (55%): pulls you toward it within 10 tiles (dash breaks free) while shard rings
+  orbit. Blink (20%): it vanishes (`e.cloaked = true`, invulnerable) and reopens 1.6 s later 2 tiles behind you with a blast;
+  emits `boss:blackout { boss, t }` so engine/UI can darken the room.
+- **The Choir (25)** — Hymn: a note every 1.5 s; rings at 2.5/4.5/6.5 tiles alternate safe (pale) and harmful (red; hits if you
+  are within 1 tile of the ring). Discord (50%): two more singers (`choir_singer`, `bossAdd`); only the wrong note (cyan accent,
+  pulsing ring) can be hurt, it moves every 6 s; damage to a wrong-note singer is the Choir's. Last Verse (20%): singers gone,
+  notes every 1.0 s; every 8 s a 1.5 s inhale — hit it to silence it for 3 s, else a 5.5-tile stunning blast.
+- **Oswin Marrow, the Hearthking (30)** — thresholds now 60% / 25%. Phase I adds the Founder's three-hit combo (glowing landing
+  circles; being untouchable in a swing as it lands = Close Call). II and III as before.
+
+### All ten Fallen (fallen.js for 1, 3, 5, 6, 7, 10; campaign.js for 2, 4, 8, 9)
+- A Fallen listed on a boss-floor depth (Ivo, 35) waits one floor lower (36). Fallen at depth ≤ 6 have half the life of the others.
+- **Hob Garrow (fallen_1, 3)**: 4 braziers (torch props, `brazier: e.id`, `lit`) heal him 0.3%/s each; walk through one to snuff
+  it; he relights one every 8 s; lamp-hook sweep (1.2 s glow); all out → dark (+30% taken) and blind charges every 3 s.
+- **Sefa Lind (fallen_3, 6)**: 3 Rope Anchors (`boss_prop`); untouchable and gliding between them while any stands; each cut
+  drops her (stun); wide fan volleys; knotted snares (root-like slow traps).
+- **Brannoc (fallen_2, 9)**: + below 50% he plants himself (no charges) with a spike ring every 4.5 s.
+- **Odile Marr (fallen_5, 13)**: salt circles (7 s) crystallise you (stun) if you stand still in one; brine wave pushes you away;
+  every 15 s her true face (effect `true_face`, +100% taken for 3 s).
+- **Wren (fallen_4, 16)**: + vanishes for 3 s every 12 s (`e.cloaked`, invulnerable) and fires glinting arrows from the dark.
+- **Brother Ashby (fallen_6, 19)**: a bell ring (3.5 tiles); toll every 3–8 s (faster as he weakens) stuns inside it and raises 3
+  ghosts (`ashby_ghost`) that drift to him and heal him 6% if they arrive.
+- **Corwin Dask (fallen_7, 21)**: his hits knock 4% of your gold (min 10) onto the floor 3 tiles away; he collects loose gold
+  (heals 3%); coin barrages in three lines; Foreclosure: a 2.5-tile circle that locks after 1.5 s (hit + rooted) and stays
+  hostile for 10 s.
+- **Varr (fallen_8, 24)**: unchanged. **Crane (fallen_9, 28)**: + below 30% four Piled Dead shield him (invulnerable until broken).
+- **Ivo Marrow (fallen_10, 35→36)**: thorn walls (lanes, 10 s); retreats through the roots when you close in; Refusal every 15 s
+  (5 s, bow down): hit him and he enrages for good ("You chose."), leave him and he fights on cleanly.
+
+### R7.7 cleansed acts
+- World marks `map.cleansed` and halves spawn points; on top of that packs are 0.6× and no legendary rolls there.
+- Camp spawns (`kind:'npc'`, `camp:true`, role `refugee`/`camp_merchant`) become the story's camp NPCs (`G.meta.STORY.CAMP`, the
+  camp whose `band` holds the depth): `name`, `role` = the story NPC's vendor role (merchant / healer / stashkeeper / waypoint),
+  `campRole` (world role), `look`, `lines`, `campName`, `camp: true`. Without story data they stay "Refugee"/"Camp Trader".
+  npc:interact fires as usual; UI decides what a `waypoint` camp NPC opens.

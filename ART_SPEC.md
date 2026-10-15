@@ -137,6 +137,10 @@ The player is layered: a **base body** plus one overlay per equipped piece, so e
   (mirrored automatically); `shrine_used` is the spent shrine.
 - Old 48 × 64 props still load.
 
+**Rift looks (R6.5):** the world marks some props with a `look`: `growth`, `vein`, `rift_shrine`, `rift_crystal`, `rift_core`,
+`rift_shard`, `capped`. Draw `props/<look>.png` in the same 96 × 128 cell to give each its own art; without it the base prop
+(crystal, bones, shrine, well) is drawn recoloured toward the rift's glow.
+
 ## 5. Icons — `assets/icons/<shape>.png`
 
 - **64 × 64 px**, object centred, natural colours (the rarity colour comes from the frame and label). Shown at 16–48 px,

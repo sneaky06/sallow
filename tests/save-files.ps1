@@ -1,6 +1,6 @@
 # Receiver for tests/assets.html: lets the page write ART_LIST.md, SOUND_LIST.md and assets_templates/** into the repo.
 # Usage: powershell -ExecutionPolicy Bypass -File tests/save-files.ps1   (then press the Save buttons on tests/assets.html)
-# Listens on http://localhost:8399/ only; accepts POST with header X-Path; writes nothing outside the allowed paths.
+# Listens on http://localhost:8399/ only; accepts POST with ?p=<path> (or header X-Path); writes nothing outside the allowed paths.
 param([int]$Port = 8399)
 
 $root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
@@ -23,7 +23,8 @@ try {
     $res.Headers.Add('Access-Control-Allow-Methods', 'POST, OPTIONS')
     try {
       if ($ctx.Request.HttpMethod -eq 'POST') {
-        $rel = $ctx.Request.Headers['X-Path']
+        $rel = $ctx.Request.QueryString['p']
+        if (-not $rel) { $rel = $ctx.Request.Headers['X-Path'] }
         if (-not (Allowed $rel)) { $res.StatusCode = 403 }
         else {
           $path = [IO.Path]::GetFullPath((Join-Path $root $rel))

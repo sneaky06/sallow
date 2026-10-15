@@ -17,65 +17,123 @@
     return game.spawnProjectile({ x: e.x + Math.cos(ang) * 0.4, y: e.y + Math.sin(ang) * 0.4, ang: ang, speed: o.speed || 9, shape: o.shape || 'orb', color: o.color || '#ffffff',
       radius: 0.25, faction: 'enemy', dmg: avgDmg(e) * mult, dtype: o.dtype || 'phys', st: o.st || null, srcId: e.id, lvl: e.level, life: (o.range || 10) / (o.speed || 9) });
   }
+  game.CB = { setAnim: setAnim, avgDmg: avgDmg, ezone: ezone, eshot: eshot };          // shared with bosses.js and fallen.js
   const BOSS = function (id, o) {
     M[id] = Object.assign({ id: id, arch: 'boss', hp: 1100, dmg: [8, 12], spd: 2.3, cd: 1.9, wind: 0.55, aggro: 12, xp: 400, armor: 10, r: 0.7, atk: 'melee', boss: true }, o);
     M[id].sprite = { body: o.body, color: o.color, accent: o.accent, scale: o.scale || 2, weapon: o.weapon || 'none' };
   };
 
   // ============================== act III boss: the Choir (depth 25) ==============================
-  // A singing thing. Every ~11 s it draws a breath and sings for 2.5 s: anyone inside the song ring when it ends is stunned
-  // and burned. Leave the ring, or break the song with a burst (5% of its life during the verse) to stun it instead.
+  // Hymn: every note sends out a ring; the rings alternate safe (pale) and harmful (red) at 2.5 / 4.5 / 6.5 tiles. Dodge on the beat.
+  // Discord (50%): it splits into three singers; only the one singing the wrong note (inverted colours) can be hurt, and the
+  //   wrong note moves every 6 s. Damage to a wrong-note singer is the Choir's.
+  // Last Verse (20%): it rejoins and sings faster. Every 8 s it swells to inhale for 1.5 s: hit it then and it falls silent
+  //   (stunned, no notes) for 3 s; otherwise it lets out the verse — a 5.5-tile blast that stuns.
   BOSS('boss_choir', { n: 'The Choir', theme: 'abyss', body: 'wraith', color: '#c8a090', accent: '#ff6a8a', scale: 2.3, hp: 1250, dmg: [9, 13], dtype: 'lightning',
     res: { lightning: 50, cold: 30 }, special: 'choir', desc: 'Many mouths. One hymn.',
     phases: [
       { at: 1, moves: [
-        { id: 'Shriek', kind: 'fan', cd: 5, n: 5, spread: 0.24, tele: 0.5, mult: 0.9, dtype: 'lightning', proj: { shape: 'bolt', color: '#ff9ab0', speed: 10 } },
-        { id: 'Wailing Step', kind: 'blink', cd: 9, first: 6, r: 2.6, tele: 0.8, mult: 1.4, dtype: 'lightning', color: '#ff6a8a', minRange: 4.5 }] },
-      { at: 0.6, say: 'More voices join the hymn.', moves: [
-        { id: 'Call the Chorus', kind: 'summon', cd: 16, first: 0.5, mon: 'shadowling', n: 3, max: 6 },
-        { id: 'Discord', kind: 'circles', cd: 8, n: 4, r: 1.8, spread: 3, tele: 1.0, mult: 1.3, dtype: 'lightning', color: '#ff6a8a' }] },
-      { at: 0.3, say: 'The hymn reaches its last verse.', enrage: true, moves: [
-        { id: 'Crescendo', kind: 'ring', cd: 6, n: 14, waves: 2, tele: 0.7, mult: 0.8, dtype: 'lightning', proj: { shape: 'orb', color: '#ff9ab0', speed: 6.5 } }] },
+        { id: 'Shriek', kind: 'fan', cd: 6, n: 5, spread: 0.24, tele: 0.5, mult: 0.8, dtype: 'lightning', proj: { shape: 'bolt', color: '#ff9ab0', speed: 10 } }] },
+      { at: 0.5, say: 'The Choir comes apart into three voices. One of them is wrong.', moves: [
+        { id: 'Discord', kind: 'circles', cd: 9, n: 3, r: 1.8, spread: 3, tele: 1.0, mult: 1.2, dtype: 'lightning', color: '#ff6a8a' }] },
+      { at: 0.2, say: 'The voices rejoin for the last verse.', enrage: true, moves: [
+        { id: 'Crescendo', kind: 'ring', cd: 7, n: 14, tele: 0.7, mult: 0.8, dtype: 'lightning', proj: { shape: 'orb', color: '#ff9ab0', speed: 6.5 } }] },
     ] });
+  M.choir_singer = { id: 'choir_singer', n: 'A Voice of the Choir', arch: 'brute', theme: 'event', hp: 20, dmg: [0, 0], spd: 0, cd: 99, wind: 1, aggro: 0, xp: 0, armor: 0, r: 0.5,
+    atk: 'melee', special: 'inert', sprite: { body: 'wraith', color: '#c8a090', accent: '#ff6a8a', scale: 1.6, weapon: 'none' }, desc: 'One of many mouths.' };
+  const RINGS = [2.5, 4.5, 6.5];
   SP.choir = function (e, def, t, d, dt, p) {
     const ai = e.ai;
     if (ai.st === 'sleep' || p.dead) return false;
-    if (ai.song) {
-      const s = ai.song;
-      s.t -= dt;
-      setAnim(e, 'cast');
-      if (e.hp < s.hp0 - e.stats.hpMax * 0.05) {          // broken by a burst
-        ai.song = null; ai.songCd = 11;
-        game.applyStatus(e, 'stun', 6);
-        U.text(e.x, e.y - 1.8, 'The song breaks', '#ffd0dc', true); U.sfx('hit'); U.shake(3, 0.2);
+    // the hymn: notes on a beat
+    const silent = ai.silentT > 0;
+    if (silent) ai.silentT -= dt;
+    ai.noteT = (ai.noteT === undefined ? 1 : ai.noteT) - dt;
+    if (ai.noteT <= 0 && !silent) {
+      ai.noteT = ai.phase >= 2 ? 1.0 : 1.5;
+      ai.note = (ai.note || 0) + 1;
+      const bad = ai.note % 2 === 0, R = RINGS[ai.note % 3];
+      U.fx('ring', e.x, e.y, { radius: R, color: bad ? '#ff3b4e' : '#ffe0e8', duration: 0.5 });
+      ai.pend = bad ? { t: 0.5, R: R } : null;
+    }
+    if (ai.pend && (ai.pend.t -= dt) <= 0) {
+      const R = ai.pend.R, pd = Math.hypot(p.x - e.x, p.y - e.y);
+      ai.pend = null;
+      U.fx('nova', e.x, e.y, { radius: R, color: '#ff3b4e' }); U.sfx('bolt');
+      if (Math.abs(pd - R) < 1.0 && !game.getEffect(p, 'invuln')) game.applyHit(p, { lightning: avgDmg(e) * 1.1 }, { src: e, lvl: e.level });
+    }
+    // Discord: three singers
+    if (ai.phase === 1) {
+      if (!ai.singers) {
+        ai.singers = [e.id];
+        for (let k = 0; k < 2; k++) {
+          const a = Math.atan2(p.y - e.y, p.x - e.x) + (k ? 2.1 : -2.1), s = W.free(e.x + Math.cos(a) * 4, e.y + Math.sin(a) * 4, 2) || { x: e.x, y: e.y };
+          const v = game.createMonster('choir_singer', s.x, s.y, e.level, 'normal', null, true);
+          v.stats.hpMax = v.hp = 1e6; v.noLoot = true; v.bossAdd = e.id; v.ai.st = 'chase'; v.name = 'The Choir';
+          G.state.entities.push(v); ai.singers.push(v.id);
+          U.fx('teleport', s.x, s.y, { color: '#ff6a8a' });
+        }
+        ai.wrongT = 0;
+      }
+      ai.wrongT -= dt;
+      if (ai.wrongT <= 0) { ai.wrongT = 6; ai.wrong = U.rng.int(0, ai.singers.length - 1); U.sfx('cast'); }
+      for (let k = 0; k < ai.singers.length; k++) {
+        const s = game.byId(ai.singers[k]);
+        if (!s || s.dead) continue;
+        const wrong = k === ai.wrong;
+        s.sprite.accent = wrong ? '#00e8ff' : '#ff6a8a';
+        if (!wrong) game.addEffect(s, { id: 'invuln', t: 0.3 });
+        else if (s !== e) {
+          game.removeEffect(s, 'invuln');
+          const lost = s.stats.hpMax - s.hp;
+          s.hp = s.stats.hpMax;
+          if (lost > 0) { e.hp -= lost; if (e.hp <= 0) { e.hp = 0; game.kill(e, p); return true; } }
+        }
+        if (wrong && (ai.wrongFx = (ai.wrongFx || 0) - dt) <= 0) { ai.wrongFx = 0.5; U.fx('ring', s.x, s.y, { radius: 1.1, color: '#00e8ff', duration: 0.45 }); }
+      }
+      if (ai.wrong !== 0) game.addEffect(e, { id: 'invuln', t: 0.3 });
+      else game.removeEffect(e, 'invuln');
+    } else if (ai.singers && ai.phase >= 2) {
+      for (const id of ai.singers) { const s = game.byId(id); if (s && s !== e) { U.fx('smoke', s.x, s.y, { color: '#ff6a8a' }); G.state.entities.splice(G.state.entities.indexOf(s), 1); } }
+      ai.singers = null; game.removeEffect(e, 'invuln');
+    }
+    // Last Verse: the inhale
+    if (ai.phase >= 2) {
+      if (ai.inhale) {
+        const s = ai.inhale;
+        s.t -= dt; setAnim(e, 'cast');
+        if (e.hp < s.hp0) {
+          ai.inhale = null; ai.inhaleT = 8; ai.silentT = 3;
+          game.applyStatus(e, 'stun', 10);
+          U.text(e.x, e.y - 1.8, 'Silenced', '#ffd0dc', true); U.sfx('hit'); U.shake(3, 0.2);
+          return true;
+        }
+        if (s.t > 0) return true;
+        ai.inhale = null; ai.inhaleT = 8;
+        U.fx('nova', e.x, e.y, { radius: 5.5, color: '#ff6a8a' }); U.sfx('bolt'); U.shake(5, 0.35);
+        if (Math.hypot(p.x - e.x, p.y - e.y) <= 5.5 + p.radius * 0.5 && !game.getEffect(p, 'invuln')) {
+          game.applyHit(p, { lightning: avgDmg(e) * 2.2 }, { src: e, lvl: e.level });
+          game.applyStatus(p, 'stun', 1);
+        }
         return true;
       }
-      if (s.t > 0) return true;
-      ai.song = null; ai.songCd = ai.enraged ? 8 : 11;
-      U.fx('nova', e.x, e.y, { radius: s.r, color: '#ff6a8a' }); U.sfx('bolt'); U.shake(5, 0.35);
-      if (Math.hypot(p.x - e.x, p.y - e.y) <= s.r + p.radius * 0.5 && !game.getEffect(p, 'invuln')) {
-        game.applyHit(p, { lightning: avgDmg(e) * 2.2 }, { src: e, lvl: e.level });
-        game.applyStatus(p, 'stun', 1);
+      ai.inhaleT = (ai.inhaleT === undefined ? 4 : ai.inhaleT) - dt;
+      if (ai.inhaleT <= 0 && d < 10) {
+        ai.cast = null;
+        ai.inhale = { t: 1.5, hp0: e.hp };
+        U.fx('ring', e.x, e.y, { radius: 5.5, color: '#ff6a8a', duration: 1.5 });
+        U.text(e.x, e.y - 1.8, 'The Choir swells to inhale…', '#ffd0dc', true); U.sfx('cast');
+        return true;
       }
-      return true;
-    }
-    ai.songCd = (ai.songCd === undefined ? 7 : ai.songCd) - dt;
-    if (ai.songCd <= 0 && d < 9) {
-      ai.cast = null;
-      const r = 5.5;
-      ai.song = { t: 2.5, r: r, hp0: e.hp };
-      U.fx('ring', e.x, e.y, { radius: r, color: '#ff6a8a', duration: 2.5 });
-      U.text(e.x, e.y - 1.8, 'The Choir draws breath…', '#ffd0dc', true); U.sfx('cast');
-      return true;
     }
     return false;
   };
 
   // ============================== the world boss: Oswin Marrow, the Hearthking (depth 30) ==============================
-  // I  (100–66%) a tired swordsman on his throne: clean cuts, a charge, a sweep. No adds.
-  // II (66–33%) the roots tear him open: root lashes (telegraphed lines), lingering pools; every 12 s the Ember is exposed for
+  // I  (100–60%) a tired, clean swordsman: readable three-hit combos (dash through a swing for a Close Call), a charge, a sweep.
+  // II (60–25%) the roots tear him open: root lashes (telegraphed lines), lingering pools; every 12 s the Ember is exposed for
   //    3 s (+100% damage taken) — deal 8% of his life in the window or he drinks from it and heals 6%.
-  // III (<33%) the thing itself: the floor inverts on a pulse — INWARD hits everything near him, OUTWARD everything far from
+  // III (<25%) the thing itself: the floor inverts on a pulse — INWARD hits everything near him, OUTWARD everything far from
   //    him — and the Factor counts your dashes: "One. Two. Three." On three, the thing is upon you.
   BOSS('boss_world', { n: 'Oswin Marrow, the Hearthking', theme: 'abyss', body: 'humanoid', color: '#5a3a2a', accent: '#ff8a2b', scale: 2.0, weapon: 'sword',
     hp: 1500, dmg: [10, 14], spd: 2.5, dtype: 'phys', res: { fire: 50, cold: 25, lightning: 25, poison: 25 }, special: 'hearthking', worldBoss: true,
@@ -85,16 +143,40 @@
         { id: 'Founder\'s Cut', kind: 'fan', cd: 5.5, n: 3, spread: 0.2, tele: 0.45, mult: 1.0, proj: { shape: 'shard', color: '#ffd0a0', speed: 11 } },
         { id: 'Hearth Sweep', kind: 'slam', cd: 6.5, r: 2.8, tele: 0.85, mult: 1.6, dtype: 'fire', color: '#ff8a2b' },
         { id: 'Throne Charge', kind: 'charge', cd: 9, first: 5, tele: 0.8, mult: 1.7, dist: 9 }] },
-      { at: 0.66, say: 'The roots tear Oswin open. Something red beats inside him.', moves: [
+      { at: 0.6, say: 'The roots tear Oswin open. Something red beats inside him.', moves: [
         { id: 'Rootfall', kind: 'circles', cd: 9, first: 1, n: 4, r: 1.8, spread: 3.5, tele: 1.0, mult: 1.0, dtype: 'poison', color: '#a04040', linger: { t: 4, every: 0.5, mult: 0.3 } },
         { id: 'Hearth Sweep', kind: 'slam', cd: 7, r: 3.0, tele: 0.85, mult: 1.6, dtype: 'fire', color: '#ff8a2b' }] },
-      { at: 0.33, say: 'Oswin is gone. The thing he carried stands up.', enrage: true, moves: [
+      { at: 0.25, say: 'Oswin is gone. The thing he carried stands up.', enrage: true, moves: [
         { id: 'Heartbeat', kind: 'ring', cd: 6, n: 16, tele: 0.7, mult: 0.8, dtype: 'fire', proj: { shape: 'orb', color: '#ff3b2e', speed: 6 } }] },
     ] });
+  function comboSwing(e, p, n) {          // one swing of the Founder's combo: a short glow where the blade will land
+    const a = Math.atan2(p.y - e.y, p.x - e.x), x = e.x + Math.cos(a) * 1.4, y = e.y + Math.sin(a) * 1.4, tele = n === 1 ? 0.6 : 0.42;
+    U.fx('ring', x, y, { radius: 1.7, color: '#ffd0a0', duration: tele });
+    e.facing = a;
+    return { t: tele, x: x, y: y, a: a, n: n };
+  }
   SP.hearthking = function (e, def, t, d, dt, p) {
     const ai = e.ai;
     if (ai.st === 'sleep' || p.dead) return false;
     const ph = ai.phase;
+    if (ph === 0) {          // the Founder: three-hit combos with a readable rhythm
+      if (ai.combo) {
+        const c = ai.combo;
+        c.t -= dt; setAnim(e, 'attack');
+        if (c.t > 0) return true;
+        const zx = c.x, zy = c.y, inIt = Math.hypot(p.x - zx, p.y - zy) <= 1.7 + p.radius * 0.5;
+        U.fx('slash', zx, zy, { angle: c.a, radius: 1.7, color: '#ffd0a0' }); U.sfx('swing');
+        if (inIt) {
+          if (game.getEffect(p, 'invuln')) { if (game.closeCall) game.closeCall({ r: 1.7 }); }
+          else game.monsterHit(e, p, { mult: c.n === 1 ? 1.6 : 1.1, melee: true });
+        }
+        ai.combo = c.n > 1 ? comboSwing(e, p, c.n - 1) : null;
+        if (!ai.combo) ai.comboT = 4.5;
+        return true;
+      }
+      ai.comboT = (ai.comboT === undefined ? 2 : ai.comboT) - dt;
+      if (ai.comboT <= 0 && d < 3.5 && !ai.cast) { ai.combo = comboSwing(e, p, 3); return true; }
+    }
     if (ph >= 1) {
       // root lashes: 2–3 telegraphed lines from his feet
       ai.lashT = (ai.lashT === undefined ? 2 : ai.lashT) - dt;
@@ -200,8 +282,11 @@
     M['adv_' + id].sprite = o.sprite;
   };
 
+  game.defineFallen = fallen;
+
   // Brannoc the Unbent (warrior, 9): his shield faces you and stops most of a frontal hit; he turns slowly. Every 7 s he
-  // lowers his head and charges in a line (knockback); after the charge he stands winded for 1.6 s. Flank him.
+  // lowers his head and charges in a line (knockback); after the charge he stands winded for 1.6 s. Flank him. Below half
+  // life he plants himself: no more charges, a ring of spikes every 4.5 s.
   fallen('fallen_2', { depth: 9, name: 'Brannoc the Unbent', classId: 'warrior', story: 'He held the stair for forty days. The shield never came off.',
     sprite: { body: 'humanoid', color: '#6a6a72', accent: '#c96a3a', scale: 1.35, weapon: 'mace' }, def: { hp: 60, dmg: [5, 8], armor: 30, spd: 2.6 } });
   game.guardMult = function (t, src) {
@@ -238,8 +323,16 @@
       U.text(e.x, e.y - 1.3, 'Winded', '#ffd0a0', true); U.shake(4, 0.2);
       return true;
     }
-    ai.spikeT = (ai.spikeT === undefined ? 6 : ai.spikeT) - dt;          // spike ring: get out of his reach
-    if (ai.spikeT <= 0 && d < 3.5 && ai.st !== 'sleep') { ai.spikeT = 9; ezone(e, e.x, e.y, 2.6, 0.9, 1.5, 'phys', { color: '#c9c2b0', shake: 3 }); U.text(e.x, e.y - 1.3, 'Spikes!', '#ffd0a0', true); }
+    if (e.hp < e.stats.hpMax * 0.5 && !ai.rush) {          // below half: he plants himself and the stair grows spikes around him
+      if (!ai.planted) { ai.planted = true; U.text(e.x, e.y - 1.4, 'Brannoc plants his feet', '#ffd0a0', true); U.shake(3, 0.2); }
+      ai.spikeT = (ai.spikeT === undefined ? 1 : ai.spikeT) - dt;
+      if (ai.spikeT <= 0) { ai.spikeT = 4.5; ezone(e, e.x, e.y, 3, 1.0, 1.5, 'phys', { color: '#c9c2b0', shake: 3 }); U.text(e.x, e.y - 1.3, 'Spikes!', '#ffd0a0', true); }
+      e.facing = Math.atan2(p.y - e.y, p.x - e.x);
+      ai.bashT = (ai.bashT || 0) - dt;
+      if (d < e.radius + p.radius + 1 && ai.bashT <= 0) { ai.bashT = 1.6; U.fx('slash', p.x, p.y, { angle: e.facing, radius: 0.9 }); game.monsterHit(e, p, { melee: true }); }
+      setAnim(e, 'idle');
+      return true;
+    }
     ai.rushCd = (ai.rushCd === undefined ? 4 : ai.rushCd) - dt;
     if (ai.rushCd <= 0 && d > 2 && d < 9 && ai.st !== 'sleep') {
       ai.rushCd = 7;
@@ -274,6 +367,32 @@
       ai.count = { t: 2.5, said: 0 };
       game.addEffect(e, { id: 'counting', t: 2.5, taken: 60 });
       U.text(e.x, e.y - 1.6, 'Wren stops to count', '#ffd0a0', true);
+      return true;
+    }
+    if (ai.dark) {          // vanished: untouchable, firing from the dark; every arrow glints first
+      ai.dark.t -= dt;
+      if ((ai.dark.shotT -= dt) <= 0) {
+        ai.dark.shotT = 0.8;
+        const a = Math.atan2(p.y - e.y, p.x - e.x);
+        U.fx('spark', e.x + Math.cos(a) * 0.6, e.y + Math.sin(a) * 0.6, { color: '#ffffff' });
+        ai.dark.glint = { t: 0.45, a: a };
+      }
+      if (ai.dark.glint && (ai.dark.glint.t -= dt) <= 0) { eshot(e, ai.dark.glint.a, 1.1, { shape: 'shard', color: '#e8e0c8', speed: 13 }); ai.dark.glint = null; U.sfx('arrow'); }
+      if (ai.dark.t > 0) return true;
+      ai.dark = null; e.cloaked = false;
+      game.removeEffect(e, 'invuln');
+      U.fx('smoke', e.x, e.y, {});
+      return true;
+    }
+    ai.darkT = (ai.darkT === undefined ? 6 : ai.darkT) - dt;
+    if (ai.darkT <= 0 && d < 10) {
+      ai.darkT = 12;
+      ai.dark = { t: 3, shotT: 0.3, glint: null };
+      e.cloaked = true;
+      game.addEffect(e, { id: 'invuln', t: 3 });
+      U.fx('smoke', e.x, e.y, {}); U.text(e.x, e.y - 1.4, 'Wren slips into the dark', '#c8c8a0');
+      const s = W.free(p.x + U.rand(-6, 6), p.y + U.rand(-6, 6), 3);
+      if (s) { e.x = s.x; e.y = s.y; ai.path = null; }
       return true;
     }
     ai.snareT = (ai.snareT === undefined ? 3 : ai.snareT) - dt;
@@ -332,6 +451,21 @@
   SP.fallen_fallen_9 = function (e, def, t, d, dt, p) {
     const ai = e.ai;
     if (ai.st === 'sleep') return false;
+    if (e.hp < e.stats.hpMax * 0.3) {          // below 30%: his dead pile onto him as a shield; break them one by one
+      if (!ai.pile) {
+        ai.pile = [];
+        for (let k = 0; k < 4; k++) {
+          const a = k / 4 * Math.PI * 2, s = W.free(e.x + Math.cos(a) * 1.1, e.y + Math.sin(a) * 1.1, 1) || { x: e.x, y: e.y };
+          const b = game.createMonster('skeleton', s.x, s.y, Math.max(1, e.level - 2), 'normal');
+          b.stats.hpMax = b.hp = Math.round(e.stats.hpMax * 0.05); b.speed = 0; b.atkCd = 1e6; b.ai.atk = 1e6; b.noLoot = true; b.xp = 0; b.bossAdd = e.id;
+          b.name = 'Piled Dead'; b.ai.st = 'chase'; b.pileOf = e.id;
+          G.state.entities.push(b); ai.pile.push(b.id);
+        }
+        U.text(e.x, e.y - 1.5, 'The dead pile onto him', '#c8c8a0', true);
+      }
+      const up = ai.pile.filter(function (id) { const b = game.byId(id); return b && !b.dead; }).length;
+      if (up) game.addEffect(e, { id: 'invuln', t: 0.3 });
+    }
     ai.shovelT = (ai.shovelT === undefined ? 4 : ai.shovelT) - dt;          // the shovel line: a slow, slowing furrow toward you
     if (ai.shovelT <= 0 && d < 8) {
       ai.shovelT = 6;
@@ -385,12 +519,12 @@
     const F = FALLEN[id], L = game.monsterLevel(depth) + 3;
     const e = game.createMonster('adv_' + id, x, y, L, 'normal', null, true);
     e.rarity = 'legendary'; e.fallen = true; e.adventurerId = id; e.classId = F.classId; e.name = F.name; e.noLoot = false;
-    e.stats.hpMax = e.hp = Math.round(e.stats.hpMax * 6 * 1.4);          // a legendary's life, and then some
+    e.stats.hpMax = e.hp = Math.round(e.stats.hpMax * 6 * (depth <= 6 ? 0.7 : 1.4));          // a legendary's life, and then some (the first two are gentler)
     e.dmgMin *= 1.45; e.dmgMax *= 1.45; e.xp = Math.round(e.xp * 18); e.aggro = 6;
     return e;
   };
   game.fallenFor = function (depth) {
-    for (const id in FALLEN) if (FALLEN[id].depth === depth) return id;
+    for (const id in FALLEN) { const at = FALLEN[id].depth % G.C.BOSS_EVERY === 0 ? FALLEN[id].depth + 1 : FALLEN[id].depth; if (at === depth) return id; }      // a boss-floor depth moves one down
     return null;
   };
   G.on('scene:changed', function (ev) {
@@ -414,6 +548,30 @@
     if (G.items && G.items.grantRelic) { try { G.items.grantRelic(m.adventurerId); } catch (err) { console.error('[game] grantRelic failed', err); } }
     if (S.player) game.recomputeStats(S.player);
   });
+
+  // ============================== R7.7 cleansed acts: the camp ==============================
+  // World places `{ kind:'npc', role:'refugee'|'camp_merchant', camp:true }` spawns on cleansed floors. Each becomes one of the
+  // story's camp NPCs (G.meta.STORY.CAMP, the camp whose depth band holds this floor): `camp_merchant` takes the camp's merchant,
+  // refugees the others in order. The entity keeps `camp: true`, `campRole` (the world's role), `role` = the story NPC's vendor
+  // role (merchant / healer / stashkeeper / waypoint…), `name`, `look`, `lines`; npc:interact works as for town NPCs.
+  game.campNpc = function (npc, s, map) {
+    const camps = G.meta && G.meta.STORY && G.meta.STORY.CAMP, depth = map.depth | 0;
+    npc.camp = true; npc.campRole = s.role;
+    npc.name = s.role === 'camp_merchant' ? 'Camp Trader' : 'Refugee';
+    const camp = Array.isArray(camps) && (camps.find(function (c) { return c.band && depth >= c.band[0] && depth <= c.band[1]; }) || camps[camps.length - 1]);
+    if (!camp || !Array.isArray(camp.npcs) || !camp.npcs.length) return npc;
+    map.campUsed = map.campUsed || [];
+    let pick = null;
+    if (s.role === 'camp_merchant') pick = camp.npcs.find(function (n) { return n.role === 'merchant' && map.campUsed.indexOf(n.name) < 0; });
+    if (!pick) pick = camp.npcs.find(function (n) { return map.campUsed.indexOf(n.name) < 0 && (s.role === 'camp_merchant' || n.role !== 'merchant'); }) ||
+      camp.npcs.find(function (n) { return map.campUsed.indexOf(n.name) < 0; });
+    if (!pick) return npc;
+    map.campUsed.push(pick.name);
+    const d = game.NPCS[pick.role];
+    npc.name = pick.name; npc.role = pick.role; npc.look = pick.look || ''; npc.lines = (pick.lines || []).slice(); npc.campName = camp.name;
+    if (d) npc.sprite = Object.assign({}, d.sprite);
+    return npc;
+  };
 
   // ============================== relic powers (combat side) ==============================
   // dash_shield_bash (Brannoc): your dash ends in a shield bash — 80% weapon damage around you and a 0.8 s stagger.

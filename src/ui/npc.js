@@ -15,6 +15,9 @@
     elder:       { title: 'Elder',        line: 'The deep remembers every name. Make it remember yours.',  tabs: [['quests', 'Quests'], ['relics', 'Relics', function () { return ui._relicsCount && ui._relicsCount() > 0; }]] },
     stashkeeper: { title: 'Stash Keeper', line: 'What you leave with me, the dark cannot take.',           tabs: [['stash', 'Stash']] },
     // R7.11: the Curator keeps the Collection Book (curator.js)
+    // R7.7 friendly floors: world places refugees and a camp merchant on cleansed floors (story_data.js CAMP supplies the people)
+    refugee:     { title: 'Refugee',      line: 'You came down here? For us?',                            tabs: [['talk', 'Talk']] },
+    camp_merchant: { title: 'Camp Merchant', line: 'Found it on a dead man. Buy it anyway.',              tabs: [['buy', 'Buy'], ['sell', 'Sell']] },
     curator:     { title: 'Curator',      line: 'Every piece in its place. Show me what you carry.',       tabs: [['hand', 'Hand in'], ['book', 'Book']] },
   };
   const NPC_SPRITE = {
@@ -25,7 +28,28 @@
     elder: { body: 'humanoid', color: '#5a5a6a', accent: '#d8c9a3', scale: 1 },
     stashkeeper: { body: 'humanoid', color: '#3a5a4a', accent: '#ffd94a', scale: 1 },
     curator: { body: 'humanoid', color: '#2a6a62', accent: '#9ae6d8', scale: 1 },
+    refugee: { body: 'humanoid', color: '#7a6a52', accent: '#c9b89a', scale: 1 },
+    camp_merchant: { body: 'humanoid', color: '#8a6a3a', accent: '#d8c9a3', scale: 1 },
   };
+
+  // The named person behind a camp NPC: pick the camp for this floor's depth, then a stable member of it (vendors for the camp
+  // merchant). Lines rotate per visit. Returns { name, look, line } or null when the story data has no camps.
+  const campVisits = {};
+  function campPerson(role, ent) {
+    const camps = (G.meta && G.meta.STORY && G.meta.STORY.CAMP) || [];
+    if (!camps.length) return null;
+    const act = S.flags.act | 0 || 1;
+    const camp = camps.filter(function (c) { return S.depth >= c.band[0] && S.depth <= c.band[1]; })[0]
+      || camps.filter(function (c) { return act > c.act; }).pop() || camps[0];
+    let pool = camp.npcs;
+    if (role === 'camp_merchant') pool = pool.filter(function (n) { return n.role === 'merchant'; }); else pool = pool.filter(function (n) { return n.role !== 'merchant'; });
+    if (!pool.length) pool = camp.npcs;
+    const key = (ent && ent.id != null ? ent.id : 0) | 0;
+    const who = pool[Math.abs(key) % pool.length];
+    const n = campVisits[key] = (campVisits[key] || 0) + 1;
+    const nm = (G.meta._fillNames || String);
+    return { name: who.name, look: who.look, line: nm(who.lines[(n - 1) % who.lines.length]), camp: camp.name };
+  }
   const GAMBLE_SLOTS = [['weapon', 'Weapon', 'sword'], ['offhand', 'Offhand', 'shield'], ['helm', 'Helm', 'helm'], ['chest', 'Armor', 'armor'],
     ['gloves', 'Gloves', 'gloves'], ['boots', 'Boots', 'boots'], ['belt', 'Belt', 'belt'], ['amulet', 'Amulet', 'amulet'], ['ring', 'Ring', 'ring']];
   const STATUS = { available: ['New', '#ff8a2b'], active: ['Active', '#d8c9a3'], ready: ['Complete', '#ffd94a'], done: ['Done', '#8f8470'] };
@@ -52,11 +76,12 @@
     });
   }
 
-  function buyTab(role, p, withPotions) {
+  function buyTab(role, p, withPotions, max) {
     const list = stock(role);
     const body = h('div', { class: 'ed-body' });
     if (withPotions) { const rows = potionRows(p); if (rows) rows.forEach(function (r) { body.appendChild(r); }); }
     list.forEach(function (entry, i) {
+      if (max && i >= max) return;
       if (!entry || !entry.item) return;
       const it = entry.item;
       const afford = (p.gold || 0) >= entry.price;
@@ -96,6 +121,7 @@
     if (!list.length) return null;
     const box = h('div', { class: 'ed-box', style: 'margin-bottom:8px' }, h('div', { class: 'ed-h', text: 'Sold — tap to buy back' }));
     list.forEach(function (entry, i) {
+      if (max && i >= max) return;
       if (!entry || !entry.item) return;
       const it = entry.item, afford = (p.gold || 0) >= entry.price;
       box.appendChild(h('button', { type: 'button', class: 'ed-row', 'aria-label': 'Buy back ' + it.name, onclick: function () {
@@ -333,6 +359,9 @@
       const role = (arg && arg.role) || 'merchant';
       const def = NPC[role] || NPC.merchant;
       const ent = arg && arg.entity;
+      const camp = role === 'refugee' || role === 'camp_merchant';
+      const vrole = role === 'camp_merchant' ? 'merchant' : role;          // the camp merchant sells the general merchant's stock
+      if (camp && view.person === undefined) view.person = campPerson(role, ent);
       if (!p) return ui._frame(def.title, null, h('div', { class: 'ed-body' }));
       // reopen on the tab used last time at this vendor (session only) — most visits repeat the last errand
       // R7.7 town revival: some services open with later acts (story_data.js TOWN)
@@ -341,8 +370,11 @@
       if (!view.tab) view.tab = lastTab[role] && tabs.some(function (t) { return t[0] === lastTab[role]; }) ? lastTab[role] : tabs[0][0];
       lastTab[role] = view.tab;
       let body;
-      if (view.tab === 'buy') body = buyTab(role, p, role === 'merchant');
-      else if (view.tab === 'sell') body = sellTab(role, p);
+      if (view.tab === 'talk') body = h('div', { class: 'ed-body' }, h('div', { class: 'ed-box' }, h('div', { class: 'ed-h', text: (view.person && view.person.camp) || 'The camp' }),
+        h('p', { style: 'font-weight:normal;line-height:18px', text: view.person ? view.person.look : 'Someone who made it up from the dark.' }),
+        h('div', { class: 'ed-note', text: 'Floors you have cleansed are safe to rest on.' })));
+      else if (view.tab === 'buy') body = buyTab(vrole, p, vrole === 'merchant', camp ? 8 : 0);
+      else if (view.tab === 'sell') body = sellTab(vrole, p);
       else if (view.tab === 'forge') body = forgeTab(p);
       else if (view.tab === 'gamble') body = gambleTab(p);
       else if (view.tab === 'heal') body = healTab(p);
@@ -355,7 +387,8 @@
       const right = view.tab === 'stash' ? stashSort()
         : view.tab === 'book' && view.page ? [ui._btn('◀ Pages', function () { view.page = null; ui._refreshNow(); })] : null;
       const sub = h('div', { class: 'ed-npc' }, ui._portrait((ent && ent.sprite) || NPC_SPRITE[role], 48),
-        h('div', { style: 'flex:1;min-width:0' }, h('b', { class: 'ed-ember', text: (ent && ent.name) || def.title }), h('p', { text: '"' + ((ui._townLine && ui._townLine(role)) || def.line) + '"' })),
+        h('div', { style: 'flex:1;min-width:0' }, h('b', { class: 'ed-ember', text: (view.person && view.person.name) || (ent && ent.name) || def.title }),
+          h('p', { text: '"' + ((view.person && view.person.line) || (!camp && ui._townLine && ui._townLine(role)) || def.line) + '"' })),
         ui._goldEl(p.gold || 0));
       const foot = view.tab === 'sell' ? [
         ui._junkButton(),

@@ -111,7 +111,8 @@
     else { const k = 1 - Math.exp(-dt * 12); V.camX += (tgt.x - V.camX) * k; V.camY += (tgt.y - V.camY) * k; }
     computeOffsets();
     U.fx.update(dt);
-    U.audio.setBed(map && S.scene !== 'menu' ? U.variant.get(map).sound : 'none', pal.tier);
+    U.audio.setBed(map && S.scene !== 'menu' ? U.rift.bed(U.variant.get(map).sound) : 'none', pal.tier);
+    U.rift.update(dt, map);
     if ((V.musT -= dt) <= 0 || map !== V.musMap) { V.musT = 0.5; V.musMap = map; U.audio.setMusic(musicTrack(S, map)); }
     U.audio.tick();
     if (!map || S.scene === 'menu') return;
@@ -274,10 +275,54 @@
     return (halos[hex] = b.done());
   }
   const glint = { t: 0, c: '#ffffff' };
+  const FALLEN_SUB = ['THE FALLEN'], WORLD_SUB = ['HEART OF THE RIFT'];
   const BEAM_HALO = [0, 22, 32, 36, 42, 52], BEAM_H = [0, 0, 40, 52, 68, 86];       // by glow level       // brief screen-edge flash when a Legendary-tier item drops
 
-  const RIM = { champion: '#5b8cff', rare: '#ffe45b', legendary: '#ff8a2b', boss: '#ff3b4e' };
-  const PLATE = { champion: '#8fb0ff', rare: '#ffe45b', legendary: '#ff9a3a', boss: '#ff6a5a' };
+  const RIM = { champion: '#5b8cff', rare: '#ffe45b', legendary: '#ff8a2b', boss: '#ff3b4e', fallen: '#c86aff', world: '#ffb040' };
+  const PLATE = { champion: '#8fb0ff', rare: '#ffe45b', legendary: '#ff9a3a', boss: '#ff6a5a', fallen: '#e0a8ff', world: '#ffd070' };
+
+  // Props with the world's optional look / tint / corrupt (R6.5): hand-drawn props/<look>.png wins; otherwise the base
+  // type, recoloured toward prop.tint (more for higher corrupt). Cached per type + tint + corrupt step.
+  const tintedProps = new Map();
+  function propArt(pr) {
+    const type = pr.type === 'shrine' && pr.used ? 'shrine_used' : pr.type;
+    if (typeof pr.look === 'string' && U.assets && U.assets.hasProp(pr.look)) return U.props.get(pr.look);
+    const P = U.props.get(type), tint = pr.tint && U.safeColor(pr.tint, null);
+    if (!tint) return P;
+    const k = Math.round(Math.max(0, Math.min(1, +pr.corrupt || 0.5)) * 4) / 4, key = type + tint + k + (P.frames[0].hd || 1);
+    let o = tintedProps.get(key);
+    if (o && o.src === P.frames) return o;
+    const frames = P.frames.map(function (c) {
+      const t = U.makeCanvas(c.width, c.height), x = U.ctx2d(t);
+      x.drawImage(c, 0, 0);
+      x.globalCompositeOperation = 'color'; x.globalAlpha = 0.35 + 0.5 * k; x.fillStyle = tint; x.fillRect(0, 0, t.width, t.height);
+      x.globalCompositeOperation = 'destination-in'; x.globalAlpha = 1; x.drawImage(c, 0, 0);
+      t.hd = c.hd;
+      return t;
+    });
+    o = { frames: frames, light: P.light, src: P.frames };
+    if (tintedProps.size > 80) tintedProps.clear();
+    tintedProps.set(key, o);
+    return o;
+  }
+
+  // R7.7 entity kinds: the Fallen (corrupted adventurers), the world boss, camp NPCs whose role the game has no look for
+  function isFallen(e) { return !!e && (e.fallen === true || (typeof e.monsterId === 'string' && e.monsterId.indexOf('adv_fallen') === 0)); }
+  function isWorldBoss(e) {
+    if (!e || typeof e.monsterId !== 'string') return false;
+    const M = G.game && G.game.MONSTERS && G.game.MONSTERS[e.monsterId];
+    return e.monsterId === 'boss_world' || e.monsterId === 'world_boss' || !!(M && M.worldBoss);
+  }
+  const ROLE_LOOK = {
+    refugee: { body: 'humanoid', color: '#5a5048', accent: '#8a7a60', scale: 0.92, weapon: 'none' },
+    camp_merchant: { body: 'humanoid', color: '#4a5a3a', accent: '#d8b060', scale: 1, weapon: 'none' },
+    curator: { body: 'caster', color: '#6a6a72', accent: '#d8d8e0', scale: 1.1, weapon: 'none' },
+  };
+  const ROLE_NAME = { refugee: 'Refugee', camp_merchant: 'Camp Trader', curator: 'The Curator' };
+  function npcLook(e) {
+    const N = G.game && G.game.NPCS;
+    return N && N[e.role] ? null : ROLE_LOOK[e.role] || null;
+  }
 
   // R6.2: the Echo (a hostile copy of the player) — matched loosely, like the UI does
   function isEcho(e) { return !!e && (e.echo === true || e.isEcho === true || e.monsterId === 'echo' || e.kind === 'echo'); }
@@ -403,10 +448,11 @@
   function drawEntity(ctx, it) {
     const e = it.ref, sx = it.sx, sy = it.sy, P = G.state.player, echo = isEcho(e);
     const sh = (e === P && U.gear.sheetFor(e)) || (echo && e.equipment && U.gear.sheetFor(e)) || (U.assets && U.assets.spriteFor(e))
-      || (echo && P && P.classId === e.classId && U.gear.sheetFor(P)) || U.sprites.get(e.sprite);
+      || (echo && P && P.classId === e.classId && U.gear.sheetFor(P)) || U.sprites.get((e.type === 'npc' && npcLook(e)) || e.sprite);
     const dead = !!e.dead || e.anim === 'die';
     const t = typeof e.animT === 'number' && isFinite(e.animT) ? e.animT : V.time;
-    const rim = !dead && e.type === 'monster' ? (echo ? '#9fd8ff' : RIM[e.rarity]) : null;
+    const fallen = isFallen(e), world = !fallen && isWorldBoss(e);
+    const rim = !dead && e.type === 'monster' ? (echo ? '#9fd8ff' : fallen ? RIM.fallen : world ? RIM.world : RIM[e.rarity]) : null;
     const fd = frameOf(sh, e, dead, t);
     if (!dead) {
       const w = Math.round((sh.hd ? fd.d * 0.62 : sh.cell) * (sh.wide ? 0.42 : 0.3) * (sh.hover ? 0.75 : 1) * (sh.hd ? 1.6 : 1));
@@ -416,7 +462,7 @@
         ctx.globalCompositeOperation = 'lighter';
         ctx.globalAlpha = 0.6 + 0.25 * Math.sin(V.time * 5 + (e.id || 0));
         ctx.drawImage(a, sx - (a.width >> 1), sy - (a.height >> 1));
-        if (e.rarity === 'legendary') {
+        if (e.rarity === 'legendary' || fallen || world) {
           const a2 = U.aura(rim, Math.min(64, a.width + 16));
           ctx.globalAlpha = 0.35 + 0.3 * Math.sin(V.time * 2.5 + (e.id || 0) + 1.6);
           ctx.drawImage(a2, sx - (a2.width >> 1), sy - (a2.height >> 1));
@@ -425,6 +471,8 @@
         ctx.globalCompositeOperation = 'source-over';
       }
     }
+    if (!dead && world) addLight(sx, sy - 20, 3.2 + 0.8 * Math.sin(V.time * 5.2) * Math.sin(V.time * 1.3), 'warm');
+    else if (!dead && fallen) addLight(sx, sy - 14, 1.8 + 0.3 * Math.sin(V.time * 3 + (e.id || 0)), RIM.fallen);
     if (sh.hd) ctx.imageSmoothingEnabled = V.R !== 2;          // painted art lands 1:1 at R 2, filtered otherwise
     if (echo) {
       const img = ghostOf(fd.img);
@@ -468,7 +516,7 @@
     c.hd = 2;
     return c;
   }
-  // R7.1 rarity ladder â†’ glow level 0..5 (none, slight, a little bigger, slightly bigger, bigger, biggest + slow pulse).
+  // R7.1 rarity ladder → glow level 0..5 (none, slight, a little bigger, slightly bigger, bigger, biggest + slow pulse).
   // Read by key; a numeric C.RARITY[key].glow wins, so core can retune it without an engine change.
   const GLOW_KEY = { common: 0, uncommon: 0, rare: 0, magic: 1, epic: 1, set: 2, legendary: 2, mythic: 3, unique: 4, corrupted: 4, rift: 5 };
   function glowOf(key) {
@@ -543,16 +591,18 @@
     if (it.kind === 1 || it.kind === 4) { drawGroundItem(ctx, it); return; }
     if (it.kind === 0) {
       const pr = it.ref;
-      const P = U.props.get(pr.type === 'shrine' && pr.used ? 'shrine_used' : pr.type);
+      const P = propArt(pr);
       const n = P.frames.length;
       const img = pr.type === 'gate' ? P.frames[(V.info ? V.info[(pr.y | 0) * G.state.map.w + (pr.x | 0)] & 1 : 0) % n] : n > 1 ? P.frames[((V.time * (n >= 3 ? 8 : 2.5) + pr.x * 3 + pr.y) | 0) % n] : P.frames[0];
       U.blit(ctx, it.lit ? img : U.dim(img), sx - 24, sy - 56);
       if (it.lit && !pr.used) {
         const r = pr.light > 0 ? pr.light : (P.light ? P.light[0] : 0);
         if (r > 0) {
-          const key = P.light ? P.light[1] : 'warm', warm = key === 'warm';
+          const tk = pr.tint && U.safeColor(pr.tint, null), key = tk || (P.light ? P.light[1] : 'warm'), warm = key === 'warm';
+          const RFt = U.rift.F, cold = RFt.town && RFt.warmth === 0;          // the town's dead hearths
+          if (cold && pr.type === 'campfire') return;
           // torches follow the floor variant: colour, reach and how hard they flicker
-          addLight(sx, sy - 12, warm ? r * fr.torchR * (0.9 + fr.flick * (0.08 * Math.sin(V.time * 11 + pr.x * 5 + pr.y * 3) + 0.06 * Math.sin(V.time * 23.7 + pr.x))) : r, warm && fr.torch ? fr.torch : key);
+          addLight(sx, sy - 12, (cold ? 0.6 : 1) * (warm ? r * fr.torchR * (0.9 + fr.flick * (0.08 * Math.sin(V.time * 11 + pr.x * 5 + pr.y * 3) + 0.06 * Math.sin(V.time * 23.7 + pr.x))) : r), warm && fr.torch ? fr.torch : key);
         }
       }
       return;
@@ -714,6 +764,7 @@
   }
 
   // light sprite: stepped bands at R 1 (the old pixel look), a smooth falloff in high-res mode
+  const WARP = { a: 1, b: 1, dx: 0 };
   function LS(key) { return V.R > 1 ? U.lightSoft(key) : U.lightSprite(key); }
 
   // ---------------------------------------------------------------- render
@@ -726,6 +777,7 @@
     if (!map || !map.tiles || S.scene === 'menu') { drawBackdrop(ctx, W, H); return; }
 
     const VR = U.variant.get(map), set = VR.set, bm = VR.blendMask, bs = VR.blendSet;
+    const RF = U.rift.frame(map, V.time);
     fr.torch = VR.torchKey; fr.torchR = VR.torchR; fr.flick = VR.flicker;
     U.fogA = VR.fogA;
     const WH = U.tiles.WALL_HEIGHTS;
@@ -737,6 +789,7 @@
     const p = S.player, mw = map.w, mh = map.h, tiles = map.tiles;
     const ox = V.offX + U.fx.shake.x, oy = V.offY + U.fx.shake.y;
     const exp = map.explored && map.explored.length === tiles.length ? map.explored : null;
+    const tnt = map.taint && map.taint.length === tiles.length ? map.taint : null;
     const vis = map.kind !== 'town' && map.visible && map.visible.length === tiles.length ? map.visible : null;
     fr.ox = ox; fr.oy = oy; fr.W = W; fr.H = H;
     fr.hasP = !!(p && isFinite(p.x) && isFinite(p.y));
@@ -775,6 +828,12 @@
         const lit = !vis || vis[i];
         const sx = e * HW - ox - 16, sy = d * HH - oy;
         U.blit(ctx, lit ? img : U.dim(img), sx, sy);
+        if (tnt && tnt[i] && (t === T.FLOOR || t === T.PATH || t === T.GRASS || t === T.RUBBLE || t === T.STAIRS_DOWN)) {     // rift taint: sinew veins
+          const dc = U.rift.decal(Math.min(3, tnt[i]), h & 1, RF.vein, RF.hell > 0);
+          ctx.globalAlpha = U.rift.taintAlpha(Math.min(3, tnt[i]));
+          U.blit(ctx, lit ? dc : U.dim(dc), sx, sy);
+          ctx.globalAlpha = 1;
+        }
         if ((t === T.STAIRS_DOWN || t === T.STAIRS_UP) && nMarks < 8) {
           let m = marks[nMarks];
           if (!m) m = marks[nMarks] = { x: 0, y: 0, up: false };
@@ -883,14 +942,15 @@
     while (q < dn) drawItem(ctx, ord[q++]);
 
     // ---- lighting: additive light map multiplied over the scene
+    U.rift.lights(map, addLight, ox, oy, W, H, V.time);
     if (lightX) {
       lightX.globalCompositeOperation = 'source-over';
-      lightX.fillStyle = VR.ambCss;
+      lightX.fillStyle = U.rift.amb(VR);
       lightX.fillRect(0, 0, LW, LH);
       lightX.globalCompositeOperation = 'lighter';
       if (fr.hasP) {
-        const rx = VR.lightR * 22 * (1 + 0.02 * Math.sin(V.time * 7.3)), ry = rx * 0.6;
-        lightX.drawImage(LS(VR.lightKey), (fr.psx - rx) / 2, (fr.psy - 10 - ry) / 2, rx, ry);
+        const wp = U.rift.warp(WARP, V.time), rx = VR.lightR * 22 * (1 + 0.02 * Math.sin(V.time * 7.3)) * wp.a, ry = rx * 0.6 * wp.b / wp.a;
+        lightX.drawImage(LS(VR.lightKey), (fr.psx + wp.dx - rx) / 2, (fr.psy - 10 - ry) / 2, rx, ry);
       }
       for (let i = 0; i < nLights; i++) {
         const l = lights[i], rx = l.r * 22, ry = rx * 0.6;
@@ -905,6 +965,7 @@
 
     // ---- Pallor (R5.2): the world drains of colour by tier. One composite fill over the lit world, before loot,
     // spell fx, labels and bars are drawn, so those stay fully saturated. No per-pixel work in JS.
+    U.rift.post(ctx, W, H, ox, oy, map, V.time, LW, LH);
     if (drawPallor(ctx, W, H)) for (let i = 0; i < nReicons; i++) { const ri = reicons[i]; U.blit(ctx, ri.img, ri.x, ri.y); }
 
     // ---- overlay: beams, fx, markers, labels, bars, text, joystick
@@ -976,36 +1037,39 @@
       const b = bars[i], e = b.e;
       let y = b.y;
       if (e.type === 'monster') {
-        const boss = e.rarity === 'boss', w = boss ? 30 : e.rarity === 'legendary' ? 26 : RIM[e.rarity] ? 20 : 14;
+        const fal = isFallen(e), wb = !fal && isWorldBoss(e), boss = e.rarity === 'boss' || wb, w = wb ? 40 : boss ? 30 : fal ? 28 : e.rarity === 'legendary' ? 26 : RIM[e.rarity] ? 20 : 14;
         const max = (e.stats && e.stats.hpMax) || e.hp || 1, f = Math.max(0, Math.min(1, e.hp / max));
         ctx.fillStyle = '#0b0910';
         ctx.fillRect(b.x - (w >> 1) - 1, y - 1, w + 2, boss ? 5 : 4);
         ctx.fillStyle = '#3a1014';
         ctx.fillRect(b.x - (w >> 1), y, w, boss ? 3 : 2);
-        ctx.fillStyle = boss ? '#ff5a2a' : '#d8281e';
+        ctx.fillStyle = fal ? '#a03ad8' : wb ? '#ff9a2a' : boss ? '#ff5a2a' : '#d8281e';
         ctx.fillRect(b.x - (w >> 1), y, Math.round(w * f), boss ? 3 : 2);
-        ctx.fillStyle = boss ? '#ffb070' : '#ff7a6a';
+        ctx.fillStyle = fal ? '#e0a8ff' : boss ? '#ffb070' : '#ff7a6a';
         ctx.fillRect(b.x - (w >> 1), y, Math.round(w * f), 1);
         y -= 10;
       } else {
         y -= 6;
       }
-      const color = e.type === 'npc' ? '#ffe9a8' : isEcho(e) ? '#bfe6ff' : PLATE[e.rarity];
+      const fal = isFallen(e), wb = !fal && isWorldBoss(e);
+      const color = e.type === 'npc' ? '#ffe9a8' : isEcho(e) ? '#bfe6ff' : fal ? PLATE.fallen : wb ? PLATE.world : PLATE[e.rarity];
       if (color && e.name) {
         // modifier names under the plate: rare / legendary only, and only when near the player or targeted
-        const af = (e.rarity === 'rare' || e.rarity === 'legendary') && Array.isArray(e.affixes) ? e.affixes : null;
+        // the Fallen and the world boss carry a title line instead of modifier names
+        const af = fal ? FALLEN_SUB : wb ? WORLD_SUB : (e.rarity === 'rare' || e.rarity === 'legendary') && Array.isArray(e.affixes) ? e.affixes : null;
         let lines = 0;
         if (af && af.length && p) {
           const dx = e.x - p.x, dy = e.y - p.y;
-          if (dx * dx + dy * dy < 36 || p.targetId === e.id || S.targetId === e.id) lines = Math.min(3, af.length);
+          if (fal || wb || dx * dx + dy * dy < 36 || p.targetId === e.id || S.targetId === e.id) lines = Math.min(3, af.length);
         }
         y -= lines * 8;
-        const img = U.text(String(e.name).slice(0, 26), color);
+        const nm = e.type === 'npc' && npcLook(e) && ROLE_NAME[e.role] && G.game && G.game.NPCS && G.game.NPCS.merchant && e.name === G.game.NPCS.merchant.name ? ROLE_NAME[e.role] : e.name;
+        const img = U.text(String(nm).slice(0, 26), color);
         ctx.drawImage(img, b.x - (img.width >> 1), y);
         for (let k = 0; k < lines; k++) {
           let s = String(af[k]).slice(0, 18);
           if (k === 2 && af.length > 3) s = '+' + (af.length - 2);
-          const m = U.text(s, e.rarity === 'legendary' ? '#d8a878' : '#c8c098');
+          const m = U.text(s, fal ? '#b080d8' : wb ? '#e8b060' : e.rarity === 'legendary' ? '#d8a878' : '#c8c098');
           ctx.drawImage(m, b.x - (m.width >> 1), y + 8 + k * 8);
         }
       }
@@ -1075,6 +1139,7 @@
       mmImg = mmX.createImageData(mw, mh); mm32 = new Uint32Array(mmImg.data.buffer);
     }
     const exp = map.explored && map.explored.length === tiles.length ? map.explored : null;
+    const tnt = map.taint && map.taint.length === tiles.length ? map.taint : null;
     const vis = map.kind !== 'town' && map.visible && map.visible.length === tiles.length ? map.visible : null;
     for (let i = 0; i < mw * mh; i++) {
       const t = tiles[i];

@@ -148,7 +148,12 @@
         : off.state === 'partial' ? 'Go online once and tap Download again.' : 'Stay online for a moment while the game is stored on this device.';
     return [
       h('div', { class: 'ed-box' }, h('div', { class: 'ed-kv' }, h('span', { text: 'Status' }), h('b', { class: cls, text: text })),
-        h('div', { class: 'ed-note', text: note })),
+        h('div', { class: 'ed-note', text: note }),
+        // R7: can the browser throw the save away? (iOS may clear storage of a site that is not kept persistent)
+        h('div', { class: 'ed-kv', style: 'margin-top:6px' }, h('span', { text: 'Storage' }),
+          h('b', { class: off.persisted === true ? 'ed-good' : (off.persisted === false ? 'ed-bad' : 'ed-dim'),
+            text: off.persisted === true ? 'persistent' : (off.persisted === false ? 'may be cleared by iOS' : 'unknown') })),
+        off.persisted === false ? h('div', { class: 'ed-note', text: 'Use Copy save code now and then to keep a copy outside the game. Adding the game to the Home Screen helps.' }) : null),
       extra,
       off.waiting ? ui._btn('Update now (saves and restarts)', function () { ui._applyUpdate(); }, 'gold') : null,
       h('div', { class: 'ed-note', style: 'text-align:center', text: ui.GAME_NAME + ' ' + (ui._VERSION || '') + (st && st.version ? '  ·  data ' + String(st.version).replace(/^[a-z]+-/, '') : '') }),
@@ -191,6 +196,8 @@
         ui._btn('Quest log', function () { ui.open('quests'); }),
         ui._btn('Journal', function () { ui.open('journal'); }),
         ui._btn('Save & quit to title', function () { quitToTitle(true); }),
+        ui._exportDialog ? ui._btn('Copy save code', ui._exportDialog) : null,
+        ui._importDialog ? ui._btn('Import save code', ui._importDialog) : null,
         ui._btn('Delete save', function () {
           ui._confirm('Delete this hero forever? This cannot be undone.', 'Delete', function () {
             quitToTitle(false);        // core.quitToMenu saves on the way out, so delete afterwards

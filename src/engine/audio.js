@@ -113,10 +113,10 @@
   };
 
   // ---- sound files (R6.4): assets/sound/<name>.mp3|.m4a listed in assets/assets.js override the synth.
-  //   <sfx>.mp3 (and <sfx>_2, _3 â€¦ picked at random), amb_<bed>.mp3 (looping bed), music_<track>.mp3 (streamed loop).
+  //   <sfx>.mp3 (and <sfx>_2, _3 … picked at random), amb_<bed>.mp3 (looping bed), music_<track>.mp3 (streamed loop).
   // SFX and beds are fetched at load and decoded once audio unlocks; anything missing or undecodable stays synthesized.
-  const files = Object.create(null);         // name â†’ { url, data, buf, music }
-  const variants = Object.create(null);      // sfx name â†’ [file names]
+  const files = Object.create(null);         // name → { url, data, buf, music }
+  const variants = Object.create(null);      // sfx name → [file names]
   function addFile(path, url) {
     const m = /^sound\/([a-z0-9_]+)\.[a-z0-9]+$/.exec(path);
     if (!m) return;
@@ -154,7 +154,7 @@
 
   // ---- music: two streamed <audio> elements routed through musicBus, crossfaded over ~2 s.
   // Tracks: title, town, crypt, caves, inferno, abyss, rift (deep floors), boss, echo. A missing track falls back
-  // (echo â†’ boss, rift â†’ abyss); with no file at all there is simply no music and the ambience bed carries the mood.
+  // (echo → boss, rift → abyss); with no file at all there is simply no music and the ambience bed carries the mood.
   const MUSIC_FALLBACK = { echo: 'boss', rift: 'abyss' };
   const mus = { els: [], gains: [], active: 0, cur: null, want: null };
   function trackFile(t) { while (t && !files['music_' + t]) t = MUSIC_FALLBACK[t]; return t ? files['music_' + t] : null; }
@@ -240,6 +240,24 @@
         break;
       }
       case 'choir': osc('sine', 110, 0.16); osc('sine', 164.8, 0.12); osc('sine', 261.6, 0.07); break;
+      case 'flesh': {
+        // Hellscape: a sour, never-settling drone (detune wanders), wet breathing noise; heartbeats and whispers in tickBed
+        const lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 180; lp.Q.value = 4;
+        const a = ac.createOscillator(), b = ac.createOscillator(); a.type = b.type = 'sawtooth';
+        a.frequency.value = 36.7; b.frequency.value = 38.9;                  // a semitone apart: it never resolves
+        a.connect(lp); b.connect(lp); a.start(); b.start();
+        stops.push(a, b, lfo(0.05, 900, a.detune), lfo(0.031, 700, b.detune), lfo(0.13, 90, lp.frequency));
+        add(lp, 0.34);
+        n = loopNoise('lowpass', 420, 1.5); stops.push(n.src);
+        const g = add(n.out, 0.0); stops.push(lfo(0.21, 0.22, g.gain));      // breathing in and out
+        break;
+      }
+      case 'hearth': {
+        // warm town: a low soft fire bed and a whisper of wind, crackles in tickBed
+        n = loopNoise('lowpass', 160); stops.push(n.src); add(n.out, 0.35);
+        const w = loopNoise('bandpass', 380, 0.5); stops.push(w.src, lfo(0.09, 120, w.filter.frequency)); add(w.out, 0.12);
+        break;
+      }
       case 'heart': case 'drip': case 'drone': default: {
         const lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = kind === 'heart' ? 160 : 240;
         const a = ac.createOscillator(), b = ac.createOscillator(); a.type = b.type = 'sawtooth';
@@ -293,6 +311,15 @@
     } else if (bed.kind === 'heart') {
       tone('sine', 62, 38, 0.16, 0.22); tone('sine', 58, 36, 0.18, 0.16, 0.24);
       nextEv = now + 1.25 + (wantPallor * 0.08);
+    } else if (bed.kind === 'flesh') {
+      const r = Math.random();
+      if (r < 0.55) { tone('sine', 52, 30, 0.2, 0.26); if (Math.random() < 0.7) tone('sine', 48, 28, 0.22, 0.18, 0.26 + Math.random() * 0.1); }   // a heart with a bad rhythm
+      else if (r < 0.85) noise(0.9 + Math.random() * 0.8, 0.07, 0, 'bandpass', 900 + Math.random() * 1500, 300 + Math.random() * 600, 0.3);  // a whisper
+      else { const f = 300 + Math.random() * 200; tone('triangle', f, f * 0.42, 2.6, 0.05, 0, 0.6); tone('sine', f * 1.01, f * 0.4, 2.6, 0.04, 0.05, 0.6); }   // far off, something wails
+      nextEv = now + 0.7 + Math.random() * (r < 0.55 ? 0.9 : 2.5);
+    } else if (bed.kind === 'hearth' && Math.random() < 0.5) {
+      noise(0.025, 0.06, 0, 'highpass', 2600, 1800);
+      nextEv = now + 0.25 + Math.random() * 1.4;
     } else if (bed.kind === 'fire' && Math.random() < 0.6) {
       noise(0.03, 0.12, 0, 'highpass', 3000, 2000);
       nextEv = now + 0.15 + Math.random() * 0.9;
@@ -308,7 +335,7 @@
     setMusic: function (track) { mus.want = typeof track === 'string' ? track : null; },
     musicTrack: function () { return mus.cur ? mus.cur.url.replace(/^.*music_|\.[a-z0-9]+$/g, '') : 'none'; },
     files: function () { const o = {}; for (const n in files) o[n] = files[n].music ? 'stream' : files[n].buf ? 'decoded' : 'pending'; return o; },
-    BEDS: ['wind', 'drone', 'drip', 'water', 'fire', 'heart', 'choir'],
+    BEDS: ['wind', 'drone', 'drip', 'water', 'fire', 'heart', 'choir', 'flesh', 'hearth'],
     MUSIC: ['title', 'town', 'crypt', 'caves', 'inferno', 'abyss', 'rift', 'boss', 'echo'],
     bedKind: function () { return bed ? bed.kind : 'none'; },
   };

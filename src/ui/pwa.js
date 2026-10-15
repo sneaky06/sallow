@@ -4,7 +4,7 @@
   const G = window.G;
   const ui = G.ui;
 
-  ui._VERSION = '0.9.0';
+  ui._VERSION = '0.11.0';
 
   // state: 'unsupported' | 'pending' | 'ready' | 'partial'; status = what the worker cached; waiting = an update is downloaded
   const off = ui._offline = { state: 'pending', status: null, waiting: false, persisted: null };
@@ -88,11 +88,18 @@
     }
 
     // Ask the browser not to evict our storage (saves) under pressure. Installed PWAs usually get this granted.
+    // Asked at start and again after the first save of a session (browsers are likelier to grant once the site has data).
+    ui._askPersist = function () {
+      try {
+        if (navigator.storage && navigator.storage.persist) {
+          navigator.storage.persist().then(function (ok) { off.persisted = !!ok; }, function () {});
+        }
+      } catch (err) { /* not available */ }
+    };
     try {
-      if (navigator.storage && navigator.storage.persist) {
-        navigator.storage.persist().then(function (ok) { off.persisted = !!ok; }, function () {});
-      }
+      if (navigator.storage && navigator.storage.persisted) navigator.storage.persisted().then(function (ok) { off.persisted = !!ok; }, function () {});
     } catch (err) { /* not available */ }
+    ui._askPersist();
 
     if (!('serviceWorker' in navigator) || location.protocol.indexOf('http') !== 0) { off.state = 'unsupported'; return; }
     try {

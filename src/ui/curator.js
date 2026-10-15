@@ -254,6 +254,17 @@
   ui._relicsCount = function () { try { return G.items && G.items.relicCount ? G.items.relicCount() : 0; } catch (err) { return 0; } };
   ui._register('relics', { render: function () { return ui._frame('Relics', null, relicsBody()); } });
 
+  // Isra's own words when a page or milestone completes (story_data.js CURATOR); the items team's toast carries the numbers
+  function curatorSays(list) {
+    const D = G.meta && G.meta.STORY && G.meta.STORY.CURATOR;
+    const l = D && D[list];
+    if (!l || !l.length) return;
+    const nm = G.meta._fillNames || String;
+    setTimeout(function () { ui._banner('Isra Vell', nm(l[Math.floor(Math.random() * l.length)]), '#7fd4c8', 5); }, 900);
+  }
+  G.on('collection:page', function () { curatorSays('pageDone'); });
+  G.on('collection:tier', function () { curatorSays('tierDone'); });
+
   // events: a hand-in / claim while the book or relics are open repaints through the usual dirty flag
   ['collection:registered', 'collection:page', 'collection:tier', 'relic:granted', 'relic:combined'].forEach(function (n) { G.on(n, ui._refresh); });
 })();

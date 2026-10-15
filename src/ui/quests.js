@@ -371,4 +371,15 @@
   G.on('room:cleared', function () {
     advance((kind, prog) => (kind === 'lockdown' ? prog + 1 : prog));
   });
+
+  // R7.11 / R6.5 side-line triggers (story_data.js SIDE kinds): Curator registrations, completed Book pages, cleansed items.
+  G.on('collection:registered', function () { advance((kind, prog) => (kind === 'collect' ? prog + 1 : prog)); });
+  G.on('collection:page', function () { advance((kind, prog) => (kind === 'collectPage' ? prog + 1 : prog)); });
+  // 'item:cleansed' { item } is emitted by the UI's Cleanse button (and by items when it learns to); each item counts once.
+  const cleansedSeen = typeof WeakSet === 'function' ? new WeakSet() : null;
+  G.on('item:cleansed', function (e) {
+    const it = e && e.item;
+    if (it && cleansedSeen) { if (cleansedSeen.has(it)) return; cleansedSeen.add(it); }
+    advance((kind, prog) => (kind === 'cleanse' ? prog + 1 : prog));
+  });
 })();

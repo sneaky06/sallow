@@ -190,7 +190,7 @@
     if (map.kind === 'dungeon' && !map.mods) map.mods = game.rollFloorMods(depth, G.rng.create(((map.seed | 0) ^ 0x2545f491) >>> 0), bossFloor);
     const has = function (id) { return !!(map.mods && map.mods.indexOf(id) >= 0); };
     // R3.6 legendary monster: about one floor in 2–3 from depth 3, more often deeper; always on a "Hunted" floor
-    let legend = map.kind === 'dungeon' && !bossFloor && depth >= 3 && (has('hunted') || rng.chance(Math.min(0.7, 0.33 + depth * 0.012)));
+    let legend = map.kind === 'dungeon' && !bossFloor && !map.cleansed && depth >= 3 && (has('hunted') || rng.chance(Math.min(0.7, 0.33 + depth * 0.012)));
     if (map.kind === 'dungeon' && !bossFloor && game.pallorHunts && game.pallorHunts()) legend = true;      // Pallor IV: something pale hunts every floor
     const LVL = { champion: 1, rare: 2, legendary: 3 };
     const mlvl = game.monsterLevel(depth);          // R6: out-level scaling
@@ -210,7 +210,9 @@
     const eliteP = has('elite_host') ? 0.45 : 0.12;
     for (const s of spawns) {
       if (s.kind === 'npc') {
-        S.entities.push(game.createNpc(s.role, s.x + 0.5, s.y + 0.5));
+        const npc = game.createNpc(s.role, s.x + 0.5, s.y + 0.5);
+        if (s.camp && game.campNpc) game.campNpc(npc, s, map);          // R7.7 cleansed-act camp: the story's named refugees
+        S.entities.push(npc);
       } else if (map.kind === 'town') {
         continue;
       } else if (s.kind === 'boss') {
@@ -233,6 +235,7 @@
         if (M[id].arch === 'swarm') n = Math.ceil(n * 1.6);
         else if (M[id].arch === 'brute') n = Math.max(1, Math.ceil(n * 0.5));
         if (has('horde')) n = Math.ceil(n * 1.4);
+        if (map.cleansed) n = Math.max(1, Math.round(n * 0.6));          // R7.7: a cleansed act is quieter
         const support = rng.chance(0.3) ? pickType(rng, pool, depth, id) : null;
         let champs = 0;
         if (depth >= 2 && rng.chance(eliteP)) { champs = Math.min(n, rng.int(2, 3)); champPack(id, s, champs); }
@@ -545,8 +548,8 @@
   }
 
   const MARK_PROJ = { shape: 'orb', color: '#ff5050', speed: 16 };
-  // Returns true while the boss is busy with a telegraphed move.
-  function bossThink(e, def, t, d, dt) {
+  // Phase changes run every frame for a boss (also while a special mechanic has the floor), before anything else it does.
+  function bossPhase(e, def) {
     const ai = e.ai;
     const frac = e.hp / e.stats.hpMax;
     while (ai.phase + 1 < def.phases.length && frac <= def.phases[ai.phase + 1].at) {
@@ -561,6 +564,10 @@
       for (const mv of ph.moves) ai.mcd[mv.id] = mv.first !== undefined ? mv.first : 1.5 + 2 * i++;
       ai.gcd = Math.min(ai.gcd, 0.6);
     }
+  }
+  // Returns true while the boss is busy with a telegraphed move.
+  function bossThink(e, def, t, d, dt) {
+    const ai = e.ai;
     // R5.5: a target planted at range gets its spot marked (red ring) and a fast volley fired at it 0.8 s later — casters
     // must keep moving; melee range never triggers it
     ai.markCd = (ai.markCd === undefined ? 3 : ai.markCd) - dt;
@@ -680,6 +687,7 @@
       }
     }
     if (e.affixes.length || e.frenzyAt > 0) { game.runModifiers(e, t, d, dt); if (e.dead) return; }
+    if (def.boss) bossPhase(e, def);
     if (def.special && game.SPECIAL[def.special] && game.SPECIAL[def.special](e, def, t, d, dt, p)) return;      // R7: act bosses, the Fallen, event monsters
     if (e.rarity === 'legendary' && !e.seen && W.visible(e.x, e.y)) {      // R3.6: announce a legendary the first time it is seen
       e.seen = true;

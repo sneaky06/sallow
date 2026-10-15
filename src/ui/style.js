@@ -21,7 +21,7 @@
   color:var(--bone);-webkit-font-smoothing:none;font-smooth:never;-webkit-tap-highlight-color:transparent;letter-spacing:0}
 #ui *{box-sizing:border-box}
 #ui button{font:inherit;color:inherit;margin:0;padding:0;border-radius:0;-webkit-appearance:none;appearance:none;cursor:pointer;touch-action:manipulation}
-#ui input{font:inherit;border-radius:0;-webkit-appearance:none;appearance:none;-webkit-user-select:text;user-select:text}
+#ui input,#ui textarea{font:inherit;border-radius:0;-webkit-appearance:none;appearance:none;-webkit-user-select:text;user-select:text}
 .ed-layer{position:absolute;inset:0;pointer-events:none;isolation:isolate}
 .ed-ico{display:block;width:32px;height:32px;background:center/100% 100% no-repeat;image-rendering:pixelated;image-rendering:crisp-edges;pointer-events:none;flex:none}
 .ed-ico-fb{box-shadow:inset 0 0 0 2px #0008,inset 4px 4px 0 #fff3}
@@ -296,6 +296,7 @@
 .ed-logo h1::after{content:'';display:block;height:2px;margin-top:6px;background:linear-gradient(90deg,#0000 0 10%,var(--blood) 10% 90%,#0000 90%)}
 .ed-tag{color:var(--bone);font-weight:normal;margin-bottom:22px;text-align:center;letter-spacing:1px;text-shadow:1px 1px 0 #000,-1px -1px 0 #000,1px -1px 0 #000,-1px 1px 0 #000}
 .ed-menu{display:flex;flex-direction:column;gap:8px;width:200px}
+.ed-restore{width:min(320px,92vw);max-height:42vh;overflow-y:auto;margin:0 auto}
 .ed-title .ed-btn{background-color:#0c0a09e0}
 .ed-title .ed-ttl{margin:0 0 4px}
 .ed-classes{display:flex;flex-wrap:wrap;gap:4px;justify-content:center;margin:8px 0}
@@ -413,6 +414,8 @@
   .ed-tag{margin-bottom:12px}
   .ed-death{gap:8px}
 }
+.ed-code{display:block;width:100%;min-height:120px;resize:none;padding:6px;background:#000;border:2px solid var(--iron-hi);color:var(--bone);font-size:12px;line-height:15px;word-break:break-all;outline:none;-webkit-user-select:text;user-select:text}
+.ed-code:focus{border-color:var(--ember)}
 /* ---------- Revision 7 ---------- */
 /* rarity glow (R7.1): --rc is the tier colour, --gl the strength; the cell's own border carries the colour, the shadow the glow */
 .ed-cell.rg1{box-shadow:inset 0 0 4px 0 var(--rc),0 0 3px 0 var(--rc)}

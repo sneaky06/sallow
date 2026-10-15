@@ -1117,13 +1117,13 @@ window.startHarness = function () {
       step(14);
       p.x = b.x - 8; p.y = b.y; game.onPlayerMoved(true); step(6);      // stand off so the gap-closers come out too
       const p1 = Object.keys(used).length;
-      b.hp = b.stats.hpMax * 0.55; step(16);
+      b.hp = b.stats.hpMax * (MO[bid].phases[1].at - 0.03); step(16);
       const ph2 = b.ai.phase;
-      b.hp = b.stats.hpMax * 0.25; step(18);
+      b.hp = b.stats.hpMax * (MO[bid].phases[2].at - 0.03); step(18);
       adds = S.entities.filter(function (e) { return e.bossAdd === b.id; }).length;
       oT(); oR();
       const all = [].concat.apply([], MO[bid].phases.map(function (ph) { return ph.moves.map(function (mv) { return mv.id; }); }));
-      ok(H.errors.length === errB && p1 >= 2 && ph2 === 1 && b.ai.phase === 2 && b.ai.enraged && all.every(function (id) { return used[id]; }) && teleg >= 6 && adds >= 3 && p.hp < 1e9,
+      ok(H.errors.length === errB && p1 >= 1 && ph2 === 1 && b.ai.phase === 2 && b.ai.enraged && all.every(function (id) { return used[id]; }) && teleg >= 6 && (adds >= 3 || (bid !== 'boss_gravelord' && bid !== 'boss_broodmother')) && p.hp < 1e9,
         MO[bid].n + ': 3 phases, enrage, all ' + all.length + ' moves used with telegraphs (' + Object.keys(used).join(', ') + '), ' + adds + ' adds',
         'p1=' + p1 + ' ph2=' + ph2 + ' ph=' + b.ai.phase + ' used=' + Object.keys(used).join() + ' teleg=' + teleg + ' adds=' + adds);
       let bk = null; const oK = G.on('monster:killed', function (e) { if (e.monster === b) bk = e; });
@@ -2142,10 +2142,10 @@ ok(back.hp < 1e6 && front[0].hp < 1e6 && front[1].hp < 1e6, 'Whirlwind hits all 
     const hk = game.createBoss(30, p.x + 4, p.y); S.entities.push(hk);
     ok(hk.monsterId === 'boss_world' && hk.name.indexOf('Hearthking') >= 0 && game.createBoss(25, 1, 1).monsterId === 'boss_choir', 'depth 25 → the Choir, depth 30 → ' + hk.name);
     hk.ai.st = 'chase'; step(3);
-    hk.hp = Math.round(hk.stats.hpMax * 0.6); step(6);
-    const exposed = !!game.getEffect(hk, 'ember_exposed') || game.zones.some(function (z) { return z.color === '#a04040'; });
-    ok(hk.ai.phase === 1 && exposed, 'phase II: root lashes and the exposed Ember');
-    hk.hp = Math.round(hk.stats.hpMax * 0.3); const cnt = []; const oFc = G.on('ui:toast', function (e) { if (/Factor/.test(e.text)) cnt.push(e.text); }); step(1);
+    hk.hp = Math.round(hk.stats.hpMax * 0.58); let lashSeen = false, emberSeen = false; step(9, function () { if (game.zones.some(function (z) { return z.color === '#a04040'; })) lashSeen = true; if (game.getEffect(hk, 'ember_exposed')) emberSeen = true; });
+    const exposed = lashSeen && emberSeen;
+    ok(hk.ai.phase === 1 && exposed, 'phase II: root lashes and the exposed Ember', [hk.ai.phase, lashSeen, emberSeen, S.player.dead, hk.dead].join());
+    hk.hp = Math.round(hk.stats.hpMax * 0.2); const cnt = []; const oFc = G.on('ui:toast', function (e) { if (/Factor/.test(e.text)) cnt.push(e.text); }); step(1);
     for (let i = 0; i < 3; i++) { p.x = hk.x - 6; p.y = hk.y; game.onPlayerMoved(true); G.input.move.x = -1; G.emit('input:classaction', {}); G.input.move.x = 0; step(4.6); }
     oFc();
     ok(hk.ai.phase === 2 && hk.sprite.body === 'demon' && hk.ai.lastInward !== undefined && cnt.length >= 3 && /Three/.test(cnt[2]), 'phase III: the body changes, the floor pulses INWARD/OUTWARD, the Factor counts your dashes', cnt.join(' '));
@@ -2153,8 +2153,8 @@ ok(back.hp < 1e6 && front[0].hp < 1e6 && front[1].hp < 1e6, 'Whirlwind hits all 
     hk.hp = 1; game.playerHit(hk, { pct: 100, type: 'phys', skill: false }); G.items.grantTome = tWas;
     ok(hk.dead && tomes === 1 && S.flags.worldBossKilled, 'the Hearthking drops a Tome of Insight');
     p = fresh('sorcerer', true, 25); tank(p); const chB = game.createBoss(25, p.x + 3, p.y); S.entities.push(chB); chB.ai.st = 'chase';
-    let sung = false; step(14, function () { if (chB.ai.song) sung = true; });
-    ok(sung, 'the Choir sings (a ring to leave or a song to break)');
+    let sung = false; step(6, function () { if (chB.ai.note > 2) sung = true; });
+    ok(sung, 'the Choir sings its hymn: notes on a beat, safe and harmful rings');
 
     section('R7.6 the Fallen');
     ok(['fallen_2', 'fallen_4', 'fallen_8', 'fallen_9'].every(function (id) { return game.FALLEN[id] && game.MONSTERS['adv_' + id] && game.fallenFor(game.FALLEN[id].depth) === id; }), 'Brannoc (9), Wren (16), Varr (24), Crane (28) are built');
@@ -2183,6 +2183,81 @@ ok(back.hp < 1e6 && front[0].hp < 1e6 && front[1].hp < 1e6, 'Whirlwind hits all 
     ok(counted, 'Wren stops to count (and takes more damage)');
     G.items.grantRelic = gWas;
 
+
+    section('R7 act bosses, final designs');
+    const bossAt = function (depth, cls) { const q = fresh(cls || 'warrior', true, depth); tank(q); const b = game.createBoss(depth, q.x + 4, q.y); S.entities.push(b); b.ai.st = 'chase'; return b; };
+    let bb = bossAt(5); let graves = 0; step(8, function () { if (bb.ai.graves && bb.ai.graves.length) graves++; });
+    bb.hp = bb.stats.hpMax * 0.45; let named = false; step(10, function () { if (game.getEffect(S.player, 'named')) named = true; S.player.x = bb.x + Math.cos(bb.ai.ringA || 0) * 4.5; S.player.y = bb.y + Math.sin(bb.ai.ringA || 0) * 4.5; });
+    bb.hp = bb.stats.hpMax * 0.15; let lunged = false; step(4, function () { if (bb.ai.lunge) lunged = true; });
+    ok(graves > 0 && named && lunged, 'Gravelord: graves raise skeletons (stand on them), the ring of names stacks Named, Last Rites lunges');
+    bb = bossAt(10); step(1.6); const h10 = bb.hp; game.applyHit(bb, { phys: 1e5 }, { src: S.player });
+    const sac = S.entities.find(function (e) { return e.sacOf === bb.id; });
+    ok(bb.hp === h10 && sac, 'Mother: nesting on the roof she cannot be hit; egg sacs appear');
+    const h10b = bb.hp; sac.hp = 1; game.playerHit(sac, { pct: 100, type: 'phys', skill: false }); step(0.1);
+    ok(sac.dead && bb.hp < h10b, 'popping an egg sac hurts her (10%)');
+    bb.hp = bb.stats.hpMax * 0.2; step(0.2); const food = game.createMonster('cave_spider', bb.x + 1.5, bb.y, 5, 'normal'); food.bossAdd = bb.id; food.speed = 0; S.entities.push(food); const hf2 = bb.hp; step(3);
+    ok(food.dead && bb.hp > hf2, 'Mother eats her brood to heal');
+    bb = bossAt(15); bb.hp = bb.stats.hpMax * 0.8; const hv = bb.hp; S.player.x = bb.x + 9; game.onPlayerMoved(true); bb.x = bb.ai.hx; bb.y = bb.ai.hy; step(1);
+    ok(bb.hp > hv, 'Ember Tyrant heals on the fire vein');
+    bb.hp = bb.stats.hpMax * 0.45; let grid = 0; step(3, function () { grid = Math.max(grid, game.zones.filter(function (z) { return z.color === '#ff5b2e'; }).length); });
+    bb.hp = bb.stats.hpMax * 0.15; let mets = 0; step(3, function () { mets = Math.max(mets, game.zones.filter(function (z) { return z.r === 1.4; }).length); });
+    ok(grid >= 10 && mets >= 1, 'Ember Tyrant: fire-line grid (' + grid + ' cells), then meteors on you every second');
+    bb = bossAt(20); S.player.x = bb.x + 5; S.player.y = bb.y; game.onPlayerMoved(true); const hpG = S.player.hp; step(6);
+    const gazeHurt = S.player.hp < hpG;
+    bb.hp = bb.stats.hpMax * 0.5; S.player.x = bb.x + 6; S.player.y = bb.y; game.onPlayerMoved(true); const dPull = 6; step(1.5);
+    const pulled = Math.hypot(S.player.x - bb.x, S.player.y - bb.y) < dPull - 0.8;
+    bb.hp = bb.stats.hpMax * 0.15; let vanished = false; step(3, function () { if (bb.ai.gone) vanished = true; });
+    ok(gazeHurt && pulled && vanished, 'Hollow Star: the gaze sweeps, the hollow pulls you in, it blinks to reopen behind you');
+    bb = bossAt(25, 'sorcerer'); bb.hp = bb.stats.hpMax * 0.45; step(0.5);
+    const singers = S.entities.filter(function (e) { return e.bossAdd === bb.id && e.monsterId === 'choir_singer'; });
+    bb.ai.wrong = 1; bb.ai.wrongT = 9; step(0.1); const hc = bb.hp; game.applyHit(bb, { phys: 1e4 }, { src: S.player }); const hcImm = bb.hp === hc;
+    game.applyHit(singers[0], { phys: 500 }, { src: S.player }); step(0.05);
+    ok(singers.length === 2 && hcImm && bb.hp < hc, 'Choir Discord: three singers, only the wrong note can be hurt (and it hurts the Choir)');
+    bb.hp = bb.stats.hpMax * 0.15; step(0.2); bb.ai.inhaleT = 0; step(3, function () { return !bb.ai.inhale; }); const inh = !!bb.ai.inhale; bb.effects = bb.effects.filter(function (f) { return f.id !== 'invuln' && f.id !== 'ward'; }); game.applyHit(bb, { phys: 1000 }, { src: S.player }); step(1, function () { return !(bb.ai.silentT > 0); });
+    ok(!S.entities.some(function (e) { return e.monsterId === 'choir_singer'; }) && inh && bb.ai.silentT > 0, 'Choir Last Verse: it rejoins; hit it while it inhales and it falls silent', [bb.ai.phase, inh, bb.ai.silentT, S.entities.filter(function (e) { return e.monsterId === 'choir_singer'; }).length, S.player.dead].join());
+    bb = bossAt(30); S.player.x = bb.x + 2; game.onPlayerMoved(true); let combo = 0; step(5, function () { if (bb.ai.combo) combo = Math.max(combo, 4 - bb.ai.combo.n); });
+    ok(combo === 3, 'Hearthking phase I: a readable three-hit combo');
+
+    section('R7.6 all ten Fallen');
+    const ids10 = Object.keys(game.FALLEN).sort();
+    ok(ids10.length === 10 && ids10.every(function (id) { const F = game.FALLEN[id]; const at = F.depth % 5 === 0 ? F.depth + 1 : F.depth; return game.MONSTERS['adv_' + id] && game.fallenFor(at) === id && at % 5 !== 0; }),
+      'ten Fallen at their depths (a boss-floor depth moves one down): ' + ids10.map(function (id) { return game.FALLEN[id].depth; }).join(','));
+    const fallenAt = function (id) { const F = game.FALLEN[id]; const q = fresh(F.classId, true, F.depth); tank(q); const e = game.createFallen(id, q.x + 4, q.y, F.depth); S.entities.push(e); e.ai.st = 'chase'; return e; };
+    let fw = fallenAt('fallen_1'); step(0.5); const brz = S.map.props.filter(function (pr) { return pr.brazier === fw.id; });
+    fw.hp = fw.stats.hpMax * 0.5; const hb1 = fw.hp; step(1); const healed1 = fw.hp > hb1;
+    brz.forEach(function (b) { b.lit = false; b.light = 0; }); step(0.2); let blind = false; step(3, function () { if (fw.ai.blind) blind = true; });
+    ok(brz.length === 4 && healed1 && fw.ai.dark && blind, 'Hob Garrow: lit braziers heal him; snuffed, he goes dark and charges blind');
+    fw = fallenAt('fallen_3'); step(0.3); const anch = S.entities.filter(function (e) { return e.bossAdd === fw.id && e.name === 'Rope Anchor'; }); const hs3 = fw.hp; game.applyHit(fw, { phys: 1e4 }, { src: S.player });
+    const imm3 = fw.hp === hs3; anch.forEach(function (a) { a.hp = 1; game.playerHit(a, { pct: 100, type: 'phys', skill: false }); }); step(0.2);
+    game.applyHit(fw, { phys: 100 }, { src: S.player });
+    ok(anch.length === 3 && imm3 && fw.hp < hs3, 'Sefa Lind: untouchable while her rope anchors stand; cut them and she falls');
+    fw = fallenAt('fallen_5'); fw.ai.saltT = 0; step(0.1); S.player.x = fw.ai.salt[0].x; S.player.y = fw.ai.salt[0].y; game.onPlayerMoved(false); let cryst = false; step(2, function () { if (game.isStunned(S.player)) cryst = true; });
+    fw.ai.faceT = 0; step(0.1);
+    ok(cryst && game.getEffect(fw, 'true_face'), 'Odile Marr: salt circles crystallise you if you stand still; she shows her true face (double damage)');
+    fw = fallenAt('fallen_6'); fw.hp = fw.stats.hpMax * 0.5; fw.ai.tollT = 0; step(0.1); const ghosts = S.entities.filter(function (e) { return e.monsterId === 'ashby_ghost' && !e.dead; });
+    const ha = fw.hp; ghosts.forEach(function (g) { g.x = fw.x + 0.6; g.y = fw.y; }); step(0.3);
+    ok(ghosts.length >= 1 && fw.hp > ha && fw.ai.tollT < 7, 'Brother Ashby: each toll raises ghosts that heal him if they reach him; tolls speed up as he weakens');
+    fw = fallenAt('fallen_7'); S.groundItems.length = 0; S.player.gold = 1000; const goldD0 = S.player.gold; game.applyHit(S.player, { phys: 50 }, { src: fw }); step(0.05);
+    const loose = S.groundItems.filter(function (g) { return g.item && g.item.type === 'gold'; }).length;
+    S.groundItems.length = 0; fw.ai.foreT = 0; step(0.1);
+    ok((S.player.gold < goldD0 || !G.items.dropItemAt) && fw.ai.fore, 'Corwin Dask: his hits knock your gold loose (' + loose + ' on the floor); Foreclosure marks a zone');
+    fw = fallenAt('fallen_10'); fw.ai.refuseT = 0; step(0.1); const refusing = !!fw.ai.refuse; game.applyHit(fw, { phys: 100 }, { src: S.player }); step(0.1);
+    ok(refusing && fw.ai.enraged, 'Ivo Marrow: Refusal — hit him while his bow is down and he enrages');
+
+    section('R7.7 cleansed acts');
+    p = fresh('warrior', true, 6); S.entities = [];
+    const metaWas = G.meta; G.meta = { STORY: { CAMP: [{ act: 1, band: [3, 9], name: 'Lamp Camp', npcs: [
+      { name: 'Gammer Wick', role: 'healer', lines: ['Broth.'] }, { name: 'Jory Tallow', role: 'merchant', lines: ['Buy.'] }, { name: 'Pell the Ferryman', role: 'waypoint', lines: ['Up or down.'] }] }] } };
+    const mk = function (cleansed) {
+      const m = Object.assign({}, S.map, { seed: 99, mods: [], cleansed: cleansed, spawns: [{ x: 6, y: 6, kind: 'pack', count: 5 }, { x: 12, y: 6, kind: 'pack', count: 5 },
+        { x: 8, y: 9, kind: 'npc', role: 'refugee', camp: true }, { x: 9, y: 9, kind: 'npc', role: 'camp_merchant', camp: true }, { x: 10, y: 9, kind: 'npc', role: 'refugee', camp: true }] });
+      S.entities = []; game.spawnMapEntities(m); return S.entities.slice();
+    };
+    const dirty = mk(false).filter(function (e) { return e.type === 'monster'; }).length, cl = mk(true), clean = cl.filter(function (e) { return e.type === 'monster'; }).length;
+    const campers = cl.filter(function (e) { return e.camp; });
+    G.meta = metaWas;
+    ok(clean < dirty * 0.75 && campers.length === 3 && campers.some(function (e) { return e.name === 'Jory Tallow' && e.role === 'merchant' && e.campRole === 'camp_merchant'; }) &&
+      campers.every(function (e) { return e.type === 'npc' && e.lines && e.lines.length; }), 'cleansed: fewer monsters (' + clean + ' vs ' + dirty + '), camp spawns become the story\'s NPCs: ' + campers.map(function (e) { return e.name + '/' + e.role; }).join(', '));
     section('R7.10 relic powers');
     p = fresh('warrior', true); const reWas = G.items.getRelicEffects; G.items.getRelicEffects = G.items.getRelicEffects || function () { const o = {}; if ((S.flags.relics || []).indexOf('fallen_2') >= 0) o.dash_shield_bash = true; if ((S.flags.relics || []).indexOf('fallen_9') >= 0) o.extra_minion = true; return o; };
     S.flags.relics = ['fallen_2', 'fallen_9']; game.recomputeStats(p);

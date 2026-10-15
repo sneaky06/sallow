@@ -323,11 +323,14 @@
     // entity → override sheet (classId, then monsterId, then npc_<role>) or null. HD sheets win over 1x sheets.
     spriteFor: function (e) {
       if (!nSprites) return null;
+      // the Fallen are adventurers: their own sheet (monster id) first, then their class's
+      if (e.fallen) return sheetNamed(e.monsterId) || sheetNamed(e.classId);
       return sheetNamed(e.classId) || sheetNamed(e.monsterId) || (e.type === 'npc' ? sheetNamed('npc_' + e.role) : null);
     },
     hasIcon: function (d) { return !!iconName(d); },
     sprite: sheetNamed,
     fx: function (type) { return fx[type] || null; },
+    hasProp: function (name) { return !!props[name]; },
     ui: function (name) { return ui[name] || null; },
   };
 

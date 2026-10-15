@@ -106,6 +106,68 @@ async function run() {
     log('musicVolume=' + S.settings.musicVolume);
     log('small controls (menu): ' + small(q('.ed-panel')).join('; '));
     ui.close();
+    // ---- Revision 7 (real game): pips + glow, Curator hand-in, relics, grade, event, camp NPCs, side-line triggers ----
+    var ck = function (name, cond) { log((cond ? 'PASS ' : 'FAIL ') + name); };
+    ui.close(); G.scenes.enterTown(); await wait(800); tapTalk(10);
+    var rift = G.items.rollItem({ level: 25, rarity: 'rift' }); rift.sockets = [null, null]; G.items.addToInventory(rift);
+    var want = null; for (var t = 0; t < 60 && !want; t++) { var c0 = G.items.rollItem({ level: 5 + t, rarity: 'rare' }); if (c0 && G.items.collection.isWanted(c0)) want = c0; }
+    G.items.addToInventory(want);
+    ui.open('inventory'); await wait(100);
+    ck('socket pips', !!q('.ed-cell .sk b')); ck('rift glow', !!q('.ed-cell.rg4')); ck('book mark', !!q('.ed-cell .bk'));
+    ck('wanted not junk', !q('.ed-cell.junk .bk')); ui.close();
+    S.quests.side = S.quests.side || {}; S.flags.act = 1;
+    G.meta.acceptQuest('side_isra'); var isra0 = G.meta.getQuests().filter(function (x) { return x.id === 'side_isra'; })[0];
+    G.emit('npc:interact', { role: 'curator', entity: null }); await wait(80);
+    ck('curator greeting', /Helm, ash plate/.test((q('.ed-npc p') || {}).textContent || ''));
+    var row = q('.ed-row[aria-label^="Hand in"]'); ck('hand-in row', !!row); if (row) row.click(); await wait(80);
+    var isra1 = G.meta.getQuests().filter(function (x) { return x.id === 'side_isra'; })[0];
+    ck('isra side line progresses on registration', isra1 && isra0 && isra1.progress === isra0.progress + 1); ui.close();
+    var cz = G.items.rollItem({ level: 20, rarity: 'rare' }); S.quests.side.side_jory = { step: 0, status: 'active', progress: 0 }; S.flags.act = 2;
+    G.emit('item:cleansed', { item: cz }); G.emit('item:cleansed', { item: cz });
+    ck('cleanse trigger counts once per item', S.quests.side.side_jory.status === 'ready');
+    var T = S.flags; for (var a = 1; a <= 4; a++) { S.flags.act = a; T = ui._townLine('curator'); log('curator line act ' + a + ': ' + T); ck('curator line act ' + a, !!T); }
+    G.emit('npc:interact', { role: 'refugee', entity: { id: 7 } }); await wait(80); ck('refugee panel', !!q('.ed-npc p') && !!q('.ed-ttl')); ui.close();
+    G.emit('npc:interact', { role: 'camp_merchant', entity: { id: 9 } }); await wait(80);
+    ck('camp merchant buy/sell tabs', document.querySelectorAll('.ed-tab').length === 2); ui.close();
+    for (var r = 1; r <= 10; r++) G.items.grantRelic('fallen_' + r);
+    ui.open('relics'); await wait(80); ck('10 relics shown', document.querySelectorAll('.ed-relic.have').length === 10);
+    var cb = [].filter.call(document.querySelectorAll('.ed-btn'), function (x) { return /Combine/.test(x.textContent); })[0];
+    ck('combine enabled in town', !!cb && !cb.disabled); if (cb) cb.click(); ck('relics combined', G.items.relicsCombined()); ui.close();
+    G.scenes.enterDungeon(2); await wait(1500); tapTalk(6); S.paused = false;
+    G.emit('floor:graded', { grade: 'S', score: 1.2, explored: 96, time: 70, par: 80, depth: 2 }); await wait(50);
+    ck('grade banner', /grade S/i.test([].map.call(document.querySelectorAll('.ed-banner b'), function (b) { return b.textContent; }).join('|')));
+    G.emit('event:start', { id: 'gauntlet', name: 'Run the Gauntlet', timer: 40, goal: 'Reach the beacon', progress: '' }); await wait(50);
+    ck('event banner', !!q('.ed-event') && q('.ed-event').style.display === 'block'); G.emit('event:end', { success: true });
+    ck('explored % shown', !!q('.ed-expl') && /Explored \d+%/.test(q('.ed-expl').textContent));
+    log('small controls (R7): ' + small(q('.ed-hud')).join('; '));
+    // ---- save safety: old-build save, corrupt main + backup restore, export -> clear -> import ----
+    ui.close(); G.scenes.enterTown(); await wait(600); tapTalk(6);
+    G.meta.save(); var K = G.meta._KEY, mainRaw = localStorage.getItem(K);
+    var old = JSON.parse(mainRaw);                                   // approximate an older build: none of the R6/R7 fields exist
+    ['collection', 'relics', 'relicsCombined', 'act', 'cleansed', 'warmth', 'storySeen', 'echo', 'pallorUnlocked'].forEach(function (k) { delete old.flags[k]; });
+    delete old.quests.side; delete old.settings.junk; delete old.settings.sort; delete old.settings.autoCollect;
+    old.player.inventory.forEach(function (it) { if (it) delete it.rv; });
+    localStorage.setItem(K, JSON.stringify(old));
+    ck('old-build save is readable', G.meta.hasSave()); ck('old-build save continues', G.scenes.continueGame() === true && S.scene === 'town');
+    G.meta.save(); G.emit('scene:changed', { scene: 'town', depth: 0, map: S.map }); G.meta.save();
+    var bk = G.meta.listBackups(); ck('backup ring has the hero', bk.length >= 1 && bk[0].level >= 1 && !!bk[0].name);
+    localStorage.setItem(K, '{"v":1,"player":');                      // corrupt the main save
+    ck('corrupt main is not a save', !G.meta.hasSave());
+    G.scenes.quitToMenu && (S.player = null); G.emit('scene:changed', { scene: 'menu', depth: 0, map: null }); await wait(100);
+    var rs = [].filter.call(document.querySelectorAll('.ed-title .ed-btn'), function (b) { return /Restore save/i.test(b.textContent); })[0];
+    ck('title offers Restore save', !!rs); if (rs) rs.click(); await wait(50);
+    ck('restore list names the hero', !!q('.ed-restore .ed-row') && /level \d+/.test(q('.ed-restore .ed-row').textContent));
+    if (q('.ed-restore .ed-row')) q('.ed-restore .ed-row').click(); await wait(500);
+    ck('restore continues into the game', !!S.player && S.scene === 'town' && G.meta.hasSave());
+    var code = await G.meta.exportCode(); ck('export code', /^SLW[01]:/.test(code || ''));
+    var nameBefore = S.player.name; localStorage.clear();
+    ck('cleared', !G.meta.hasSave());
+    var parsed = await G.meta.parseCode('  ' + code.slice(0, 20) + '\n' + code.slice(20) + ' '); ck('code parses (whitespace tolerant)', !!parsed && parsed.info.name === nameBefore);
+    ck('garbage code rejected', (await G.meta.parseCode('SLW1:AAAA')) === null && (await G.meta.parseCode('hello')) === null);
+    S.player = null; G.meta._noSave = false; G.meta.applyImport(parsed.raw); ck('import loads', G.scenes.continueGame() === true && S.player.name === nameBefore);
+    ui._exportDialog(); await wait(300); ck('export dialog has the code', !!q('.ed-code') && /^SLW/.test(q('.ed-code').value)); ui._closeModals();
+    ui._importDialog(); await wait(50); ck('import dialog has a paste box', !!q('.ed-code')); ui._closeModals();
+    log('small controls (save dialogs): ' + small(q('#ui')).join('; '));
     G.ui.open('journal'); await wait(50); log('journal ok: ' + !!q('.ed-panel .ed-page')); ui.close();
     log('small controls (hud): ' + small(q('.ed-hud')).join('; '));
   } catch (err) { ERR.push('TEST: ' + err.stack); }

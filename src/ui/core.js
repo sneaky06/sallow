@@ -324,7 +324,7 @@
     ['pointerdown', 'pointerup', 'mousedown', 'mouseup', 'touchstart', 'touchmove', 'touchend', 'click', 'dblclick', 'wheel', 'contextmenu']
       .forEach(function (t) { root.addEventListener(t, function (e) { e.stopPropagation(); }); });
     ['keydown', 'keyup', 'keypress'].forEach(function (t) {
-      root.addEventListener(t, function (e) { if (e.target && e.target.tagName === 'INPUT') e.stopPropagation(); });
+      root.addEventListener(t, function (e) { if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) e.stopPropagation(); });
     });
 
     const layers = { root: root, hud: hudLayer, title: titleLayer, panel: panelLayer, modal: modalLayer };

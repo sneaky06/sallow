@@ -745,6 +745,91 @@ function buildDev() {
     out.textContent = JSON.stringify({ scene: S.scene, depth: S.depth, paused: S.paused, attackHeld: G.input.attackHeld, attacks: G.game.attackCount, skillUses: G.game.skillUses,
       open: G.ui.isOpen(), errors: window.__errors.length, minimap: G.engine.minimapCalls, sfx: (G.engine.sfxLog || []).slice(-5) }, null, 1);
   });
+  // ---------- Revision 7 stubs + checks (contract shapes) ----------
+  sec('revision 7');
+  (function () {
+    var I = G.items, held = [], reg = {}, auto = false, combined = false;
+    var PAGES = [{ id: 'ash_plate', name: 'Ash Plate', kind: 'heavy', hint: 'Acts II-III (depth 20-47)', slots: ['helm', 'chest', 'gloves', 'boots'] },
+      { id: 'blackiron', name: 'Blackiron', kind: 'weapon', hint: 'Acts II-III (depth 20-47)', slots: ['sword', 'axe', 'mace'] }];
+    function entry(it) { return it && it.slot === 'chest' ? { page: 'ash_plate', key: 'chest' } : null; }
+    I.collection = {
+      entryOf: entry, isWanted: function (it) { var e = entry(it); return !!e && !reg[e.key]; },
+      getPages: function () { return PAGES.map(function (pg) { var n = pg.slots.filter(function (s) { return reg[s]; }).length;
+        return { id: pg.id, name: pg.name, kind: pg.kind, hint: pg.hint, count: n, total: pg.slots.length, done: n === pg.slots.length, reward: { buff: [['hpMax', 15]] },
+          entries: pg.slots.map(function (s) { return { key: s, label: s, have: !!reg[s], item: reg[s] ? { name: 'Ash ' + s, rarity: 'rare' } : null }; }) }; }); },
+      getProgress: function () { return { pages: 0, total: 2, tiers: [{ at: 5, need: 5, name: 'Apprentice Collector', claimed: false, mats: { shard: 10 }, buff: null, stash: 0 }], titles: [], stash: 0 }; },
+      register: function (i) { var it = S.player.inventory[i], e = entry(it); if (!e || reg[e.key]) return { ok: false }; reg[e.key] = true; S.player.inventory[i] = null;
+        G.emit('collection:registered', { page: e.page, entry: e.key, item: it }); G.emit('inventory:changed', {}); return { ok: true, page: e.page, entry: e.key }; },
+      registerAll: function () { return 0; }, isAuto: function () { return auto; }, setAuto: function (v) { auto = !!v; },
+    };
+    I.RELIC_IDS = []; I.RELICS = {};
+    for (var i = 1; i <= 10; i++) { I.RELIC_IDS.push('fallen_' + i); I.RELICS['fallen_' + i] = { id: 'fallen_' + i, name: 'Relic ' + i, classId: 'warrior', depth: i * 3, story: 'A story.', stats: [['hpMax', 10]], effect: null, effectText: '' }; }
+    I.RELICS_COMBINED = { name: 'Ember-Heir', title: 'Heir of the Fallen', story: 'Ten lives.', stats: [['dmgPct', 25]], effectText: 'The fallen fight beside you.' };
+    I.hasRelic = function (id) { return held.indexOf(id) >= 0; }; I.relicCount = function () { return held.length; };
+    I.canCombineRelics = function () { return !combined && held.length >= 10; }; I.relicsCombined = function () { return combined; };
+    I.combineRelics = function () { if (!I.canCombineRelics()) return false; combined = true; G.emit('relic:combined', {}); return true; };
+    function chest() { if (!S.player) { G.scenes.startNewGame(Object.keys(G.game.CLASSES || { warrior: 1 })[0], 'Tester'); } var it = G.items.rollItem({ level: S.player.level, rarity: 'rare', slot: 'chest' }); it.slot = 'chest'; it.sockets = [{ name: 'Ruby' }, null]; it.rarity = 'rift'; G.items.addToInventory(it); return it; }
+    function note(s) { out.textContent += s + '\n'; }
+    b('R7: wanted chest + pips', function () { chest(); G.ui.open('inventory'); });
+    b('R7: open Curator', function () { chest(); G.emit('npc:interact', { role: 'curator' }); });
+    b('R7: relics 10', function () { held = I.RELIC_IDS.slice(); G.ui.open('relics'); });
+    b('R7: clear grade', function () { G.emit('floor:graded', { grade: 'S', score: 1.2, explored: 96, time: 70, par: 80, depth: S.depth }); });
+    b('R7: event banner', function () { G.emit('event:start', { id: 'gauntlet', name: 'Run the Gauntlet', timer: 40, goal: 'Reach the beacon', progress: '' }); });
+    b('R7: run checks', function () {
+      out.textContent = '';
+      var ok = function (name, cond) { note((cond ? 'PASS ' : 'FAIL ') + name); };
+      held = []; combined = false; reg = {}; if (S.player) S.player.inventory.fill(null); G.ui.update(0.1);
+      var it = chest();
+      G.ui.open('inventory');
+      var cells = document.querySelectorAll('.ed-grid .ed-cell');
+      ok('socket pips on cell', !!document.querySelector('.ed-cell .sk b.f'));
+      ok('rift glow class', !!document.querySelector('.ed-cell.rg4'));
+      ok('book mark on wanted cell', !!document.querySelector('.ed-cell .bk'));
+      ok('wanted never junk', !document.querySelector('.ed-cell.junk .bk'));
+      G.ui.close();
+      G.emit('npc:interact', { role: 'curator' });
+      var row = document.querySelector('.ed-row[aria-label^="Hand in"]'); ok('curator hand-in row', !!row);
+      if (row) row.click();
+      ok('registered (item consumed)', S.player.inventory.indexOf(it) < 0 && reg.chest === true);
+      G.ui.close();
+      held = I.RELIC_IDS.slice(); G.scenes.enterTown && S.scene !== 'town' && G.scenes.enterTown();
+      G.ui.open('relics');
+      ok('10 relic slots', document.querySelectorAll('.ed-relic.have').length === 10);
+      var cb = [].filter.call(document.querySelectorAll('.ed-btn'), function (x) { return /Combine/.test(x.textContent); })[0];
+      ok('combine button enabled in town', !!cb && !cb.disabled);
+      if (cb) cb.click(); ok('combined', combined);
+      G.ui.close();
+      G.emit('floor:graded', { grade: 'A', explored: 80, time: 60, par: 70 });
+      ok('grade banner', /grade A/i.test((document.querySelector('.ed-banner b') || {}).textContent || ''));
+      G.emit('event:start', { id: 'gauntlet', name: 'Run the Gauntlet', timer: 40, goal: 'Reach the beacon', progress: '' });
+      var ev = document.querySelector('.ed-event'); ok('event banner shown', !!ev && ev.style.display === 'block' && /0:40/.test(ev.textContent));
+      G.emit('event:end', { id: 'gauntlet', name: 'Run the Gauntlet', success: true });
+      ok('event ended state', /ok/.test((document.querySelector('.ed-event') || {}).className || ''));
+      ok('no page errors', window.__errors.length === 0);
+    });
+  })();
+  sec('save safety');
+  b('save: run checks', function () {
+    out.textContent = '';
+    var ok = function (name, cond) { out.textContent += (cond ? 'PASS ' : 'FAIL ') + name + '\n'; };
+    if (!S.player) { out.textContent = 'start a game first (chest button in revision 7)'; return; }
+    var K = G.meta._KEY;
+    G.emit('scene:changed', { scene: S.scene, depth: S.depth, map: S.map }); G.meta.save();
+    ok('ring holds this hero', G.meta.listBackups().length >= 1);
+    var main = localStorage.getItem(K);
+    localStorage.setItem(K, '{"v":1,"player":'); ok('corrupt main -> hasSave false, backup offered', !G.meta.hasSave() && G.meta.listBackups().length >= 1);
+    ok('restore backup', G.meta.restoreBackup(0) && G.meta.hasSave());
+    G.meta.exportCode().then(function (code) {
+      ok('export code', /^SLW[01]:/.test(code || ''));
+      localStorage.removeItem(K);
+      G.meta.parseCode(code).then(function (res) {
+        ok('code parses', !!res && res.info.name === S.player.name);
+        var keep = S.player; S.player = null; G.meta.applyImport(res.raw); S.player = keep;
+        ok('import round trip', G.meta.hasSave());
+        G.meta._noSave = false; G.meta.save();
+      });
+    });
+  });
   dev.appendChild(out);
 }
 </script>

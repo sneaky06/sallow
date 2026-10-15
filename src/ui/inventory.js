@@ -477,7 +477,7 @@
     if (!cost) return null;
     const p = S.player, m = p.materials || {};
     const short = (p.gold || 0) < (cost.gold || 0) || matKeys(cost).some(function (k) { return (m[k] || 0) < cost[k]; });
-    return { label: 'Cleanse', cls: 'gold', disabled: short, fn: function () { ok(call('cleanse', target)); }, info: 'Cleanse costs ' + matsText(cost), bad: short };
+    return { label: 'Cleanse', cls: 'gold', disabled: short, fn: function () { if (ok(call('cleanse', target))) G.emit('item:cleansed', { item: item }); }, info: 'Cleanse costs ' + matsText(cost), bad: short };
   }
   ui._cleanseAction = cleanseAction;
 

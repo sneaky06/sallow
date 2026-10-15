@@ -15,19 +15,37 @@
     if (!box) return;
     box.style.display = '';
     const has = !!(G.meta && G.meta.hasSave && G.meta.hasSave());
+    const backups = (G.meta && G.meta.listBackups) ? G.meta.listBackups() : [];
     const menu = h('div', { class: 'ed-menu' });
     if (has) {
       menu.appendChild(ui._btn('Continue', function () {
         let ok = false;
         try { ok = G.scenes.continueGame(); } catch (err) { console.error('[ui continue]', err); }
-        if (!ok) { ui.toast('The save could not be read.', '#ff5b5b'); showMain(); }
+        // a failed Continue never falls back to New Game: say so and offer the backups
+        if (!ok) { ui.toast('The save could not be read.', '#ff5b5b'); if (backups.length) showRestore(true); else showMain(); }
       }, 'big gold'));
+    } else if (backups.length) {
+      menu.appendChild(ui._btn('Restore save', function () { showRestore(false); }, 'big gold'));
     }
     menu.appendChild(ui._btn('New Game', function () {
-      if (has) ui._confirm('Start anew? Your current hero will be overwritten once the new one reaches town.', 'New Hero', showClasses, { danger: true });
+      if (has) ui._confirm('Start anew? Your current hero is kept as a backup, and replaced once the new one reaches town.', 'New Hero', function () {
+        if (G.meta && G.meta.pushCurrent) G.meta.pushCurrent();
+        showClasses();
+      }, { danger: true });
       else showClasses();
     }, 'big'));
+    if (ui._importDialog) menu.appendChild(ui._btn('Import save code', ui._importDialog));
     box.replaceChildren(logo(), h('div', { class: 'ed-tag', text: ui._tagline ? ui._tagline() : 'Something under Emberdeep is rotting.' }), menu, h('div', { class: 'ed-ver', text: 'v' + (ui._VERSION || '') }));
+  }
+
+  // R7 save safety: the backup ring, newest first. hasMain: a readable save exists (restoring asks first).
+  function showRestore(hasMain) {
+    const list = G.meta.listBackups();
+    box.replaceChildren(logo(),
+      h('div', { class: 'ed-ttl', text: 'Restore save' }),
+      h('div', { class: 'ed-note', style: 'margin:6px 0', text: hasMain ? 'Your save could not be read. These older copies are on this device:' : 'No current save was found, but these copies are on this device:' }),
+      h('div', { class: 'ed-list ed-restore' }, ui._backupRows(list, function (e) { ui._restoreBackup(e, hasMain); })),
+      h('div', { class: 'ed-menu', style: 'margin-top:8px' }, ui._btn('Back', showMain)));
   }
 
   function showClasses() {

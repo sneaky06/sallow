@@ -181,7 +181,7 @@
   // ---------------------------------------------------------------- hand-drawn 2x overlays (R6.4): gear/<key>/<anim>.png
   // key = <family>_<slot> for armour, <family>_<weaponType> / <family>_<offhandKind> for held items; generic fallbacks
   // generic_<material>_<slot>, generic_<weaponType>, generic_<offhandKind> are recoloured by the item's palette.
-  const hdOver = Object.create(null);      // key â†’ { anims: { [anim]: rec } }
+  const hdOver = Object.create(null);      // key → { anims: { [anim]: rec } }
   function addOverlayHD(key, anim, rec) {
     const o = hdOver[key] || (hdOver[key] = { anims: Object.create(null) });
     o.anims[anim] = rec;

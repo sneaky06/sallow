@@ -68,8 +68,14 @@ window.G = { manifest: {} };
       var cls = GM.CLASSES || {};
       Object.keys(cls).forEach(function (id) { add('Player classes', id, cls[id].name + ': ' + String(cls[id].desc || '').slice(0, 70), cls[id].sprite); });
       add('Player base body (wears gear overlays)', 'player_base', 'Shared player body in plain underclothes, no weapon or armour; every gear overlay is drawn on it', (cls.warrior || {}).sprite || {});
+      Object.keys(cls).forEach(function (id) {
+        HD.ANIMS.forEach(function (a) {
+          row(art, 'Player base body (wears gear overlays)', 'sprites/' + id + '_base/' + a + '.png', animSize(96, a), HD.FRAMES[a] + ' frames × 5 dirs (s, sw, w, nw, n), cell 96',
+            cls[id].name + ' base body (optional; overrides player_base for this class) — ' + a, 'optional');
+        });
+      });
       var npcs = GM.NPCS || {};
-      (C.NPC_ROLES || []).forEach(function (r) { add('Townsfolk', 'npc_' + r, (npcs[r] && npcs[r].name) || r, (npcs[r] && npcs[r].sprite) || {}, true); });
+      npcRoles().forEach(function (r) { add('Townsfolk and camps', 'npc_' + r, (npcs[r] && npcs[r].name) || ROLE_DESC[r] || r, (npcs[r] && npcs[r].sprite) || {}, true); });
       var M = GM.MONSTERS || {};
       Object.keys(M).forEach(function (id) {
         var m = M[id], sp = m.sprite || {};
@@ -77,6 +83,14 @@ window.G = { manifest: {} };
         add('Monsters — ' + where, id, (m.n || m.name || id) + ': ' + (m.desc || '') + ' [' + (sp.body || '?') + (sp.weapon && sp.weapon !== 'none' ? ', ' + sp.weapon : '') + ']', sp);
       });
     }
+    var ROLE_DESC = { refugee: 'Refugee in a cleansed-floor camp: ragged, cold, grateful', camp_merchant: 'Camp trader: pack-laden scavenger selling what the dead left', curator: 'Isra Vell, the Curator: tall, stooped, coat patched from mail shirts, smoked spectacles' };
+    function npcRoles() {
+      var out = (C.NPC_ROLES || []).slice();
+      Object.keys(GM.NPCS || {}).concat(['refugee', 'camp_merchant', 'curator']).forEach(function (r) { if (out.indexOf(r) < 0) out.push(r); });
+      return out;
+    }
+    var LOOK_BASE = { growth: 'crystal', vein: 'bones', rift_shrine: 'shrine', rift_crystal: 'crystal', rift_core: 'crystal', rift_shard: 'crystal', capped: 'well' };
+    var LOOK_DESC = { growth: 'rift growth: swollen glowing crystal-flesh (solid)', vein: 'flat sinew vein decal on the floor', rift_shrine: 'corrupted shrine offering a bargain', rift_crystal: 'crystal pillar ringing the core arena', rift_core: 'the heart of the rift (world-boss floor), solid, pulsing', rift_shard: 'rift shard in the town plaza; glows warmer as the town revives', capped: "the town's old healer well, sealed with stone" };
     function gear() {
       var L = IT.LOOKS || {}, WT = ['sword', 'axe', 'mace', 'dagger', 'bow', 'staff', 'wand'], OFF = ['shield', 'orb', 'tome', 'quiver'];
       var ARM = ['helm', 'chest', 'gloves', 'boots'], MATS = ['plate', 'mail', 'leather', 'cloth', 'bone'];
@@ -97,6 +111,7 @@ window.G = { manifest: {} };
     }
     var PROP_DESC = { chest: 'closed iron-bound chest', chest_open: 'opened chest, lid up', barrel: 'breakable barrel', crate: 'breakable crate', torch: 'standing torch, flame flickers', shrine: 'small altar, faint pulse', shrine_used: 'spent shrine, dark', pillar: 'broken column', bones: 'flat bone scatter', stash: 'large strongbox (town)', portal: 'swirling spectral-blue oval', dungeon_entrance: 'dark stairwell / archway (town)', waypoint: 'rune circle on the ground', tree: 'dead tree', bush: 'thorn bush', fountain: 'stained fountain, murky water', sign: 'town sign', stall: 'market stall', well: 'the old well (the rift mouth)', tombstone: 'tombstone', crystal: 'glowing crystal cluster', campfire: 'campfire', gate: 'iron portcullis filling a doorway', corpse: 'your fallen body, face down' };
     function propsList() {
+      Object.keys(LOOK_BASE).forEach(function (l) { row(art, 'Props - rift looks', 'props/' + l + '.png', '96 x 128 per frame', 'like its base prop (' + LOOK_BASE[l] + '); 1 or more frames of 96 x 128', LOOK_DESC[l], 'nice'); });
       (C.PROP_TYPES || []).concat(['shrine_used']).forEach(function (t) {
         var n = U.props.get(t).frames.length;
         row(art, 'Props', 'props/' + t + '.png', (96 * n) + ' × 128', n + (n > 1 ? ' frames' : ' frame') + ' of 96 × 128, tile centre at (48, 112)', PROP_DESC[t] || t, 'core');
@@ -188,7 +203,7 @@ window.G = { manifest: {} };
       });
     };
     function post(path, body) {
-      return fetch(RECV, { method: 'POST', headers: { 'X-Path': path }, body: body }).then(function (r) { if (!r.ok) throw new Error(path + ' → ' + r.status); });
+      return fetch(RECV + '?p=' + encodeURIComponent(path), { method: 'POST', body: new Blob([body]) }).then(function (r) { if (!r.ok) throw new Error(path + ' ' + r.status); });
     }
     $('saveLists').onclick = function () {
       if (!lists) { out('build the lists first'); return; }
@@ -212,7 +227,10 @@ window.G = { manifest: {} };
       Object.keys(cls).forEach(function (id) { sprite(id, cls[id].sprite); });
       var base = Object.assign({}, (cls.warrior || {}).sprite || {}, { weapon: 'none' });
       sprite('player_base', base);
-      (C.NPC_ROLES || []).forEach(function (r) { if (npcs[r]) sprite('npc_' + r, npcs[r].sprite); });
+      var RL = { refugee: { body: 'humanoid', color: '#5a5048', accent: '#8a7a60', scale: 0.92, weapon: 'none' }, camp_merchant: { body: 'humanoid', color: '#4a5a3a', accent: '#d8b060', scale: 1, weapon: 'none' }, curator: { body: 'caster', color: '#6a6a72', accent: '#d8d8e0', scale: 1.1, weapon: 'none' } };
+      npcRoles().forEach(function (r) { var d = (npcs[r] && npcs[r].sprite) || RL[r]; if (d) sprite('npc_' + r, d); });
+      Object.keys(cls).forEach(function (id) { sprite(id + '_base', Object.assign({}, cls[id].sprite, { weapon: 'none' })); });
+      overlays(T, base);
       Object.keys(M).forEach(function (id) { sprite(id, M[id].sprite); });
       // tiles: the procedural set laid out on the 2x sheet
       ['town'].concat(C.THEMES).forEach(function (th) {
@@ -235,6 +253,7 @@ window.G = { manifest: {} };
         flat(13, 0, s.chasm[0]);
         T.push({ path: 'tiles/' + th + '.png', c: c });
       });
+      Object.keys(LOOK_BASE).forEach(function (l) { var fr = U.props.get(LOOK_BASE[l]).frames, c = U.makeCanvas(96 * fr.length, 128); fr.forEach(function (img, i) { U.ctx2d(c).drawImage(img, 0, 0, 48, 64, i * 96, 0, 96, 128); }); T.push({ path: 'props/' + l + '.png', c: c }); });
       (C.PROP_TYPES || []).concat(['shrine_used']).forEach(function (t) {
         var fr = U.props.get(t).frames, c = U.makeCanvas(96 * fr.length, 128);
         fr.forEach(function (img, i) { var x = U.ctx2d(c); x.drawImage(img, 0, 0, 48, 64, i * 96, 0, 96, 128); });
@@ -246,6 +265,42 @@ window.G = { manifest: {} };
       (C.NPC_ROLES || []).forEach(function (r) { if (npcs[r]) T.push({ path: 'portraits/npc_' + r + '.png', c: E.getPortrait(Object.assign({ id: 'npc_' + r }, npcs[r].sprite), 96) }); });
       return T;
     }
+    // Gear overlays: the procedural rig draws gear into the body, so each piece is isolated by building the base body
+    // with and without that one item and keeping only the pixels that changed; then converted to the 2x format.
+    function overlays(T, baseDesc) {
+      var L = IT.LOOKS || {}, WT = ['sword', 'axe', 'mace', 'dagger', 'bow', 'staff', 'wand'], OFF = ['shield', 'orb', 'tome', 'quiver'];
+      var ARM = ['helm', 'chest', 'gloves', 'boots'], MATS = ['plate', 'mail', 'leather', 'cloth', 'bone'];
+      var GREY = { main: '#9a9a9a', trim: '#5e5e5e', accent: '#c8c8c8' };
+      var bare = U.gear.sheetFor({ classId: 'tpl', sprite: baseDesc, equipment: {} });
+      var bd = U.ctx2d(bare.c, true).getImageData(0, 0, bare.c.width, bare.c.height).data;
+      var one = function (key, slot, item) {
+        var eq = {}; eq[slot] = item;
+        var sh = U.gear.sheetFor({ classId: 'tpl', sprite: baseDesc, equipment: eq });
+        var c = U.makeCanvas(sh.c.width, sh.c.height), x = U.ctx2d(c, true);
+        x.drawImage(sh.c, 0, 0);
+        var img = x.getImageData(0, 0, c.width, c.height), d = img.data;
+        for (var i = 0; i < d.length; i += 4) if (d[i] === bd[i] && d[i + 1] === bd[i + 1] && d[i + 2] === bd[i + 2] && d[i + 3] === bd[i + 3]) d[i + 3] = 0;
+        x.putImageData(img, 0, 0);
+        var hd = U.sprites.toHD({ c: c, base: c, cell: sh.cell, ox: sh.ox, oy: sh.oy });
+        HD.ANIMS.forEach(function (a) { T.push({ path: 'gear/' + key + '/' + a + '.png', c: hd.anims[a] }); });
+      };
+      var item = function (fam, pal, mat, slot, kind) {
+        var it = { id: 7, slot: slot, name: fam, baseId: fam, look: { family: fam, palette: pal, material: mat } };
+        if (slot === 'weapon') it.weaponType = kind;
+        if (slot === 'offhand') { it.offhandType = kind; it.icon = { shape: kind, color: pal.main }; }
+        return it;
+      };
+      MATS.forEach(function (m) { ARM.forEach(function (s) { one('generic_' + m + '_' + s, s, item('generic_' + m, GREY, m, s)); }); });
+      WT.forEach(function (k) { one('generic_' + k, 'weapon', item('generic', GREY, null, 'weapon', k)); });
+      OFF.forEach(function (k) { one('generic_' + k, 'offhand', item('generic', GREY, null, 'offhand', k)); });
+      Object.keys(L).forEach(function (id) {
+        var f = L[id];
+        if (f.kind === 'weapon') {
+          WT.forEach(function (k) { one(id + '_' + k, 'weapon', item(id, f.palette, f.material, 'weapon', k)); });
+          OFF.forEach(function (k) { one(id + '_' + k, 'offhand', item(id, f.palette, f.material, 'offhand', k)); });
+        } else ARM.forEach(function (s) { one(id + '_' + s, s, item(id, f.palette, f.material, s)); });
+      });
+    }
     function blob(c) { return new Promise(function (res) { c.toBlob(res, 'image/png'); }); }
     $('saveTpl').onclick = function () {
       var T;
@@ -254,12 +309,12 @@ window.G = { manifest: {} };
       T.slice(0, 40).forEach(function (t) { g.appendChild(t.c); });
       var i = 0, ok = 0, fail = 0;
       var next = function () {
-        if (i >= T.length) { out('templates: ' + ok + ' saved, ' + fail + ' failed (of ' + T.length + ')'); window.__tpl = { ok: ok, fail: fail, n: T.length }; return; }
+        if (i >= T.length) { if (ok + fail < T.length) return; out('templates: ' + ok + ' saved, ' + fail + ' failed (of ' + T.length + ')'); window.__tpl = { ok: ok, fail: fail, n: T.length }; return; }
         var t = T[i++];
         blob(t.c).then(function (b) { return post('assets_templates/' + t.path, b); }).then(function () { ok++; }, function () { fail++; }).then(function () { if (i % 25 === 0) out('saving templates ' + i + '/' + T.length); next(); });
       };
       out('saving ' + T.length + ' templates …');
-      next();
+      next(); next(); next(); next();
     };
     window.__assets = { templates: templates, art: function () { return art; }, snd: function () { return snd; } };
   }
