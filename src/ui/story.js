@@ -353,4 +353,33 @@
       return ui._frame('Journal', { right: right }, h('div', { class: 'ed-body' }, h('div', { class: 'ed-list' }, story, pages)));
     },
   });
+
+  // ---------- the rift core (R10): the finale screen ----------
+  // object:interact { type: 'rift_core' } after the Hearthking. The finale lines play once (also covered by the main-quest path),
+  // then a closing screen with the run's numbers; leaving it unlocks the endgame (title, Pallor) exactly once.
+  ui._register('finale', {
+    locked: false,
+    render: function () {
+      const mins = Math.floor((S.time || 0) / 60), f = S.flags;
+      const relics = G.items && G.items.relicCount ? G.items.relicCount() : 0;
+      const leave = function (home) { ui.close(); unlockEndgame(); if (home) G.scenes.enterTown(); };
+      return ui._frame('The Rift Core', { noClose: true }, h('div', { class: 'ed-body' }, h('div', { class: 'ed-list', style: 'text-align:center' },
+        h('div', { style: 'display:flex;justify-content:center;margin:6px 0' }, ui._emblem(64, true)),
+        h('p', { class: 'ed-page', style: 'color:#dfc06a', text: names('The Hearthking is dead and {town} is warm. You carry {ember} now.') }),
+        h('div', { class: 'ed-box' },
+          h('div', { class: 'ed-kv' }, h('span', { text: 'Time played' }), h('b', { text: mins + ' min' })),
+          h('div', { class: 'ed-kv' }, h('span', { text: 'Foes slain' }), h('b', { text: String(f.kills | 0) })),
+          h('div', { class: 'ed-kv' }, h('span', { text: 'Deaths' }), h('b', { text: String(f.deaths | 0) })),
+          relics ? h('div', { class: 'ed-kv' }, h('span', { text: 'Relics of the fallen' }), h('b', { text: relics + ' / 10' })) : null),
+        h('p', { class: 'ed-note', text: names('The rift goes on below. The deeper floors are open, and the Ember is hungry.') }),
+        ui._btn('Go home to {town}'.replace('{town}', ui._townName()), function () { leave(true); }, 'big gold'),
+        ui._btn('Keep descending', function () { leave(false); }, 'big'))));
+    },
+  });
+  G.on('object:interact', function (e) {
+    if (!e || e.type !== 'rift_core' || !S.player || S.scene !== 'dungeon' || seen('finale_screen')) return;
+    markSeen('finale_screen');
+    const show = function () { ui.open('finale'); };
+    if (!seen('finale')) { markSeen('finale'); say(fill(D.FINALE), { onDone: show }); } else show();
+  });
 })();

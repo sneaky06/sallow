@@ -332,7 +332,7 @@
 .ed-banner span{display:block;font-weight:normal;font-style:italic;margin-top:2px}
 .ed-dash{position:absolute;right:8px;bottom:calc(16px + 160px * var(--bs));width:calc(96px * var(--bs));height:max(44px,calc(52px * var(--bs)));border:2px solid #2f6fd6;background:#0c0a09e6;color:#9cc2ff;text-transform:uppercase;font-size:12px;overflow:hidden;box-shadow:inset 0 0 0 1px #000,inset -2px -2px 0 #000;display:none}
 .ed-dash .ed-ico{width:28px;height:28px;margin:0 auto}
-.ed-dash span{position:relative;z-index:2;display:block;line-height:14px;text-shadow:1px 1px 0 #000}
+.ed-dash span{position:relative;z-index:2;display:block;font-size:8px;line-height:9px;max-height:18px;overflow:hidden;white-space:normal;word-break:break-word;text-shadow:1px 1px 0 #000}
 .ed-dash:active{border-color:var(--ember)}
 .ed-hud.has-dash .ed-feed{bottom:calc(78px + 160px * var(--bs))}
 /* ---------- HUD editor (R5.1) ---------- */
@@ -483,6 +483,7 @@
 .ed-relic b{display:block;font-size:11px}.ed-relic small{display:block;font-size:10px;color:var(--ash)}
 .ed-relic.have small.fx{color:#9ae6b4}
 /* HUD: explored %, clear grade, timed event (R7.5) */
+.ed-heat{margin-left:10px;color:#ff8a3a;font-size:10px;margin-top:2px;text-shadow:1px 1px 0 #000;letter-spacing:1px}
 .ed-expl{color:#9fb7c8;font-size:10px;margin-top:2px}
 .ed-expl i{display:inline-block;width:40px;height:5px;background:#000;border:1px solid #6a7d8a;margin-left:4px;vertical-align:middle}
 .ed-expl i u{display:block;height:100%;background:#7fb4d4;text-decoration:none}

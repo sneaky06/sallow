@@ -119,7 +119,7 @@
 
     // projectile trails
     trailT += dt;
-    if (trailT >= 0.045) {
+    if (trailT >= (lowFx() ? 0.1 : 0.045)) {
       trailT = 0;
       const ps = S.projectiles || [], n = Math.min(ps.length, 40);
       for (let i = 0; i < n; i++) {
@@ -246,7 +246,7 @@
   const lights = [], bars = [], labels = [], beams = [], marks = [];
   let nLights = 0, nBars = 0, nLabels = 0, nBeams = 0, nMarks = 0;
   const seen = new Map();          // ground item id → time first drawn (drop hop)
-  const fr = { torch: null, torchR: 1, flick: 1, ox: 0, oy: 0, W: 0, H: 0, psx: 0, psy: 0, pd: 0, hasP: false, filter: 0 };
+  const fr = { low: false, torch: null, torchR: 1, flick: 1, ox: 0, oy: 0, W: 0, H: 0, psx: 0, psy: 0, pd: 0, hasP: false, filter: 0 };
 
   function pushItem(kind, ref, x, y, bias, lit) {
     const sx = (x - y) * HW - fr.ox, sy = (x + y) * HH - fr.oy;
@@ -258,7 +258,7 @@
     it.sx = Math.round(sx * V.R) / V.R; it.sy = Math.round(sy * V.R) / V.R; it.lit = lit;
   }
   function addLight(x, y, r, key) {
-    if (nLights >= 40 || !(r > 0)) return;
+    if (nLights >= (fr.low ? 14 : 40) || !(r > 0)) return;
     let l = lights[nLights];
     if (!l) l = lights[nLights] = { x: 0, y: 0, r: 0, key: '' };
     nLights++;
@@ -658,7 +658,7 @@
   function drawAtmosphere(ctx, VR, W, H, ox, oy) {
     const kind = VR.kind;
     if (!VR.mist || kind === 'none') return;
-    const t = V.time, n = Math.min(MOTES, Math.round(30 * VR.density));
+    const t = V.time, n = Math.min(MOTES, Math.round(30 * VR.density * (fr.low ? 0.4 : 1)));
     ctx.fillStyle = VR.mist;
     if (kind === 'motes') ctx.globalCompositeOperation = 'lighter';
     for (let i = 0; i < n; i++) {
@@ -724,6 +724,11 @@
   function drawDanger(ctx, p, W, H) {
     const max = p && p.stats && p.stats.hpMax;
     if (!max || p.dead || !(p.hp < max * 0.3)) return;
+    if (fr.low) {                                      // lowFx: a pulsing red frame instead of the full-screen vignette
+      ctx.globalAlpha = 0.5 + 0.4 * Math.sin(V.time * 5); ctx.fillStyle = '#a01010';
+      ctx.fillRect(0, 0, W, 3); ctx.fillRect(0, H - 3, W, 3); ctx.fillRect(0, 0, 3, H); ctx.fillRect(W - 3, 0, 3, H);
+      ctx.globalAlpha = 1; return;
+    }
     if (!dangerC || dangerC.width !== LW || dangerC.height !== LH) {
       const b = new U.Buf(LW, LH);
       for (let y = 0; y < LH; y++) for (let x = 0; x < LW; x++) {
@@ -763,14 +768,112 @@
     joyKnob = k.outline(0x0b0910, 190).done();
   }
 
+  // ---------------------------------------------------------------- R10: Heat embers, the Leap's gap, lowFx, FPS counter
+  // Heat embers (G.game.embers = [{ x, y, t }]): a hot coal hanging at chest height, pulsing, throwing a little light;
+  // it blinks in its last second. Drawn after the light pass so it reads on any floor.
+  function emberLights(ox, oy, W, H) {
+    const em = G.game && G.game.embers;
+    if (!Array.isArray(em)) return;
+    for (let i = 0; i < em.length && i < 24; i++) {
+      const e = em[i], sx = (e.x - e.y) * HW - ox, sy = (e.x + e.y) * HH - oy;
+      if (sx > -20 && sy > -20 && sx < W + 20 && sy < H + 20) addLight(sx, sy - 10, 1.3, 'warm');
+    }
+  }
+  function drawEmbers(ctx, ox, oy, W, H, map) {
+    const em = G.game && G.game.embers;
+    if (!Array.isArray(em) || !em.length) return;
+    const t = V.time, vis = map.kind !== 'town' && map.visible && map.visible.length === map.tiles.length ? map.visible : null;
+    const a = U.aura('#ff8a2b', 24);
+    for (let i = 0; i < em.length && i < 24; i++) {
+      const e = em[i];
+      if (vis && !vis[Math.floor(e.y) * map.w + Math.floor(e.x)]) continue;
+      const sx = Math.round((e.x - e.y) * HW - ox), sy = Math.round((e.x + e.y) * HH - oy);
+      if (sx < -20 || sy < -30 || sx > W + 20 || sy > H + 20) continue;
+      if (e.t < 1 && ((t * 10) | 0) & 1) continue;                    // about to go out: blink
+      const bob = Math.sin(t * 3 + i) * 1.5, pulse = 0.5 + 0.5 * Math.sin(t * 7 + i * 1.3), y = sy - 11 + bob;
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.globalAlpha = 0.45 + 0.3 * pulse;
+      ctx.drawImage(a, sx - 12, sy - 6);                               // glow pooled on the ground
+      ctx.drawImage(a, sx - 8, y - 4, 16, 8);
+      ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+      ctx.fillStyle = '#5a1808'; ctx.fillRect(sx - 2, y - 2, 5, 5);
+      ctx.fillStyle = '#ff8a1e'; ctx.fillRect(sx - 1, y - 2, 3, 5); ctx.fillRect(sx - 2, y - 1, 5, 3);
+      ctx.fillStyle = pulse > 0.5 ? '#fff0a0' : '#ffd84a'; ctx.fillRect(sx - 1, y - 1, 2, 2);
+      if (((t * 6 + i) | 0) % 3 === 0) { ctx.fillStyle = '#ffb040'; ctx.fillRect(sx + ((i * 7 + (t * 13 | 0)) % 5) - 2, y - 5 - ((t * 20 | 0) % 6), 1, 1); }
+    }
+  }
+  // The Leap (landmark 'dash_gap', gap = the CHASM cells to dash over): edge marks on both lips and chevrons pointing
+  // across, pulsing, so "dash here" reads at a glance. Only once the gap has been seen.
+  function drawGaps(ctx, ox, oy, W, H, map) {
+    const L = map.landmarks;
+    if (!Array.isArray(L)) return;
+    const exp = map.explored, t = V.time;
+    for (let k = 0; k < L.length; k++) {
+      const lm = L[k];
+      if (!lm || lm.id !== 'dash_gap' || !Array.isArray(lm.gap) || lm.gap.length < 1) continue;
+      const g0 = lm.gap[0], g1 = lm.gap[lm.gap.length - 1];
+      if (exp && !exp[g0.y * map.w + g0.x]) continue;
+      // run direction: along the gap if it is 2+ cells, else across whichever neighbours are floor
+      let dx = g1.x - g0.x, dy = g1.y - g0.y;
+      if (!dx && !dy) { const T0 = map.tiles, w = map.w; dx = C.WALKABLE[T0[g0.y * w + g0.x + 1]] ? 1 : 0; dy = dx ? 0 : 1; }
+      const n = Math.hypot(dx, dy) || 1; dx /= n; dy /= n;
+      const cx = (g0.x + g1.x) / 2 + 0.5, cy = (g0.y + g1.y) / 2 + 0.5, half = (Math.abs(g1.x - g0.x) + Math.abs(g1.y - g0.y)) / 2 + 0.75;
+      const pulse = 0.55 + 0.45 * Math.sin(t * 4);
+      const S = function (wx, wy) { return [(wx - wy) * HW - ox, (wx + wy) * HH - oy]; };
+      // the drop itself glows cold blue, so the gap is visible even under a wall's shadow
+      const glow = U.aura('#5bc8ff', 32);
+      ctx.globalCompositeOperation = 'lighter';
+      for (let j = 0; j < lm.gap.length; j++) {
+        const g = lm.gap[j], q = S(g.x + 0.5, g.y + 0.5);
+        ctx.globalAlpha = 0.35 + 0.35 * pulse;
+        ctx.drawImage(glow, Math.round(q[0]) - 16, Math.round(q[1]) - 8);
+      }
+      ctx.globalCompositeOperation = 'source-over';
+      // lip marks: a short bright bar across the corridor at each edge
+      ctx.globalAlpha = 0.5 + 0.4 * pulse;
+      ctx.fillStyle = '#9fe0ff';
+      for (let s = -1; s <= 1; s += 2) {
+        const lx = cx + dx * half * s, ly = cy + dy * half * s;
+        for (let j = -4; j <= 4; j++) { const q = S(lx - dy * j * 0.09, ly + dx * j * 0.09); ctx.fillRect(Math.round(q[0]), Math.round(q[1]), j & 1 ? 1 : 2, 1); }
+      }
+      // three chevrons marching across
+      for (let c = 0; c < 3; c++) {
+        const f = ((t * 0.9 + c / 3) % 1) * 2 - 1, px = cx + dx * half * 0.8 * f, py = cy + dy * half * 0.8 * f;
+        ctx.globalAlpha = (1 - Math.abs(f)) * (0.6 + 0.4 * pulse);
+        for (let j = -3; j <= 3; j++) {
+          const back = Math.abs(j) * 0.11, q = S(px - dx * back - dy * j * 0.1, py - dy * back + dx * j * 0.1);
+          ctx.fillStyle = '#0b0910';
+          ctx.fillRect(Math.round(q[0]) - 1, Math.round(q[1]) - 4, 4, 4);
+          ctx.fillStyle = j === 0 ? '#ffffff' : '#bfefff';
+          ctx.fillRect(Math.round(q[0]), Math.round(q[1]) - 3, 2, 2);
+        }
+      }
+      ctx.globalAlpha = 1;
+    }
+  }
+  function lowFx() { const s = G.state.settings; return !!(s && s.lowFx); }
+  E.lowFx = lowFx;
+  // optional frame counter: fps from the real frame interval, ms = time spent in E.render
+  const fps = { ema: 1 / 60, ms: 0, t: 0, img: null };
+  function drawFps(ctx, W, msNow) {
+    fps.ema += ((V.dt || 1 / 60) - fps.ema) * 0.1;
+    fps.ms += (msNow - fps.ms) * 0.1;
+    if (!fps.img || V.time - fps.t > 0.25) { fps.t = V.time; fps.img = U.text(Math.round(1 / Math.max(0.001, fps.ema)) + ' FPS ' + fps.ms.toFixed(1) + ' MS' + (lowFx() ? ' LOW' : '') + ' R' + V.R, '#9fe0a0'); }
+    const x = Math.round(W / 2 - fps.img.width / 2), y = 2;
+    ctx.fillStyle = 'rgba(8,6,12,0.7)'; ctx.fillRect(x - 2, y - 1, fps.img.width + 4, 11);
+    ctx.drawImage(fps.img, x, y);
+  }
+
   // light sprite: stepped bands at R 1 (the old pixel look), a smooth falloff in high-res mode
   const WARP = { a: 1, b: 1, dx: 0 };
-  function LS(key) { return V.R > 1 ? U.lightSoft(key) : U.lightSprite(key); }
+  function LS(key) { return V.R > 1 && !fr.low ? U.lightSoft(key) : U.lightSprite(key); }
 
   // ---------------------------------------------------------------- render
   E.render = function () {
     const ctx = V.ctx;
     if (!ctx) return;
+    const tStart = performance.now();
+    fr.low = lowFx();
     const S = G.state, map = S && S.map, W = V.W, H = V.H;
     ctx.setTransform(V.R, 0, 0, V.R, 0, 0);
     ctx.imageSmoothingEnabled = false;
@@ -828,7 +931,7 @@
         const lit = !vis || vis[i];
         const sx = e * HW - ox - 16, sy = d * HH - oy;
         U.blit(ctx, lit ? img : U.dim(img), sx, sy);
-        if (tnt && tnt[i] && (t === T.FLOOR || t === T.PATH || t === T.GRASS || t === T.RUBBLE || t === T.STAIRS_DOWN)) {     // rift taint: sinew veins
+        if (tnt && tnt[i] && !(fr.low && tnt[i] < 2) && (t === T.FLOOR || t === T.PATH || t === T.GRASS || t === T.RUBBLE || t === T.STAIRS_DOWN)) {     // rift taint: sinew veins
           const dc = U.rift.decal(Math.min(3, tnt[i]), h & 1, RF.vein, RF.hell > 0);
           ctx.globalAlpha = U.rift.taintAlpha(Math.min(3, tnt[i]));
           U.blit(ctx, lit ? dc : U.dim(dc), sx, sy);
@@ -943,6 +1046,7 @@
 
     // ---- lighting: additive light map multiplied over the scene
     U.rift.lights(map, addLight, ox, oy, W, H, V.time);
+    emberLights(ox, oy, W, H);
     if (lightX) {
       lightX.globalCompositeOperation = 'source-over';
       lightX.fillStyle = U.rift.amb(VR);
@@ -957,7 +1061,7 @@
         lightX.drawImage(LS(l.key), (l.x - rx) / 2, (l.y - ry) / 2, rx, ry);
       }
       ctx.globalCompositeOperation = 'multiply';
-      ctx.imageSmoothingEnabled = V.R > 1;                // D2-style: the light map is filtered, not blocky
+      ctx.imageSmoothingEnabled = V.R > 1 && !fr.low;     // D2-style: the light map is filtered, not blocky
       ctx.drawImage(lightC, 0, 0, LW * 2, LH * 2);
       ctx.imageSmoothingEnabled = false;
       ctx.globalCompositeOperation = 'source-over';
@@ -965,8 +1069,9 @@
 
     // ---- Pallor (R5.2): the world drains of colour by tier. One composite fill over the lit world, before loot,
     // spell fx, labels and bars are drawn, so those stay fully saturated. No per-pixel work in JS.
-    U.rift.post(ctx, W, H, ox, oy, map, V.time, LW, LH);
-    if (drawPallor(ctx, W, H)) for (let i = 0; i < nReicons; i++) { const ri = reicons[i]; U.blit(ctx, ri.img, ri.x, ri.y); }
+    // lowFx: no screen-wide washes (rift / town / Pallor); the Pallor meter in the HUD still tells the story
+    if (!fr.low) U.rift.post(ctx, W, H, ox, oy, map, V.time, LW, LH);
+    if (!fr.low && drawPallor(ctx, W, H)) for (let i = 0; i < nReicons; i++) { const ri = reicons[i]; U.blit(ctx, ri.img, ri.x, ri.y); }
 
     // ---- overlay: beams, fx, markers, labels, bars, text, joystick
     // rare+ loot: soft pulsing halo, beam, then the icon again on top so it stays bright after lighting.
@@ -1001,6 +1106,8 @@
       }
     }
     drawSpills(ctx, ox, oy);
+    drawGaps(ctx, ox, oy, W, H, map);
+    drawEmbers(ctx, ox, oy, W, H, map);
     for (let i = 0; i < nBadges; i++) {           // pile count badges, after lighting so they stay readable
       const bd = badges[i];
       ctx.fillStyle = '#0b0910';
@@ -1089,6 +1196,7 @@
     }
 
     drawJoystick(ctx);
+    if (st.showFps) drawFps(ctx, W, performance.now() - tStart);
   };
 
   // Floating stick: drawn while held. Fixed stick (R5.1): always drawn at its anchor (dimmer when idle).
@@ -1173,6 +1281,12 @@
       const pr = props[i], c = pr && MM_PROP[pr.type];
       if (!c || pr.used || (exp && !exp[(pr.y | 0) * mw + (pr.x | 0)])) continue;
       mark(pr.x + 0.5, pr.y + 0.5, big, c);
+    }
+    const lms = Array.isArray(map.landmarks) ? map.landmarks : [];
+    for (let i = 0; i < lms.length; i++) {
+      const lm = lms[i];
+      if (!lm || lm.id !== 'dash_gap' || !Array.isArray(lm.gap)) continue;
+      for (let j = 0; j < lm.gap.length; j++) { const g = lm.gap[j]; if (!exp || exp[g.y * mw + g.x]) mark(g.x + 0.5, g.y + 0.5, big * 0.9, '#9fe0ff'); }
     }
     const ents = S.entities || [];
     for (let i = 0; i < ents.length; i++) {

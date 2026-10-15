@@ -139,7 +139,7 @@
     const swing = 3 * game.dmgScale(L) * 1.45 * 0.8;          // a legendary monster's swing at this depth, ×0.8
     e.dmgMin = swing * 0.85; e.dmgMax = swing * 1.15;
     e.speed = (game.BASE_SPEED || 5) * (1 + (s.moveSpeed || 0) / 100) * 0.8;
-    e.xp = Math.round(e.xp * 6); e.noLoot = true; e.radius = 0.32;
+    e.xp = Math.round(e.xp * 3); e.noLoot = true; e.radius = 0.32;
     const st = game.getStyle(s.style);
     e.kit = { moves: buildKit(s), ranged: !!s.ranged, opener: st.opener, hpAt: U.clamp(st.hpAt, 0.2, 0.6), pots: Math.min(3, Math.max(1, Math.round(st.potions / 4))),
       dash: (st.shares.dash || 0) > 0.03, charges: (game.CLASSES[s.classId] && game.CLASSES[s.classId].action && game.CLASSES[s.classId].action.charges) || 1 };

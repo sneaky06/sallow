@@ -28,7 +28,7 @@
       strip.textContent = want;
       strip.style.display = want ? 'block' : 'none';
       const hud = ui._hudEl, area = strip.parentNode;
-      if (hud && area) hud.style.setProperty('--trk-top', (area.offsetTop + area.offsetHeight + 4) + 'px');
+      if (hud && area && ui._setTrkTop) ui._setTrkTop();
     }
   }
   ui._updaters.push((function () { let t = 0; return function (dt) { t -= dt; if (t <= 0) { t = 0.5; paintStrip(); } }; })());

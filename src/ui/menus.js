@@ -186,7 +186,9 @@
         toggleRow('Auto-pickup Rare+', 'Walk over Rare and better gear to take it', !!st.autoPickupRare, function () { st.autoPickupRare = !st.autoPickupRare; }),
         toggleRow('Auto-sort bag', 'Keep new loot in your chosen order', st.autoSort !== false, function () { st.autoSort = st.autoSort === false; }),
         toggleRow('Tips', 'Short hints the first time you meet something new', st.tips !== false, function () { st.tips = st.tips === false; }),
-        ui._resetTips ? ui._btn('Reset tips', function () { ui._resetTips(); ui.toast('Tips will show again.', '#a89f8f'); }) : null,
+        toggleRow('Low effects', 'Fewer particles and lighter lighting, for older phones', !!st.lowFx, function () { st.lowFx = !st.lowFx; G.emit('settings:changed', { key: 'lowFx' }); }),
+        toggleRow('FPS counter', 'Show frames per second in a corner', !!st.showFps, function () { st.showFps = !st.showFps; G.emit('settings:changed', { key: 'showFps' }); }),
+        ui._resetTips ?ui._btn('Reset tips', function () { ui._resetTips(); ui.toast('Tips will show again.', '#a89f8f'); }) : null,
         toggleRow('Damage numbers', null, !!st.showDamage, function () { st.showDamage = !st.showDamage; }),
         h('div', { class: 'ed-h', text: 'Controls' }),
         ui._hudSettings ? (function () {

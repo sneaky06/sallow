@@ -356,7 +356,9 @@
       // Grave Swap: the minion took our place
     } else if (a.kind === 'blink') {
       let done = false;
-      for (let d = c.d; d >= 1 && !done; d -= 0.5) {
+      const T0 = C.TILE; let gapOnLine = false;          // R10: over a chasm gap the blink may reach up to a tile further to find ground
+      for (let k = 0.5; k <= c.d && !gapOnLine; k += 0.25) { const tt = W.tile(x0 + Math.cos(ang) * k, y0 + Math.sin(ang) * k); if (tt === T0.CHASM || tt === T0.DEEP_WATER || tt === T0.DEEP_LAVA) gapOnLine = true; }
+      for (let d = c.d + (gapOnLine ? 1 : 0); d >= 1 && !done; d -= (gapOnLine ? 0.25 : 0.5)) {
         const x = x0 + Math.cos(ang) * d, y = y0 + Math.sin(ang) * d;
         if (W.canStand(x, y, p.radius) && W.shotClear(x0, y0, x, y)) done = K.blink(p, x, y, 'teleport');
       }
@@ -365,7 +367,7 @@
     } else {
       U.fx(a.fx || 'smoke', p.x, p.y, {});
       U.sfx('swing');
-      K.dashTo(p, tx, ty, 0);
+      if (K.leapTo(p, tx, ty)) U.text(p.x, p.y - 1.1, 'Leap!', '#7fffd4');          // R10: dashes clear chasm gaps
       U.fx(a.fx || 'smoke', p.x, p.y, {});
     }
     p.facing = ang;
@@ -533,6 +535,21 @@
         U.toast(s.name + ': ' + s.text, s.color);
         G.emit('object:interact', { type: 'shrine', prop: prop });
         if (game.floorHas('cursed')) game.cursedShrine(cx, cy);
+        break;
+      }
+      case 'rift_core': {          // R10: the Ember's seat behind the Hearthking — the finale beat (UI plays it on object:interact)
+        const S0 = G.state;
+        if (S0.entities.some(function (e) { return e.rarity === 'boss' && !e.dead && game.MONSTERS[e.monsterId] && game.MONSTERS[e.monsterId].worldBoss; })) {
+          warn(p, 'It is still beating inside him', '#ff6a5a');
+          return;
+        }
+        if (!prop.used) {
+          prop.used = true;
+          S0.flags.riftCoreTouched = true;
+          U.sfx('shrine'); U.shake(5, 0.5);
+          U.fx('nova', cx, cy, { radius: 4, color: '#ff70f0' }); U.fx('heal', p.x, p.y, { color: '#ff70f0' });
+        }
+        G.emit('object:interact', { type: 'rift_core', prop: prop });
         break;
       }
       default:

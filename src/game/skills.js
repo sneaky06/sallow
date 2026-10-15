@@ -87,6 +87,36 @@
     return true;
   };
 
+  // R10 the Leap: a dash flies over chasms and deep water/lava (never through walls, gates or other solid things) and always
+  // lands on ground you can stand on — if the dash would end over a gap it carries on up to 2.4 tiles to the far edge, else
+  // it falls back to the last solid ground it crossed. Returns true if the dash crossed a gap.
+  K.leapTo = function (p, x, y) {
+    const T = G.C.TILE, CROSS = {};
+    CROSS[T.CHASM] = 1; CROSS[T.DEEP_WATER] = 1; CROSS[T.DEEP_LAVA] = 1;
+    const d = Math.hypot(x - p.x, y - p.y);
+    if (d < 0.05) return false;
+    const ang = Math.atan2(y - p.y, x - p.x), n = Math.ceil(d / 0.2), sx = Math.cos(ang) * d / n, sy = Math.sin(ang) * d / n;
+    let cx = p.x, cy = p.y, lx = p.x, ly = p.y, over = false, crossed = false;
+    for (let i = 0; i < n + 12; i++) {
+      if (i >= n && !over) break;
+      const nx = cx + sx, ny = cy + sy;
+      if (CROSS[W.tile(nx, ny)] && !(W.prop(Math.floor(nx), Math.floor(ny)) || {}).solid) { cx = nx; cy = ny; over = true; continue; }
+      if (!W.canStand(nx, ny, p.radius)) {
+        if (W.walkable(nx, ny)) { cx = nx; cy = ny; if (i >= n) over = true; continue; }          // brushing a gap's edge: keep going, land only where you can stand
+        break;
+      }
+      cx = nx; cy = ny;
+      if (over) crossed = true;
+      over = false; lx = cx; ly = cy;
+      if (i % 4 === 0) U.fx('smoke', cx, cy, {});
+    }
+    if (game.inSealedRoom && !game.inSealedRoom(lx, ly)) { lx = p.x; ly = p.y; crossed = false; }
+    p.facing = ang;
+    p.x = lx; p.y = ly;
+    if (game.onPlayerMoved) game.onPlayerMoved(true);
+    return crossed;
+  };
+
   // Slide along the straight line toward x,y, stopping `stop` tiles short or at the first obstacle.
   K.dashTo = function (p, x, y, stop) {
     const d = Math.hypot(x - p.x, y - p.y) - (stop || 0);

@@ -20,7 +20,8 @@
   }
   // o: n, sp[min,max] tiles/s, vz[min,max] px/s, life[min,max], size, cols[], grav, z, spread (spawn radius)
   function burst(x, y, o) {
-    for (let i = 0; i < o.n; i++) {
+    const S = G.state, n = S && S.settings && S.settings.lowFx ? Math.ceil(o.n * 0.4) : o.n;      // lowFx: fewer particles
+    for (let i = 0; i < n; i++) {
       const a = rnd() * 6.283, s = o.sp[0] + rnd() * (o.sp[1] - o.sp[0]), r = (o.spread || 0) * Math.sqrt(rnd());
       const ra = rnd() * 6.283;
       p(x + Math.cos(ra) * r, y + Math.sin(ra) * r, (o.z || 0) + rnd() * (o.zr || 0), Math.cos(a) * s, Math.sin(a) * s,

@@ -62,7 +62,10 @@
     el.explTxt = document.createTextNode('');
     el.explBar = h('u');
     el.expl = h('div', { class: 'ed-expl', style: 'display:none' }, el.explTxt, h('i', null, el.explBar));
-    el.area.append(el.areaTxt, el.goldTxt, el.floor, el.expl, el.pallor);
+    // R10 Heat: stacks of ember the floor has piled on you (game.heatStacks()), drawn as pips
+    el.heatTxt = document.createTextNode('');
+    el.heat = h('div', { class: 'ed-heat', style: 'display:none' }, el.heatTxt);
+    el.area.append(el.areaTxt, el.goldTxt, el.floor, el.expl, el.heat, el.pallor);
     // R7.5 timed event: name, hint, timer (+ goal) and a draining bar; sits under the quest tracker
     el.evName = h('b'); el.evTxt = h('span'); el.evTime = h('span'); el.evBar = h('i');
     el.event = h('div', { class: 'ed-event' }, el.evName, el.evTxt, el.evTime, h('div', { class: 'bar' }, el.evBar));
@@ -230,6 +233,16 @@
   }
   ui._pallorInfo = pallorInfo;
 
+  // The quest tracker sits under the depth label. In portrait, when the label column is tall enough to run into the row of top
+  // buttons (y ~100-145), the tracker starts below that row instead of hiding behind it.
+  window.addEventListener('resize', function () { if (ui._setTrkTop) ui._setTrkTop(); });
+  ui._setTrkTop = function () {
+    if (!hud || !el.area) return;
+    let t = el.area.offsetTop + el.area.offsetHeight + 4;
+    if (window.innerHeight > window.innerWidth && t + 46 > 100) t = Math.max(t, 150);
+    hud.style.setProperty('--trk-top', t + 'px');
+  };
+
   // ---------- explored % (R7.5) ----------
   // Share of walkable tiles in map.explored. The game may publish its own figure through G.game.getExplored() (0..1, 0..100 or { pct });
   // otherwise the walkable mask is built once per map and counted against map.explored.
@@ -319,6 +332,17 @@
     hit.forEach(function (b) { b.classList.add('ed-pulse'); setTimeout(function () { b.classList.remove('ed-pulse'); }, 5000); });
   });
 
+  let heatN = -1;
+  function heatRow() {
+    let n = 0;
+    if (S.scene === 'dungeon' && G.game && typeof G.game.heatStacks === 'function') { try { n = G.game.heatStacks() | 0; } catch (err) { n = 0; } }
+    if (n === heatN) return;
+    heatN = n;
+    el.heat.style.display = n > 0 ? 'inline-block' : 'none';
+    if (n > 0) el.heatTxt.nodeValue = 'Heat ' + '▮'.repeat(Math.min(n, 10)) + (n > 10 ? ' +' + (n - 10) : '') + '  x' + n;
+    ui._setTrkTop();
+  }
+
   // ---------- slow refreshers ----------
   function refreshSkills(p) {
     skDirty = false;
@@ -368,6 +392,7 @@
 
   function refreshSlow(p) {
     actionMode(); autoPickupRare(p);
+    heatRow();
     // area + gold
     const area = 'Lv ' + (p.level || 1) + '  ' + ui._themeName(S.depth) + (S.depth > 0 ? ' · ' + S.depth : '');
     if (area !== last.area) { last.area = area; el.areaTxt.nodeValue = area; }
@@ -392,7 +417,7 @@
     if (ex !== last.expl || exLabel !== last.explL) {
       explChanged = (ex < 0) !== (last.expl < 0);
       last.expl = ex; last.explL = exLabel;
-      if (explChanged) el.expl.style.display = ex < 0 ? 'none' : 'block';
+      if (explChanged) el.expl.style.display = ex < 0 ? 'none' : 'inline-block';
       if (ex >= 0) { el.explTxt.nodeValue = 'Explored ' + (exLabel || ex + '%'); el.explBar.style.width = ex + '%'; el.expl.title = exHint; }
     }
     if (fname !== last.floor || palKey !== last.pal || explChanged) {
@@ -405,7 +430,7 @@
         el.pallor.className = 'ed-pallor t' + Math.min(pal.tier, 4);
       }
       last.floor = fname; last.pal = palKey;
-      hud.style.setProperty('--trk-top', (el.area.offsetTop + el.area.offsetHeight + 4) + 'px');
+      ui._setTrkTop();
     }
     const portal = S.scene === 'dungeon';
     if (portal !== last.portal) { last.portal = portal; el.bTp.style.display = portal ? '' : 'none'; }

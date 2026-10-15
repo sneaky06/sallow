@@ -2403,6 +2403,34 @@ ok(back.hp < 1e6 && front[0].hp < 1e6 && front[1].hp < 1e6, 'Whirlwind hits all 
     const eff = game.getEffect(p, 'heat'), mfHeat = game.lootBonus({}).magicFind;
     game.applyHit(p, { phys: p.stats.hpMax * 0.6 }, { lvl: 1 }); const after = game.heatStacks();
     ok(heatOk && eff && eff.dealt > 0 && mfHeat > 0 && after < eff.stacks, 'Ember Heat: kills shed embers; sweeping through one stacks Heat (+damage, +magic find); a hard hit knocks it down', [heatOk, !!eff, eff && eff.dealt, game.lootBonus({}).magicFind, eff && eff.stacks, after, p.dead].join());
+
+    section('Revision 10');
+    // the Leap: a 1-wide corridor with a 2-tile chasm gap
+    p = fresh('ranger', true); S.entities = [];
+    const lm = S.map, cy0 = Math.floor(p.y), cx0 = Math.floor(p.x);
+    const setT = function (x, y, t) { lm.tiles[y * lm.w + x] = t; };
+    for (let x = cx0 - 1; x <= cx0 + 7; x++) { setT(x, cy0 - 1, C.TILE.WALL); setT(x, cy0 + 1, C.TILE.WALL); setT(x, cy0, C.TILE.FLOOR); }
+    setT(cx0 + 2, cy0, C.TILE.CHASM); setT(cx0 + 3, cy0, C.TILE.CHASM);
+    if (G.world.invalidate) G.world.invalidate(lm);
+    p.x = cx0 + 0.5; p.y = cy0 + 0.5; game.onPlayerMoved(true);
+    let walked = p.x; G.input.move.x = 1; step(1.5); walked = p.x; G.input.move.x = 0;
+    ok(walked < cx0 + 2.05, 'walking stops at the chasm edge (' + (walked - cx0).toFixed(2) + ')');
+    p.x = cx0 + 0.5; game.onPlayerMoved(true); G.input.move.x = 1; G.emit('input:classaction', {}); G.input.move.x = 0;
+    const tL = game.W.tile(p.x, p.y);
+    ok(p.x > cx0 + 4 && tL !== C.TILE.CHASM && game.W.canStand(p.x, p.y, p.radius), 'the Leap: a dash flies over the 2-tile gap and lands on the far side (x ' + (p.x - cx0).toFixed(2) + ')');
+    p.x = cx0 + 0.5; p.y = cy0 + 0.5; game.onPlayerMoved(true); game.ctl.dashN = -1; p.facing = Math.PI / 2; G.input.move.y = 1; G.emit('input:classaction', {}); G.input.move.y = 0;
+    ok(Math.abs(p.y - (cy0 + 0.5)) < 0.3, 'a dash never passes a wall');
+    setT(cx0 + 4, cy0, C.TILE.CHASM); setT(cx0 + 5, cy0, C.TILE.CHASM); setT(cx0 + 6, cy0, C.TILE.CHASM); if (G.world.invalidate) G.world.invalidate(lm);
+    p.x = cx0 + 0.5; p.y = cy0 + 0.5; game.onPlayerMoved(true); game.ctl.dashN = -1; G.input.move.x = 1; G.emit('input:classaction', {}); G.input.move.x = 0;
+    ok(game.W.canStand(p.x, p.y, p.radius) && game.W.tile(p.x, p.y) !== C.TILE.CHASM && p.x < cx0 + 2.1, 'a gap too wide to clear: the dash stops on solid ground, never over the chasm');
+    // the rift core
+    p = fresh('warrior', true, 30); tank(p); const hk2 = game.createBoss(30, p.x + 6, p.y); S.entities.push(hk2);
+    const core = { type: 'crystal', x: Math.floor(p.x) + 1, y: Math.floor(p.y), solid: true, interact: 'rift_core', used: false }; S.map.props.push(core);
+    const cores = []; const oCo = G.on('object:interact', function (e) { if (e.type === 'rift_core') cores.push(e); });
+    game.ctl.intent = { type: 'prop', x: core.x, y: core.y }; step(0.3);
+    const blocked = !cores.length && !core.used;
+    hk2.hp = 0; game.kill(hk2, p); game.ctl.intent = { type: 'prop', x: core.x, y: core.y }; step(0.3); oCo();
+    ok(blocked && cores.length === 1 && cores[0].prop === core && core.used && S.flags.riftCoreTouched, 'R10 rift core: silent while the Hearthking lives; afterwards object:interact { type: "rift_core", prop }');
     oT(); H.mods = null;
   }
 
@@ -2423,8 +2451,9 @@ ok(back.hp < 1e6 && front[0].hp < 1e6 && front[1].hp < 1e6, 'Whirlwind hits all 
     }
     st.tid = near ? near.id : 0;
     let mx = 0, my = 0;
+    const slowBot = st.style === 'slow';          // R10: a slow, imprecise player — no dodging, no dashes, sluggish skills
     // 1. get out of telegraphed circles
-    for (const z of game.zones) {
+    for (const z of (slowBot ? [] : game.zones)) {
       if (z.faction !== 'enemy') continue;
       const d = Math.hypot(p.x - z.x, p.y - z.y);
       if (d < z.r + 0.6) { const k = d || 1; mx += (p.x - z.x) / k || 1; my += (p.y - z.y) / k; }
@@ -2444,11 +2473,11 @@ ok(back.hp < 1e6 && front[0].hp < 1e6 && front[1].hp < 1e6, 'Whirlwind hits all 
     const mag = Math.hypot(mx, my);
     G.input.move.x = mag ? mx / mag : 0; G.input.move.y = mag ? my / mag : 0;
     const ca = game.getClassAction();          // R4.4: dash out of melee range or out of a telegraph
-    if (ca && (ca.ready !== undefined ? ca.ready : ca.cdRemaining <= 0) && near && (nd < 2.2 || (mag && game.zones.some(function (z) { return z.faction === "enemy" && z.delay > 0 && Math.hypot(p.x - z.x, p.y - z.y) < z.r + 0.4; })))) { G.emit("input:classaction", {}); st.dashes = (st.dashes || 0) + 1; }
+    if (!slowBot && ca && (ca.ready !== undefined ? ca.ready : ca.cdRemaining <= 0) && near && (nd < 2.2 || (mag && game.zones.some(function (z) { return z.faction === "enemy" && z.delay > 0 && Math.hypot(p.x - z.x, p.y - z.y) < z.r + 0.4; })))) { G.emit("input:classaction", {}); st.dashes = (st.dashes || 0) + 1; }
     G.input.attackHeld = !!fighting;
     st.t -= 1 / 30;
     if (fighting && st.t <= 0) {
-      st.t = 0.2;
+      st.t = slowBot ? 0.9 : 0.2;
       for (let i = 0; i < 4; i++) {
         const id = p.skillBar[(i + st.rot) % 4];
         if (!id || (p.cooldowns[id] || 0) > 0) continue;
@@ -2558,6 +2587,8 @@ ok(back.hp < 1e6 && front[0].hp < 1e6 && front[1].hp < 1e6, 'Whirlwind hits all 
     opts = opts || {};
     const classes = opts.classes || Object.keys(game.CLASSES), mode = opts.mode || 'balanced', maxDepth = opts.maxDepth || 20;
     const dt = 1 / 30, rows = [];
+    let offOffer = null; const uiWas = G.ui;
+    if (opts.allSystems) { G.ui = G.ui || { _botStub: true }; offOffer = G.on('shrine:offer', function (e) { game.acceptBargain(e.id); }); }
     simulating = true;
     for (const cid of classes) {
       G.input.move.x = 0; G.input.move.y = 0; G.input.attackHeld = false;
@@ -2571,7 +2602,7 @@ ok(back.hp < 1e6 && front[0].hp < 1e6 && front[1].hp < 1e6, 'Whirlwind hits all 
         if (opts.pallorFrom && depth >= opts.pallorFrom) { S.flags.pallorUnlocked = true; if (depth > opts.pallorFrom) game.pallorStairs = 'stairs_down'; }
         G.scenes.enterDungeon(depth);
         const pallor0 = game.getPallor().value;
-        const st = { t: 0, rot: 0, potions: 0, minHp: 1, pt: 0, path: null, equips: 0, lastX: 0, lastY: 0, stuckT: 0, unstuck: 0 };
+        const st = { t: 0, rot: 0, potions: 0, minHp: 1, pt: 0, path: null, equips: 0, lastX: 0, lastY: 0, stuckT: 0, unstuck: 0, style: opts.style || 'fast' };
         const total = S.entities.filter(function (e) { return e.type === 'monster' && e.faction === 'enemy'; }).length;
         let t = 0, deaths = 0, bossT0 = -1, bossTime = -1, bossDeaths = 0, n = 0, lvl0 = S.player.level;
         const left = function () { let c = 0; for (const e of S.entities) if (e.type === 'monster' && e.faction === 'enemy' && !e.dead && !e.bossAdd) c++; return c; };
@@ -2582,6 +2613,7 @@ ok(back.hp < 1e6 && front[0].hp < 1e6 && front[1].hp < 1e6, 'Whirlwind hits all 
             deaths++; totalDeaths++;
             if (bossT0 >= 0 && bossTime < 0) bossDeaths++;
             if (S.flags.pallorUnlocked) S.flags.pallor = 0;
+            if (opts.allSystems) { G.scenes.respawn(); shop(); p.potions.hp = Math.max(p.potions.hp, 3); G.scenes.enterDungeon(depth); game.zones.length = 0; bossT0 = -1; continue; }          // R10: a real corpse run (Echo at the corpse)
             game.revivePlayer(); shop();
             p.potions.hp = Math.max(p.potions.hp, 3);          // a town trip always nets a few potions
             // back to the stairs, monsters reset (as a real corpse run would find them)
@@ -2590,7 +2622,12 @@ ok(back.hp < 1e6 && front[0].hp < 1e6 && front[1].hp < 1e6, 'Whirlwind hits all 
             game.zones.length = 0; S.projectiles.length = 0; bossT0 = -1;
             continue;
           }
-          botStep(st);
+          if (opts.allSystems && n % 30 === 0 && !(game.ctl.intent)) {          // visit shrines when nothing is close
+            const near = S.entities.some(function (e) { return e.type === 'monster' && e.faction === 'enemy' && !e.dead && Math.hypot(e.x - p.x, e.y - p.y) < 7; });
+            const shr = !near && S.map.props.find(function (q) { return q.interact === 'shrine' && !q.used && Math.hypot(q.x + 0.5 - p.x, q.y + 0.5 - p.y) < 9; });
+            if (shr) { game.ctl.intent = { type: 'prop', x: shr.x, y: shr.y }; st.shrines = (st.shrines || 0) + 1; }
+          }
+          if (!(game.ctl.intent && game.ctl.intent.type === 'prop')) botStep(st); else { G.input.move.x = G.input.move.y = 0; G.input.attackHeld = false; }
           S.time += dt; game.update(dt); t += dt; n++;
           const boss = bossT0 < 0 || bossTime < 0 ? S.entities.find(function (e) { return e.rarity === 'boss'; }) : null;
           if (boss) {
@@ -2626,6 +2663,7 @@ ok(back.hp < 1e6 && front[0].hp < 1e6 && front[1].hp < 1e6, 'Whirlwind hits all 
     }
     simulating = false;
     G.input.move.x = 0; G.input.move.y = 0; G.input.attackHeld = false;
+    if (offOffer) { offOffer(); G.ui = uiWas; }
     window.__prog = { rows: rows, done: true, errors: H.errors.slice() };
     return rows;
   }
@@ -2638,7 +2676,7 @@ ok(back.hp < 1e6 && front[0].hp < 1e6 && front[1].hp < 1e6, 'Whirlwind hits all 
     const reps = opts.reps || 3, classes = opts.classes || Object.keys(game.CLASSES), modes = opts.modes || ['single', 'aoe', 'balanced'], all = [];
     window.__matrix = { done: false, rows: all, text: '' };
     for (let rep = 0; rep < reps; rep++) for (const mode of modes) for (const cls of classes) {
-      const rows = await runProgression({ classes: [cls], mode: mode, maxDepth: opts.maxDepth || 20, pallorFrom: opts.pallorFrom });
+      const rows = await runProgression({ classes: [cls], mode: mode, maxDepth: opts.maxDepth || 20, pallorFrom: opts.pallorFrom, style: opts.style, allSystems: opts.allSystems });
       rows.forEach(function (r) { r.rep = rep; all.push(r); });
     }
     window.__matrix = { done: true, rows: all, text: matrixTable(all, classes, modes), errors: H.errors.slice() };

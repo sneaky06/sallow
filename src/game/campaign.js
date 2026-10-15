@@ -520,7 +520,7 @@
     const e = game.createMonster('adv_' + id, x, y, L, 'normal', null, true);
     e.rarity = 'legendary'; e.fallen = true; e.adventurerId = id; e.classId = F.classId; e.name = F.name; e.noLoot = false;
     e.stats.hpMax = e.hp = Math.round(e.stats.hpMax * 6 * (depth <= 6 ? 0.7 : 1.4));          // a legendary's life, and then some (the first two are gentler)
-    e.dmgMin *= 1.45; e.dmgMax *= 1.45; e.xp = Math.round(e.xp * 18); e.aggro = 6;
+    e.dmgMin *= 1.45; e.dmgMax *= 1.45; e.xp = Math.round(e.xp * 6); e.aggro = 6;          // R10: was ×18 — levelled bots to the cap by depth 25
     return e;
   };
   game.fallenFor = function (depth) {

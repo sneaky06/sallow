@@ -255,3 +255,17 @@ Status: tests/combat.html → 460/460, 0 console errors; real index.html floors 
   Heat (max 10): +4% damage and +5% magic find per stack (effect `heat` with `stacks`). Cools by one every 6 s without a pickup; a single
   hit for > 8% of your life knocks half of it out. `G.game.heatStacks()`. Engine may draw embers like wisps; UI may show Heat stacks.
 - `game.lootBonus(monster) → { rolls, magicFind, floor? }` feeds every kill's dropLoot (bargains + Heat).
+
+## Revision 10 (polish and verify)
+Status: tests/combat.html → 465/465, 0 errors; real index.html with game + engine render + UI update driven through depths 3/9/16/25/30: 0 errors.
+- **The Leap.** `K.leapTo(p, x, y)` (skills.js) is the dash movement for roll/charge kinds: it flies over CHASM / DEEP_WATER / DEEP_LAVA,
+  stops at walls and solid props, never lands on a gap (carries on up to 2.4 tiles to the far edge, else back to the last solid
+  ground) and returns true when it crossed one ("Leap!" text). Blink reaches up to 1 tile further when its line crosses a gap.
+  Verified on 12 generated floors with The Leap per class: 48/48 crossed.
+- **Rift core.** `interact:'rift_core'`: refused ("It is still beating inside him") while the world boss lives; afterwards sets
+  `prop.used`, `state.flags.riftCoreTouched`, plays a nova and emits `object:interact { type:'rift_core', prop }` (every tap; UI
+  plays the finale once).
+- **Fixes from the bot run:** Fallen XP ×18 → ×6 and the Echo's ×6 → ×3 (bots hit the level cap by depth 25 and, through out-level
+  scaling, made Hellscape a wall).
+- **Harness:** `runMatrix({ …, allSystems: true })` = shrine bargains auto-accepted (bot visits shrines), real corpse runs
+  (respawn → re-enter, Echo at the corpse), everything else live; `style: 'slow'` = no dodging, no dashes, skills every 0.9 s.
