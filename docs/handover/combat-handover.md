@@ -301,3 +301,10 @@ Status: tests/combat.html → 484/484, 0 errors; real index.html with perks boug
   pickup so midas still fires); a "Bag full — N left" toast if something stays. `pile:open` is emitted only by a long-press:
   `input:longpress { x, y }` or `G.game.openPileAt(x, y) → bool` (nearest pile within 1.2 tiles).
 - `G.meta.getMilestoneMods() → { stat: value }` is added in recomputeStats right after the equipment mods (guarded).
+
+## R14 (combat) — depth drives difficulty
+- `game.monsterLevel(depth) = depth` (no player-level scaling). Elites keep their +1/+2/+3, bosses +2.
+- Steeper deep curve: `hpScale × DEEP_HP(L)`, `dmgScale × DEEP_DMG(L)` with DEEP_HP = 1 + 0.035·(L−15)^1.3 and DEEP_DMG =
+  1 + 0.025·(L−15)^1.25 past level 15 (×2.2 life / ×1.7 damage at 30, ×3.9 / ×2.8 at 45).
+- XP per kill: −15% per level the hero is beyond 5 above the **floor** level (min 10%). Drops roll at the monster's (floor) level.
+- Player minions take the floor's level + 5 at most (they scaled with the hero before and would now outgrow the floor).

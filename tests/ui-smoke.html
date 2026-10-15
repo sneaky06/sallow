@@ -407,6 +407,29 @@ async function run() {
     G.meta.STORY.MILESTONES = { kills: { name: 'Butcher\'s Tally', flavour: 'Every one was something once.', tiers: ['Bloodied', 'Culler'] }, sold: { name: 'Trader in Relics', tiers: ['Seller'] } };
     var msl = G.meta.getMilestones(); ck('story milestone names are used (keys aliased)', msl.filter(function (m) { return m.id === 'kills'; })[0].name === 'Butcher\'s Tally' && msl.filter(function (m) { return m.id === 'itemsSold'; })[0].name === 'Trader in Relics' && msl[0].tiers[1].name === 'Culler' && msl[0].tiers[2].name === 'Culler II');
     delete G.meta.STORY.MILESTONES; delete G.meta.STORY.VENDOR_QUESTS; S.flags.loyalty = {};
+    // ---- R15: every UI string reference resolves; visit / retrieve quest kinds ----
+    var missing = [], used = 0;
+    for (var fi = 0; fi < G.manifest.ui.length; fi++) {
+      var txt = await (await fetch('../src/ui/' + G.manifest.ui[fi])).text(), mm, rx = /\bTX\.(\w+)\.(\w+)/g;
+      while ((mm = rx.exec(txt))) { used++; if (!(G.ui.S[mm[1]] && typeof G.ui.S[mm[1]][mm[2]] === 'string')) missing.push(G.manifest.ui[fi] + ':' + mm[0]); }
+    }
+    ck('all ' + used + ' TX.group.key references exist in strings.js (' + missing.slice(0, 3).join(',') + ')', missing.length === 0 && used > 400);
+    ck('strings table is grouped and fmt fills placeholders', typeof G.ui.S.common === 'object' && G.ui.fmt('Sold {n} for {g}g', { n: 3, g: 40 }) === 'Sold 3 for 40g');
+    ui.close(); ui._closeModals(); S.paused = false; S.settings.tips = false;
+    G.scenes.enterTown(); await wait(700); tapTalk(6); S.paused = false; S.flags.act = 2;
+    var rl = function (id, step, role) { return { id: id, giver: id, role: role || 'elder', act: 1, name: id, steps: [Object.assign({ goal: 1, desc: 'd', before: ['b'], after: ['a'] }, step)], rewards: { gold: 1 } }; };
+    G.meta.STORY.VENDOR_QUESTS = [rl('rq_visit', { kind: 'visit', depth: 2, after: 2 }, 'merchant'), rl('rq_visit_late', { kind: 'visit', depth: 2, after: 4 }, 'merchant'), rl('rq_fetch', { kind: 'retrieve', depth: 2, item: 'a lost locket' }, 'merchant')];
+    if (S.quests && S.quests.side) { delete S.quests.side.rq_visit; delete S.quests.side.rq_visit_late; delete S.quests.side.rq_fetch; }
+    ['rq_visit', 'rq_visit_late', 'rq_fetch'].forEach(function (id) { G.meta.acceptQuest(id); }); tapTalk(8);
+    G.scenes.enterDungeon(2); await wait(1800); tapTalk(6); S.paused = false; for (var vz = 0; vz < 3; vz++) G.ui.update(0.5);
+    var qs2 = function (id) { return G.meta.getQuests().filter(function (x) { return x.id === id; })[0]; };
+    ck('visit completes on arrival once its act is reached', qs2('rq_visit').status === 'ready');
+    ck('visit waits for its condition (act 4 not reached)', qs2('rq_visit_late').status === 'active');
+    var crate = S.map.props.filter(function (p) { return p && p.qid === 'rq_fetch'; })[0];
+    ck('retrieve places a quest crate on that floor', !!crate && crate.interact === 'quest_item');
+    G.emit('object:interact', { type: 'quest_item', prop: crate });
+    ck('retrieve completes when you take it, and the crate goes', qs2('rq_fetch').status === 'ready' && S.map.props.indexOf(crate) < 0);
+    delete G.meta.STORY.VENDOR_QUESTS; S.flags.act = 1;
     G.ui.open('journal'); await wait(50); log('journal ok: ' + !!q('.ed-panel .ed-page')); ui.close();
     log('small controls (hud): ' + small(q('.ed-hud')).join('; '));
   } catch (err) { ERR.push('TEST: ' + err.stack); }

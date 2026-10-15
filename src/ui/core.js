@@ -3,6 +3,7 @@
   'use strict';
   const G = window.G, S = G.state, C = G.C;
   const ui = G.ui = G.ui || {};
+  const TX = ui.S;
 
   const panels = {};          // name -> { render(view, arg) -> Node | [Node], locked?, cls? }
   const inits = [];           // fn(layers) run by ui.init
@@ -214,7 +215,7 @@
     let out;
     try { out = cur.def.render(cur.view, cur.arg); } catch (err) {
       console.error('[ui panel ' + cur.name + ']', err);
-      out = frame('Error', null, h('div', { class: 'ed-body', text: 'This screen failed to draw.' }));
+      out = frame('Error', null, h('div', { class: 'ed-body', text: TX.core.thisScreenFailedTo }));
     }
     cur.el.className = 'ed-panel' + (cur.def.cls ? ' ' + cur.def.cls : '');
     cur.el.replaceChildren.apply(cur.el, [].concat(out).filter(Boolean));
@@ -281,7 +282,7 @@
     let close = null;
     close = modal(dialog([h('div', { text: text, style: 'line-height:18px' }), opts.note ? h('div', { class: 'ed-note', style: 'margin-top:6px', text: opts.note }) : null], [
       btn(yesLabel || 'Yes', function () { close(); onYes(); }, opts.danger ? 'danger' : 'gold'),
-      btn('Cancel', function () { close(); }),
+      btn(TX.common.cancel, function () { close(); }),
     ]), { pause: opts.pause });
   }
 

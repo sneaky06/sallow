@@ -4,6 +4,7 @@
   'use strict';
   const G = window.G, S = G.state, C = G.C;
   const ui = G.ui;
+  const TX = ui.S;
   const meta = G.meta = G.meta || {};
 
   // kind 'depth': reach depth `goal`. kind 'boss': slay `boss` (a monsterId, R4.1) — any depth, it returns deeper; with
@@ -68,13 +69,13 @@
   }
 
   const BOUNTIES = {
-    kill:   { name: 'Cull the Horde',    desc: n => 'Slay ' + n + ' monsters in the deep.',                       goal: (r, L) => 15 + r.int(0, 3) * 5 + Math.min(20, L), w: 1.0 },
-    elite:  { name: 'Marked for Death',  desc: n => 'Slay ' + n + ' champion, rare or legendary monsters.',                 goal: r => r.int(2, 4), w: 1.4, item: 'magic' },
-    depth:  { name: 'Deeper Still',      desc: n => 'Set foot on depth ' + n + '.',                               goal: () => Math.max(2, (S.flags.maxDepth | 0) + 1), w: 1.2 },
-    rares:  { name: 'Glittering Prizes', desc: n => 'Recover ' + n + ' item' + (n > 1 ? 's' : '') + ' of rare quality or better.', goal: r => r.int(1, 3), w: 1.5, item: 'rare' },
-    chests: { name: 'Grave Goods',       desc: n => 'Open ' + n + ' chests.',                                     goal: r => r.int(2, 4), w: 1.0 },
+    kill:   { name: 'Cull the Horde',    desc: n => TX.quests.slay + n + TX.quests.monstersInTheDeep,                       goal: (r, L) => 15 + r.int(0, 3) * 5 + Math.min(20, L), w: 1.0 },
+    elite:  { name: 'Marked for Death',  desc: n => TX.quests.slay + n + TX.quests.championRareOrLegendary,                 goal: r => r.int(2, 4), w: 1.4, item: 'magic' },
+    depth:  { name: 'Deeper Still',      desc: n => TX.quests.setFootOnDepth + n + '.',                               goal: () => Math.max(2, (S.flags.maxDepth | 0) + 1), w: 1.2 },
+    rares:  { name: 'Glittering Prizes', desc: n => TX.quests.recover + n + TX.chute.item + (n > 1 ? 's' : '') + TX.quests.ofRareQualityOr, goal: r => r.int(1, 3), w: 1.5, item: 'rare' },
+    chests: { name: 'Grave Goods',       desc: n => TX.quests.open + n + TX.quests.chests,                                     goal: r => r.int(2, 4), w: 1.0 },
     // lockdown rooms only exist from depth 2 (R2.5), so this is not offered to a hero who has never left depth 1
-    lockdown: { name: 'Break the Seal',  desc: n => 'Survive ' + n + ' sealed room' + (n > 1 ? 's' : '') + ' when the doors slam shut.', goal: r => r.int(1, 2), w: 1.8, item: 'rare',
+    lockdown: { name: 'Break the Seal',  desc: n => TX.quests.survive + n + TX.quests.sealedRoom + (n > 1 ? 's' : '') + TX.quests.whenTheDoorsSlam, goal: r => r.int(1, 2), w: 1.8, item: 'rare',
       when: () => (S.flags.maxDepth | 0) >= 2 },
   };
   const BOUNTY_COUNT = 3;
@@ -130,7 +131,7 @@
   }
 
   function becameReady(id, name, who) {
-    G.emit('ui:toast', { text: name + ' — return to ' + (who || 'the Elder'), color: '#ffd94a' });
+    G.emit('ui:toast', { text: name + TX.quests.returnTo + (who || 'the Elder'), color: '#ffd94a' });
     G.emit('sfx', { name: 'quest' });
     G.emit('quest:updated', { quest: viewOf(id) });
   }
@@ -223,7 +224,7 @@
     const stp = line.steps[st.step];
     if (stp && stp.kind === 'deliver') {                                        // materials are handed over now
       const have = (S.player.materials && S.player.materials[stp.mat]) | 0;
-      if (have < stp.goal) { G.emit('ui:toast', { text: 'You need ' + stp.goal + ' ' + (ui._matName ? ui._matName(stp.mat) : stp.mat) + '.', color: '#ff8a7a' }); st.status = 'active'; st.progress = have; return false; }
+      if (have < stp.goal) { G.emit('ui:toast', { text: TX.quests.youNeed + stp.goal + ' ' + (ui._matName ? ui._matName(stp.mat) : stp.mat) + '.', color: '#ff8a7a' }); st.status = 'active'; st.progress = have; return false; }
       S.player.materials[stp.mat] = have - stp.goal;
       G.emit('inventory:changed', {});
     }
@@ -304,12 +305,12 @@
     if (rewards.loyalty && (rewards.loyalty.kind === 'sell' || rewards.loyalty.kind === 'salvage')) {
       const L = S.flags.loyalty && typeof S.flags.loyalty === 'object' ? S.flags.loyalty : (S.flags.loyalty = {});
       L[rewards.loyalty.kind] = Math.min(0.3, Math.round(((L[rewards.loyalty.kind] || 0) + (+rewards.loyalty.amount || 0.1)) * 100) / 100);
-      parts.push('better crate ' + (rewards.loyalty.kind === 'sell' ? 'sell' : 'salvage') + ' rate');
+      parts.push(TX.quests.betterCrate + (rewards.loyalty.kind === 'sell' ? 'sell' : 'salvage') + TX.npc.rate);
     }
     if (rewards.gold) {
       p.gold = (p.gold || 0) + rewards.gold;
       G.emit('gold:changed', { gold: p.gold, delta: rewards.gold });
-      parts.push(rewards.gold + ' gold');
+      parts.push(rewards.gold + TX.filter.gold2);
     }
     if (rewards.xp) {
       if (G.game && G.game.gainXp) G.game.gainXp(rewards.xp);
@@ -324,9 +325,9 @@
       for (let i = 0; i < rewards.mark; i++) {
         if (G.game && typeof G.game.perkFeat === 'function') { try { G.game.perkFeat('quest_' + (qid || 'x') + '_' + i); } catch (err) { p.marks = (p.marks | 0) + 1; } } else p.marks = (p.marks | 0) + 1;
       }
-      parts.push(rewards.mark + ' Mark' + (rewards.mark > 1 ? 's' : ''));
+      parts.push(rewards.mark + TX.npc.mark + (rewards.mark > 1 ? 's' : ''));
     }
-    if (rewards.tome > 0 && G.items && typeof G.items.grantTome === 'function') { try { G.items.grantTome(rewards.tome); parts.push(rewards.tome + ' skill point' + (rewards.tome > 1 ? 's' : '')); } catch (err) { /* ignore */ } }
+    if (rewards.tome > 0 && G.items && typeof G.items.grantTome === 'function') { try { G.items.grantTome(rewards.tome); parts.push(rewards.tome + TX.npc.skillPoint + (rewards.tome > 1 ? 's' : '')); } catch (err) { /* ignore */ } }
     if (rewards.item && G.items && G.items.rollItem) {
       const item = G.items.rollItem({ level: p.level || 1, rarity: meta._rarityPick(rewards.item) });
       if (item) {
@@ -335,7 +336,7 @@
         parts.push(item.name + (stored ? '' : ' (at your feet)'));
       }
     }
-    if (parts.length) G.emit('ui:toast', { text: 'Reward: ' + parts.join(', '), color: '#ffd94a' });
+    if (parts.length) G.emit('ui:toast', { text: TX.npc.reward + parts.join(', '), color: '#ffd94a' });
   }
 
   meta.turnInQuest = function (id) {
@@ -490,4 +491,46 @@
   }
   ['inventory:changed', 'item:picked', 'scene:changed'].forEach(function (n) { G.on(n, refreshDeliver); });
   ui._updaters.push((function () { let t = 0; return function (dt) { t -= dt; if (t <= 0) { t = 1; refreshDeliver(); } }; })());
+
+  // ---------- R15 return trips: visit { depth, after } and retrieve { depth, item } ----------
+  // visit: reaching `depth` (in the dungeon) counts once the `after` condition holds (a number = flags.act is at least that act, a string =
+  // that flag is truthy). retrieve: while the quest is active a quest item (a crate prop that raises object:interact 'quest_item') is placed
+  // beside the arrival point of floor `depth`; interacting with it completes the step. Placement is guarded and happens on scene:changed.
+  const afterOk = function (a) { return a == null || (typeof a === 'number' ? (S.flags.act | 0) >= a : !!S.flags[a]); };
+  function activeSteps(kind) {
+    const q = Q(), out = [];
+    if (!q || !q.side) return out;
+    for (const line of sideLines()) {
+      const st = q.side[line.id];
+      if (!st || st.status !== 'active') continue;
+      const s = line.steps[st.step];
+      if (s && s.kind === kind) out.push({ line: line, step: s });
+    }
+    return out;
+  }
+  G.on('scene:changed', function (e) {
+    if (!e || e.scene !== 'dungeon' || !S.map) return;
+    const d = S.depth | 0;
+    advance(function (kind, prog, entry) { return kind === 'visit' && (entry.depth | 0) === d && afterOk(entry.after) ? Math.max(prog, 1) : prog; });
+    activeSteps('retrieve').forEach(function (x) {
+      if ((x.step.depth | 0) !== d || !S.map.props) return;
+      if (S.map.props.some(function (p) { return p && p.qid === x.line.id; })) return;
+      const sp = S.map.spawn || { x: S.player.x, y: S.player.y };
+      let pos = { x: Math.floor(sp.x) + 2, y: Math.floor(sp.y) + 1 };
+      if (G.world && G.world.findFreeTileNear) { try { pos = G.world.findFreeTileNear(S.map, pos.x, pos.y, 5) || pos; } catch (err) { /* keep */ } }
+      S.map.props.push({ type: 'crate', x: pos.x, y: pos.y, solid: true, interact: 'quest_item', qid: x.line.id, light: 2 });
+      if (G.world && G.world.invalidate) { try { G.world.invalidate(S.map); } catch (err) { /* ignore */ } }
+    });
+  });
+  G.on('object:interact', function (e) {
+    if (!e || e.type !== 'quest_item' || !e.prop) return;
+    const qid = e.prop.qid;
+    const hit = activeSteps('retrieve').filter(function (x) { return x.line.id === qid; })[0];
+    if (S.map && S.map.props) { const i = S.map.props.indexOf(e.prop); if (i >= 0) S.map.props.splice(i, 1); if (G.world && G.world.invalidate) { try { G.world.invalidate(S.map); } catch (err) { /* ignore */ } } }
+    if (!hit) return;
+    const nm = typeof hit.step.item === 'string' ? hit.step.item : (hit.step.item && hit.step.item.name) || 'the thing you were sent for';
+    G.emit('ui:toast', { text: TX.quests.youFound + nm + '.', color: '#ffd94a' });
+    G.emit('sfx', { name: 'loot' });
+    advance(function (kind, prog, entry) { return kind === 'retrieve' && entry === hit.step ? Math.max(prog, 1) : prog; });
+  });
 })();

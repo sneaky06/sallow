@@ -5,6 +5,7 @@
   'use strict';
   const G = window.G, S = G.state;
   const ui = G.ui;
+  const TX = ui.S;
   const h = ui._h;
 
   const text = function (v) { return typeof v === 'string' ? v : (v && (v.text || v.desc || v.label || v.name)) || ''; };
@@ -44,17 +45,17 @@
       if (accept) {
         active = { name: e.name, cost: e.cost, reward: e.reward };
         ui._sfx('shrine');
-        ui.toast('Bargain struck: ' + text(e.reward), '#7fffd4');
+        ui.toast(TX.risk.bargainStruck + text(e.reward), '#7fffd4');
       } else ui._sfx('click');
       paintStrip();
     };
-    const accept = ui._btn('Accept', function () { done(true); }, 'big gold');
-    const decline = ui._btn('Decline', function () { done(false); }, 'big');
+    const accept = ui._btn(TX.common.accept, function () { done(true); }, 'big gold');
+    const decline = ui._btn(TX.risk.decline, function () { done(false); }, 'big');
     close = ui._modal(ui._dialog([
       h('div', { class: 'ed-h', text: e.name || 'A bargain' }),
-      h('div', { class: 'ed-bg-row ed-bad' }, h('b', { text: 'You pay' }), h('span', { text: text(e.cost) || '?' })),
-      h('div', { class: 'ed-bg-row ed-good' }, h('b', { text: 'You get' }), h('span', { text: text(e.reward) || '?' })),
-      h('div', { class: 'ed-note', style: 'margin-top:6px', text: 'Lasts until you leave this floor. Declining keeps the shrine as it is.' }),
+      h('div', { class: 'ed-bg-row ed-bad' }, h('b', { text: TX.risk.youPay }), h('span', { text: text(e.cost) || '?' })),
+      h('div', { class: 'ed-bg-row ed-good' }, h('b', { text: TX.risk.youGet }), h('span', { text: text(e.reward) || '?' })),
+      h('div', { class: 'ed-note', style: 'margin-top:6px', text: TX.risk.lastsUntilYouLeave }),
     ], [accept, decline], 'ed-bargain'), { pause: true, dismiss: false });
     if (ui._tip) ui._tip('bargain');
   });
@@ -95,12 +96,12 @@
   let seenScav = false, carrying = null;
   const grab = function (it) {
     const nm = it && (it.name || (typeof it === 'string' ? it : ''));
-    ui._banner('The Scavenger took ' + (nm || 'your loot') + '!', 'Run him down and kill him to get it back.', '#ff8a2b', 5);
+    ui._banner(TX.risk.theScavengerTook + (nm || 'your loot') + '!', 'Run him down and kill him to get it back.', '#ff8a2b', 5);
     ui._sfx('error');
     if (ui._tip) ui._tip('scavenger');
   };
   G.on('scavenger:grab', function (e) { grab(e && e.item); });
-  G.on('scavenger:appear', function () { seenScav = true; ui._banner('The Scavenger', 'A rival looter is on this floor. Get to the best drop first.', '#ffb347', 4); if (ui._tip) ui._tip('scavenger'); });
+  G.on('scavenger:appear', function () { seenScav = true; ui._banner(TX.risk.theScavenger, 'A rival looter is on this floor. Get to the best drop first.', '#ffb347', 4); if (ui._tip) ui._tip('scavenger'); });
   ui._updaters.push((function () {
     let t = 0;
     return function (dt) {
@@ -108,7 +109,7 @@
       if (!S.player || S.scene !== 'dungeon') return;
       let sc = null;
       for (const e of (S.entities || [])) if (isScav(e)) { sc = e; break; }
-      if (sc && !seenScav) { seenScav = true; ui._banner('The Scavenger', 'A rival looter is on this floor. Get to the best drop first.', '#ffb347', 4); if (ui._tip) ui._tip('scavenger'); }
+      if (sc && !seenScav) { seenScav = true; ui._banner(TX.risk.theScavenger, 'A rival looter is on this floor. Get to the best drop first.', '#ffb347', 4); if (ui._tip) ui._tip('scavenger'); }
       const c = sc && (sc.carrying || sc.carry || sc.loot || sc.stolen);
       if (c && !carrying) grab(typeof c === 'object' ? (c.item || c) : null);
       carrying = c || null;
@@ -118,7 +119,7 @@
 
   // tips for the new things (table lives in tips.js)
   if (ui._TIPS) {
-    ui._TIPS.bargain = ['Shrine bargains', 'Some shrines offer a deal: a clear cost for a clear reward until you leave the floor. Greed pays, and so does knowing when to say no.', { shape: 'rune', color: '#7fffd4' }];
-    ui._TIPS.scavenger = ['The Scavenger', 'A rival looter races you to the best drop on the ground. If he reaches it first he takes it and runs: kill him to get it back, and his own stash too.', { shape: 'skull', color: '#ffb347' }];
+    ui._TIPS.bargain = [TX.tipcards.bargainTitle, TX.tipcards.bargainText, { shape: 'rune', color: '#7fffd4' }];
+    ui._TIPS.scavenger = [TX.tipcards.scavengerTitle, TX.tipcards.scavengerText, { shape: 'skull', color: '#ffb347' }];
   }
 })();

@@ -5,6 +5,7 @@
   'use strict';
   const G = window.G, S = G.state, C = G.C;
   const ui = G.ui;
+  const TX = ui.S;
   const h = ui._h, fmt = ui._fmt;
 
   // ---------- pile popup ----------
@@ -60,11 +61,11 @@
       if (!sheet || sheetPile !== pileId) return;
       const items = pileList(pileId);
       if (!items.length) { closeSheet(); return; }
-      const takeAll = ui._btn('Take all', function () {
+      const takeAll = ui._btn(TX.common.takeAll, function () {
         let r = null;
         if (G.items && G.items.pickupPile) { try { r = G.items.pickupPile(pileId); } catch (err) { console.error('[ui pickupPile]', err); } }
         else pileList(pileId).forEach(function (g) { take(g.id); });
-        if (r && r.left > 0 && r.taken > 0) ui.toast('Your bag is full. ' + r.left + ' left on the ground.', '#a89f8f');
+        if (r && r.left > 0 && r.taken > 0) ui.toast(TX.chute.yourBagIsFull + r.left + TX.hud.leftOnTheGround, '#a89f8f');
         ui._sfx(r && !r.taken ? 'error' : 'loot');
         fill();
       }, 'gold ps-take');
@@ -89,7 +90,7 @@
         if (!gold && (it.slot || it.type === 'gem')) {
           const info = h('button', { type: 'button', class: 'ed-btn ed-pinfo', 'aria-label': 'Look at ' + it.name, onclick: function (e) {
             e.stopPropagation(); ui._sfx('click');
-            ui._showItem(it, [{ label: 'Take', cls: 'gold', fn: function () { if (take(g.id)) ui._sfx('loot'); fill(); } }], { lock: false });
+            ui._showItem(it, [{ label: TX.common.take, cls: 'gold', fn: function () { if (take(g.id)) ui._sfx('loot'); fill(); } }], { lock: false });
           } }, '?');
           row.appendChild(info);
         }
@@ -107,7 +108,7 @@
     let r = null;
     if (G.items && G.items.pickupPile) { try { r = G.items.pickupPile(e.pileId); } catch (err) { console.error('[ui pickupPile]', err); } }
     if (r && r.taken > 0) ui._sfx('loot'); else ui._sfx('error');
-    if (r && r.left > 0) ui.toast(r.taken > 0 ? 'Your bag is full. ' + r.left + ' left on the ground.' : 'Your bag is full.', '#a89f8f');
+    if (r && r.left > 0) ui.toast(r.taken > 0 ? TX.chute.yourBagIsFull + r.left + TX.hud.leftOnTheGround : 'Your bag is full.', '#a89f8f');
   });
 
   // ---------- review new finds (pitch) ----------
@@ -140,12 +141,12 @@
       ui._refreshNow();
       const p = S.player;
       while (i < list.length && (p.inventory || []).indexOf(list[i]) < 0) i++;     // gone meanwhile
-      if (i >= list.length) { ui.toast('All new finds reviewed.', '#dfc06a'); return; }
+      if (i >= list.length) { ui.toast(TX.pile.allNewFindsReviewed, '#dfc06a'); return; }
       const it = list[i++];
       const index = function () { return p.inventory.indexOf(it); };
       const town = S.scene === 'town';
       const acts = [];
-      if (it.slot) acts.push({ label: 'Equip', cls: ui._verdict(it) === 'up' ? 'gold' : '', fn: function () { done(it); const k = index(); if (k >= 0) ui._itemsCall('equip', k); next(); } });
+      if (it.slot) acts.push({ label: TX.common.equip, cls: ui._verdict(it) === 'up' ? 'gold' : '', fn: function () { done(it); const k = index(); if (k >= 0) ui._itemsCall('equip', k); next(); } });
       if (town && G.items && G.items.sell) {
         acts.push({ label: 'Sell' + (it.value ? ' ' + fmt(it.value * (it.qty || 1)) + 'g' : ''), fn: function () {
           done(it);
@@ -154,8 +155,8 @@
           ui._gemGuard(k, 'Sell', function () { const g = ui._itemsCall('sell', k); if (g > 0) ui._sfx('sell'); next(); });
         } });
       }
-      acts.push({ label: 'Keep ▶', cls: 'gold', fn: function () { done(it); next(); } });
-      ui._showItem(it, acts, { info: [{ text: 'New find ' + i + ' of ' + list.length + (town ? '' : '  ·  sell in town') }] });
+      acts.push({ label: TX.pile.keep, cls: 'gold', fn: function () { done(it); next(); } });
+      ui._showItem(it, acts, { info: [{ text: TX.pile.newFind + i + TX.menus.of + list.length + (town ? '' : '  ·  sell in town') }] });
     };
     next();
   }

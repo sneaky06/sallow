@@ -7,25 +7,26 @@
   'use strict';
   const G = window.G, S = G.state;
   const ui = G.ui, meta = G.meta = G.meta || {};
+  const TX = ui.S;
   const h = ui._h, fmt = ui._fmt;
 
   // id, name, description, counter, tier thresholds, permanent bonus per tier [stat, value]
   const DEFS = [
-    { id: 'kills', name: 'Gravedigger', desc: 'Foes slain', stat: 'kills', tiers: [10, 50, 250, 1000, 5000, 20000], mod: ['dmgPct', 1] },
-    { id: 'elites', name: 'Giant Killer', desc: 'Champions, rares and legendaries slain', stat: 'elites', tiers: [2, 5, 25, 100, 400, 1500], mod: ['critDmg', 2] },
-    { id: 'bosses', name: 'Oathbreaker', desc: 'Bosses slain', stat: 'bosses', tiers: [1, 3, 8, 15, 40], mod: ['hpMax', 20] },
-    { id: 'chests', name: 'Grave Robber', desc: 'Chests opened', stat: 'chests', tiers: [5, 10, 50, 200, 800], mod: ['magicFind', 2] },
-    { id: 'goldEarned', name: 'Hoard', desc: 'Gold earned', stat: 'goldEarned', tiers: [200, 1000, 10000, 100000, 1000000, 10000000], mod: ['goldFind', 1] },
-    { id: 'goldSpent', name: 'Big Spender', desc: 'Gold spent', stat: 'goldSpent', tiers: [500, 1000, 10000, 100000, 1000000], mod: null },
-    { id: 'itemsSold', name: 'Peddler', desc: 'Items sold', stat: 'itemsSold', tiers: [5, 10, 100, 500, 2000], mod: ['goldFind', 1] },
-    { id: 'itemsSalvaged', name: 'Scrapper', desc: 'Items salvaged', stat: 'itemsSalvaged', tiers: [5, 10, 100, 500, 2000], mod: ['xpGain', 1] },
-    { id: 'itemsSent', name: 'Chute Runner', desc: 'Items sent up the chute', stat: 'itemsSent', tiers: [5, 10, 100, 500, 2000], mod: null },
-    { id: 'floors', name: 'Delver', desc: 'Floors cleared', stat: 'floors', tiers: [1, 3, 10, 30, 100, 300], mod: ['moveSpeed', 0.5] },
-    { id: 'sGrades', name: 'Perfectionist', desc: 'Floors cleared with grade S', stat: 'sGrades', tiers: [1, 5, 15, 40], mod: ['critChance', 0.5] },
-    { id: 'closeCalls', name: 'Hair\'s Breadth', desc: 'Close Calls', stat: 'closeCalls', tiers: [3, 10, 50, 200, 1000, 5000], mod: ['dodge', 0.5] },
-    { id: 'flows', name: 'In the Flow', desc: 'Flow chains triggered', stat: 'flows', tiers: [1, 5, 20, 60], mod: ['critChance', 0.5] },
-    { id: 'deaths', name: 'Stubborn', desc: 'Times you have died', stat: 'deaths', tiers: [1, 3, 8, 20, 50], mod: ['hpRegen', 0.5] },
-    { id: 'depth', name: 'Deep Diver', desc: 'Deepest floor reached', stat: 'depth', tiers: [3, 5, 10, 20, 30, 50], mod: ['hpMax', 15], max: true },
+    { id: 'kills', name: 'Gravedigger', desc: TX.common.foesSlain, stat: 'kills', tiers: [10, 50, 250, 1000, 5000, 20000], mod: ['dmgPct', 1] },
+    { id: 'elites', name: 'Giant Killer', desc: TX.milestones.championsRaresAndLegendaries, stat: 'elites', tiers: [2, 5, 25, 100, 400, 1500], mod: ['critDmg', 2] },
+    { id: 'bosses', name: 'Oathbreaker', desc: TX.milestones.bossesSlain, stat: 'bosses', tiers: [1, 3, 8, 15, 40], mod: ['hpMax', 20] },
+    { id: 'chests', name: 'Grave Robber', desc: TX.milestones.chestsOpened, stat: 'chests', tiers: [5, 10, 50, 200, 800], mod: ['magicFind', 2] },
+    { id: 'goldEarned', name: 'Hoard', desc: TX.milestones.goldEarned, stat: 'goldEarned', tiers: [200, 1000, 10000, 100000, 1000000, 10000000], mod: ['goldFind', 1] },
+    { id: 'goldSpent', name: 'Big Spender', desc: TX.milestones.goldSpent, stat: 'goldSpent', tiers: [500, 1000, 10000, 100000, 1000000], mod: null },
+    { id: 'itemsSold', name: 'Peddler', desc: TX.milestones.itemsSold, stat: 'itemsSold', tiers: [5, 10, 100, 500, 2000], mod: ['goldFind', 1] },
+    { id: 'itemsSalvaged', name: 'Scrapper', desc: TX.milestones.itemsSalvaged, stat: 'itemsSalvaged', tiers: [5, 10, 100, 500, 2000], mod: ['xpGain', 1] },
+    { id: 'itemsSent', name: 'Chute Runner', desc: TX.milestones.itemsSentUpThe, stat: 'itemsSent', tiers: [5, 10, 100, 500, 2000], mod: null },
+    { id: 'floors', name: 'Delver', desc: TX.milestones.floorsCleared, stat: 'floors', tiers: [1, 3, 10, 30, 100, 300], mod: ['moveSpeed', 0.5] },
+    { id: 'sGrades', name: 'Perfectionist', desc: TX.milestones.floorsClearedWithGrade, stat: 'sGrades', tiers: [1, 5, 15, 40], mod: ['critChance', 0.5] },
+    { id: 'closeCalls', name: 'Hair\'s Breadth', desc: TX.milestones.closeCalls, stat: 'closeCalls', tiers: [3, 10, 50, 200, 1000, 5000], mod: ['dodge', 0.5] },
+    { id: 'flows', name: 'In the Flow', desc: TX.milestones.flowChainsTriggered, stat: 'flows', tiers: [1, 5, 20, 60], mod: ['critChance', 0.5] },
+    { id: 'deaths', name: 'Stubborn', desc: TX.milestones.timesYouHaveDied, stat: 'deaths', tiers: [1, 3, 8, 20, 50], mod: ['hpRegen', 0.5] },
+    { id: 'depth', name: 'Deep Diver', desc: TX.milestones.deepestFloorReached, stat: 'depth', tiers: [3, 5, 10, 20, 30, 50], mod: ['hpMax', 15], max: true },
   ];
   const ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI'];
 
@@ -90,10 +91,10 @@
   }
   function rewardText(r) {
     const parts = [];
-    if (r.gold) parts.push(fmt(r.gold) + ' gold');
+    if (r.gold) parts.push(fmt(r.gold) + TX.filter.gold2);
     if (r.mats) parts.push(ui._matsText ? ui._matsText(r.mats) : '');
     if (r.mark) parts.push('1 Mark');
-    if (r.mod) parts.push((G.items && G.items.formatStat ? G.items.formatStat(r.mod[0], r.mod[1]) : '+' + r.mod[1] + ' ' + r.mod[0]) + ' for good');
+    if (r.mod) parts.push((G.items && G.items.formatStat ? G.items.formatStat(r.mod[0], r.mod[1]) : '+' + r.mod[1] + ' ' + r.mod[0]) + TX.milestones.forGood);
     return parts.filter(Boolean).join(', ');
   }
   const reached = function () { const f = S.flags; if (!f.milestones || typeof f.milestones !== 'object') f.milestones = {}; return f.milestones; };
@@ -111,7 +112,7 @@
       if (G.game && typeof G.game.grantMark === 'function') { try { G.game.grantMark('milestone_' + d.id + '_' + t); } catch (err) { p.marks = (p.marks | 0) + 1; } }
       else p.marks = (p.marks | 0) + 1;
     }
-    ui.toast('Milestone: ' + tierName(d, t) + ' — ' + rewardText(r), '#ffe45b');
+    ui.toast(TX.milestones.milestone + tierName(d, t) + ' — ' + rewardText(r), '#ffe45b');
     ui._sfx('quest');
     G.emit('milestone:reached', { id: d.id, tier: t + 1, reward: r });
     return r;
@@ -148,16 +149,16 @@
   ui._register('milestones', {
     render: function () {
       const list = meta.getMilestones();
-      const body = h('div', { class: 'ed-body' }, h('div', { class: 'ed-note', style: 'margin-bottom:6px', text: 'Everything you do counts. Each tier pays at once: gold, materials, a Mark at the big ones, and a small bonus that stays.' }),
+      const body = h('div', { class: 'ed-body' }, h('div', { class: 'ed-note', style: 'margin-bottom:6px', text: TX.milestones.everythingYouDoCounts }),
         list.map(function (m) {
           const nextR = m.next != null ? m.tiers[m.tier].reward : null;
           return h('div', { class: 'ed-ms' },
             h('div', { class: 't' }, h('b', { text: m.name + (m.tier ? ' ' + (ROMAN[m.tier - 1] || m.tier) : '') }), h('span', { class: m.next == null ? 'ed-gold' : 'ed-dim', text: m.next == null ? 'Complete' : fmt(m.value) + ' / ' + fmt(m.next) })),
             h('small', { text: m.desc + (m.flavour ? '. ' + m.flavour : '') }),
             h('div', { class: 'pips' }, m.tiers.map(function (t) { return h('i', { class: t.reached ? 'on' : null }); })),
-            nextR ? h('small', { text: 'Next: ' + rewardText(nextR) }) : null);
+            nextR ? h('small', { text: TX.milestones.next + rewardText(nextR) }) : null);
         }));
-      return ui._frame('Milestones', null, body);
+      return ui._frame(TX.common.milestones, null, body);
     },
   });
 })();

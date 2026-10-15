@@ -3,6 +3,7 @@
   'use strict';
   const G = window.G;
   const ui = G.ui;
+  const TX = ui.S;
 
   ui._VERSION = '0.19.0';
 
@@ -58,7 +59,7 @@
     const flagWaiting = function () {
       if (reg.waiting && navigator.serviceWorker.controller && !off.waiting) {
         off.waiting = true;
-        ui.toast('Update downloaded - apply it from the Menu', '#dfc06a');
+        ui.toast(TX.pwa.updateDownloadedApplyIt, '#dfc06a');
         ui._refresh();
       }
     };

@@ -5,6 +5,7 @@
   'use strict';
   const G = window.G, S = G.state, C = G.C;
   const ui = G.ui;
+  const TX = ui.S;
   const h = ui._h, fmt = ui._fmt;
 
   function surface() { if (!Array.isArray(S.surface)) S.surface = []; return S.surface; }
@@ -34,12 +35,12 @@
     }
     const doSend = function (list) {
       if (!list.length) { ui._sfx('error'); return; }
-      if (!has('chuteSend')) { ui.toast('The chute is not working yet.', '#a89f8f'); return; }
+      if (!has('chuteSend')) { ui.toast(TX.chute.theChuteIsNot, '#a89f8f'); return; }
       let r = null;
       try { r = G.items.chuteSend(list.length === 1 ? list[0] : list); } catch (err) { console.error('[ui chuteSend]', err); }
       if (r === false) { ui._sfx('error'); return; }
       ui._sfx('loot');
-      ui.toast(list.length + ' item' + (list.length === 1 ? '' : 's') + ' sent up to the surface.', '#7fd4c8');
+      ui.toast(list.length + TX.chute.item + (list.length === 1 ? '' : 's') + TX.chute.sentUpToThe, '#7fd4c8');
       view.marked = {};
       ui._refreshNow();
     };
@@ -51,19 +52,19 @@
     const full = space <= 0;
     const send = ui._btn('Send' + (marked.length ? ' (' + Math.min(marked.length, Math.max(space, 0)) + ')' : ''), function () { doSend(marked.slice(0, Math.max(space, 0))); }, marked.length && !full ? 'gold' : '');
     if (!marked.length || full) send.disabled = true;
-    const sj = ui._btn('Send junk' + (junk.length && !full ? ' (' + Math.min(junk.length, space) + ')' : ''), function () { doSend(junk); }, junk.length && !full ? 'gold' : '');
+    const sj = ui._btn(TX.chute.sendJunk + (junk.length && !full ? ' (' + Math.min(junk.length, space) + ')' : ''), function () { doSend(junk); }, junk.length && !full ? 'gold' : '');
     if (!junk.length || full) sj.disabled = true;
     return { body: h('div', { class: 'ed-body' },
-      h('div', { class: 'ed-kv', style: 'margin-bottom:4px' }, h('span', { text: 'Crate up top' }), h('b', { class: full ? 'ed-bad' : (space <= 3 ? 'ed-gold' : null), text: used + ' / ' + size + (full ? '  FULL' : '') })),
-      h('div', { class: 'ed-note', style: 'margin-bottom:6px', text: full ? 'The crate is full. Sell or salvage things up top, or drop what is not worth keeping.' : (marked.length > space ? 'Only ' + space + ' more fit.' : view.look ? 'Looking: tap an item to inspect it.' : 'Tap items to mark them, then Send. They arrive at the surface crate in town, instantly.') }),
+      h('div', { class: 'ed-kv', style: 'margin-bottom:4px' }, h('span', { text: TX.chute.crateUpTop }), h('b', { class: full ? 'ed-bad' : (space <= 3 ? 'ed-gold' : null), text: used + ' / ' + size + (full ? '  FULL' : '') })),
+      h('div', { class: 'ed-note', style: 'margin-bottom:6px', text: full ? 'The crate is full. Sell or salvage things up top, or drop what is not worth keeping.' : (marked.length > space ? TX.chute.only + space + TX.chute.moreFit : view.look ? 'Looking: tap an item to inspect it.' : 'Tap items to mark them, then Send. They arrive at the surface crate in town, instantly.') }),
       grid), foot: [send, sj, ui._btn(view.look ? 'Mark' : 'Look', function () { view.look = !view.look; ui._refreshNow(); }, view.look ? 'on' : ''),
-      ui._btn('Clear', function () { view.marked = {}; ui._refreshNow(); })] };
+      ui._btn(TX.chute.clear, function () { view.marked = {}; ui._refreshNow(); })] };
   }
   ui._register('chute', {
     render: function (view) {
-      if (!S.player) return ui._frame('Chute', null, h('div', { class: 'ed-body' }));
+      if (!S.player) return ui._frame(TX.chute.chute, null, h('div', { class: 'ed-body' }));
       const c = chuteBody(view);
-      return ui._frame('Chute', { foot: c.foot }, c.body);
+      return ui._frame(TX.chute.chute, { foot: c.foot }, c.body);
     },
   });
 
@@ -129,17 +130,17 @@
     const idx = function () { return surface().indexOf(it); };
     const a = [];
     const run = function (fn) { return function () { const i = idx(); if (i >= 0) fn(i); }; };
-    if (ui._wanted(it) && item('surfaceRegister')) a.push({ label: 'Curator', cls: 'gold', fn: run(function (i) { const r = G.items.surfaceRegister(i); if (r && r.ok) { ui._sfx('quest'); } else ui._sfx('error'); }) });
+    if (ui._wanted(it) && item('surfaceRegister')) a.push({ label: TX.common.curator, cls: 'gold', fn: run(function (i) { const r = G.items.surfaceRegister(i); if (r && r.ok) { ui._sfx('quest'); } else ui._sfx('error'); }) });
     if (it.slot && item('surfaceSell')) a.push({ label: 'Sell' + (it.value ? ' ' + fmt(Math.round(goldOf(it) * bulkRate())) + 'g' : ''), cls: ui._wanted(it) ? '' : 'gold', fn: run(function (i) {
       const g = G.items.surfaceSell(i, { bulk: true }); ui._sfx(g > 0 ? 'sell' : 'error');
     }) });
-    if (it.slot && item('surfaceSalvage')) a.push({ label: 'Salvage', fn: run(function (i) {
+    if (it.slot && item('surfaceSalvage')) a.push({ label: TX.common.salvage, fn: run(function (i) {
       const sal = function () { ui._sfx(G.items.surfaceSalvage(i, { bulk: true }) ? 'click' : 'error'); };
       const gems = (it.sockets || []).filter(Boolean).length;
-      if (gems) ui._confirm(gems + ' socketed gem' + (gems === 1 ? '' : 's') + ' will be ground to dust.', 'Salvage anyway', sal, { danger: true }); else sal();
+      if (gems) ui._confirm(gems + TX.chute.socketedGem + (gems === 1 ? '' : 's') + TX.chute.willBeGroundTo, 'Salvage anyway', sal, { danger: true }); else sal();
     }) });
-    if (item('surfaceStash')) a.push({ label: 'Stash', fn: run(function (i) { if (!G.items.surfaceStash(i)) ui._sfx('error'); }) });
-    if (item('surfaceTake')) a.push({ label: 'Take', fn: run(function (i) { if (!G.items.surfaceTake(i)) ui._sfx('error'); }) });
+    if (item('surfaceStash')) a.push({ label: TX.common.stash, fn: run(function (i) { if (!G.items.surfaceStash(i)) ui._sfx('error'); }) });
+    if (item('surfaceTake')) a.push({ label: TX.common.take, fn: run(function (i) { if (!G.items.surfaceTake(i)) ui._sfx('error'); }) });
     return a;
   }
 
@@ -184,7 +185,7 @@
       for (let t = 0; t < MASS.length; t++) if (o <= lim[t]) { tier[t].n++; tier[t].g += goldOf(it); }
       if (ui._isJunk(it)) junkN++;
     }
-    view.head.replaceChildren(h('span', { text: 'Surface crate' }), h('b', { class: list.length >= size ? 'ed-bad' : (list.length > size * 0.9 ? 'ed-gold' : null), text: list.length + ' / ' + size }));
+    view.head.replaceChildren(h('span', { text: TX.chute.surfaceCrate }), h('b', { class: list.length >= size ? 'ed-bad' : (list.length > size * 0.9 ? 'ed-gold' : null), text: list.length + ' / ' + size }));
     view.note.textContent = list.length ? 'Tap an item to sell, salvage, hand in or stash it. Lock it in its tooltip to keep it safe.' : 'Nothing has come up yet. Items you send down a chute in the rift arrive here, instantly.';
     // R12: the custom sell / salvage filter replaces the three fixed buttons
     view.mass.className = '';
@@ -210,11 +211,11 @@
       ui._sfx(n ? (rule === 'salvage' ? 'click' : 'sell') : 'error');
     }, junkN ? 'gold' : '');
     if (!junkN) jb.disabled = true;
-    const takeAll = ui._btn('Take all', function () {
+    const takeAll = ui._btn(TX.common.takeAll, function () {
       let n = 0;
       while (surface().length && n < 400 && item('surfaceTake') && G.items.surfaceTake(0) !== false) n++;
       ui._sfx(n ? 'loot' : 'error');
-      if (surface().length && n) ui.toast('Your bag is full. ' + surface().length + ' left up here.', '#a89f8f');
+      if (surface().length && n) ui.toast(TX.chute.yourBagIsFull + surface().length + TX.chute.leftUpHere, '#a89f8f');
       ui._refreshNow();
     });
     if (!list.length) takeAll.disabled = true;
@@ -222,9 +223,9 @@
   }
   ui._register('surface', {
     render: function (view) {
-      if (!S.player) return ui._frame('Surface crate', null, h('div', { class: 'ed-body' }));
+      if (!S.player) return ui._frame(TX.chute.surfaceCrate, null, h('div', { class: 'ed-body' }));
       const c = surfaceRender(view);
-      return ui._frame('Surface crate', { foot: c.foot }, c.body);
+      return ui._frame(TX.chute.surfaceCrate, { foot: c.foot }, c.body);
     },
   });
   // the arrows on cached cells depend on what is worn: start over when that changes
@@ -234,7 +235,7 @@
   G.on('object:interact', function (e) {
     if (!e || !S.player || S.scene === 'menu') return;
     if (e.type === 'chute') {
-      if (S.scene === 'dungeon') ui.open('chute'); else ui.toast('The chute only works down in the rift.', '#a89f8f');
+      if (S.scene === 'dungeon') ui.open('chute'); else ui.toast(TX.chute.theChuteOnlyWorks, '#a89f8f');
     } else if (e.type === 'surface_crate') ui.open('surface');
   });
   ['inventory:changed', 'surface:changed'].forEach(function (n) { G.on(n, ui._refresh); });

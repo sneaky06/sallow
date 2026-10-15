@@ -545,6 +545,45 @@
       before: ['My father\'s anvil cracked the winter the rift went cold. I have been working on a flawed one ever since.', 'Pay for good work. I will buy a good anvil. One of us should leave something whole behind.'],
       after: ['A new anvil. It rings true. My father would have wept.', 'Nothing you break will be wasted again. Not while I live.'],
       rewards: { xp: 12000, loyalty: { kind: 'salvage', amount: 0.1 } } },
+
+    // R15 return trips: two per act, sending the hero back to floors they have outgrown. chain: 'return'.
+    // Quest gates: requiresAct (flags.act >= n) and requiresDepth (flags.maxDepth >= n) before it is offered.
+    // Goal kinds (UI tracks): visit { depth, after } = set foot on `depth` while flags.act >= after (or, with `camp: n`, any floor
+    // whose map.camps exist in CAMP[n-1].band); retrieve { depth, item } = the UI drops `item` ({ id, name, icon }) on that depth
+    // and it counts when picked up (a quest token, never a bag item).
+    { id: 'rq_maren_hymnal', giver: 'healer', giverName: 'Sister Maren', chain: 'return', requiresAct: 1, requiresDepth: 7, name: 'The Priest\'s Hymnal',
+      desc: 'Go back to depth 2 and fetch Father Morgrath\'s hymnal from the crypt chapel.',
+      goal: { kind: 'retrieve', n: 1, depth: 2, item: { id: 'qi_hymnal', name: 'Morgrath\'s Hymnal', icon: { shape: 'scroll', color: '#8f6a4a', accent: '#d8c9a3' } } },
+      before: ['He was a good priest before he was a crowned one. His hymnal is still on the chapel lectern, two floors down.', 'It will be easy now. That is rather the point.'],
+      after: ['The pages are stuck together. Something wet. I will dry them by the fire.', 'You walked through the crypt like it was a garden path. Do you remember when it frightened you?'],
+      rewards: { gold: 400, xp: 1200, item: ['uncommon', 'magic'] } },
+    { id: 'rq_elder_firststep', giver: 'elder', giverName: 'Elder Thane', chain: 'return', requiresAct: 1, requiresDepth: 9, name: 'The First Stair',
+      desc: 'Walk back down to depth 1 and look at where you started.', goal: { kind: 'visit', n: 1, depth: 1, after: 1 },
+      before: ['Go and stand on the first floor again. Humour an old man.', 'I want you to see how small it is.'],
+      after: ['Small, wasn\'t it. It was the whole world to the last ones who went down.', 'Remember that when the deep starts to feel small too.'],
+      rewards: { gold: 300, xp: 1500 } },
+    { id: 'rq_maren_medicine', giver: 'healer', giverName: 'Sister Maren', chain: 'return', requiresAct: 2, name: 'Medicine for Lamp Camp',
+      desc: 'Carry Maren\'s medicine chest to the refugee camp in the Shallows.', goal: { kind: 'visit', n: 1, camp: 1, after: 2 },
+      before: ['Gammer Wick sends word the camp has doubled. Children with coughs. Carry this down to them.', 'You know the way. Everyone in town knows you know the way.'],
+      after: ['Gammer says the Shallows are so quiet the children play on the stairs.', 'Children. On the stairs to the rift. I do not know whether to laugh.'],
+      rewards: { gold: 1200, xp: 5000, mats: { essence: 2 } } },
+    { id: 'rq_isra_ring', giver: 'curator', giverName: 'Isra Vell', chain: 'return', requiresAct: 2, name: 'A Ring on a String',
+      desc: 'Return to depth 6 and find the ring Lise Ell wore on a string. Isra wants it for Marta.',
+      goal: { kind: 'retrieve', n: 1, depth: 6, item: { id: 'qi_ring', name: 'Lise\'s Ring', icon: { shape: 'ring', color: '#c9a35a', accent: '#8f1212' } } },
+      before: ['Marta buried the ring. The ground on six moved, the way it does, and it surfaced again. They talk about it at the camp.', 'Bring it to me. I will set it in the book where she cannot lose it twice.'],
+      after: ['Gold, and a little red thread. Lise\'s. I wrote her a line in the ledger.', 'Six used to be the bottom of everyone\'s courage. You did not even draw your weapon, did you.'],
+      rewards: { gold: 1500, xp: 6000, item: ['rare'] } },
+    { id: 'rq_elder_lantern', giver: 'elder', giverName: 'Elder Thane', chain: 'return', requiresAct: 3, name: 'What We Left at Three',
+      desc: 'Go back up to depth 3 and bring home Hob Garrow\'s first lantern.',
+      goal: { kind: 'retrieve', n: 1, depth: 3, item: { id: 'qi_lantern', name: 'The First Lantern', icon: { shape: 'potion', color: '#ffb347', accent: '#3a3442' } } },
+      before: ['Before the Hellscape takes the rest of you, go back up to three. Hob Garrow\'s lantern still hangs there.', 'I want it in the square. I want people to remember there was a time the dark was only dark.'],
+      after: ['It lit on its own when you set it down. The children cheered.', 'Three is a cellar now. You made it a cellar.'],
+      rewards: { gold: 4000, xp: 15000, item: ['magic'], mark: 1 } },
+    { id: 'rq_wick_grave', giver: 'stashkeeper', giverName: 'Old Wick', chain: 'return', requiresAct: 3, name: 'A Grave by the Stair',
+      desc: 'Visit the grave on depth 2, near the first stair. Old Wick wants you to read it to him.', goal: { kind: 'visit', n: 1, depth: 2, after: 3 },
+      before: ['There is a grave by the stair on two. You walked past it your first day. I watched you go.', 'Go back. Read me the name. My eyes are no good and my legs are worse.'],
+      after: ['...My wife. Yes.', 'Forty years she has been down there, and now the floor is quiet enough to visit. Thank you. Go away now.'],
+      rewards: { gold: 3000, xp: 12000, item: ['legendary'] } },
   ];
 
   // Converted to the SIDE line shape that quests.js reads: { id, role, npc, giver (display name), act, requires, name,
@@ -553,14 +592,35 @@
   const lastOf = {};
   const VENDOR_QUESTS = VENDOR_RAW.map(function (q) {
     const g = q.goal, step = { kind: g.kind, goal: g.n, desc: q.desc, before: q.before, after: q.after };
-    ['rarity', 'body', 'tier', 'minDepth', 'grade', 'chain', 'role', 'mat'].forEach(function (k) { if (g[k] != null) step[k] = g[k]; });
+    ['rarity', 'body', 'tier', 'minDepth', 'grade', 'chain', 'role', 'mat', 'depth', 'after', 'camp', 'item'].forEach(function (k) { if (g[k] != null) step[k] = g[k]; });
     const key = q.giver + (q.chain ? ':' + q.chain : '');
     const line = { id: q.id, role: CAMP_ROLE[q.giver] || q.giver, npc: q.giver, giver: q.giverName, act: q.requiresAct || q.act || 1,
-      requiresAct: q.requiresAct || null, chain: q.chain || null,
+      requiresAct: q.requiresAct || null, requiresDepth: q.requiresDepth || null, chain: q.chain || null,
       requires: lastOf[key] || null, name: q.name, steps: [step], rewards: q.rewards };
     lastOf[key] = q.id;
     return line;
   });
+
+
+  // ---------- R15 how earlier floors feel once you have moved on ----------
+  // On arriving at a floor in `band` while flags.act >= act: one banner line (random pick). camp: extra line per camp NPC id
+  // once the camp has grown (shown instead of the NPC's usual line on the first visit at that act).
+  const RETURN_LINES = [
+    { act: 2, band: [1, 10], floor: ['The Shallows are quiet. Things scatter from your lamp instead of toward it.',
+      'You remember being afraid of this corridor. You cannot remember why.',
+      'A refugee child is drawing on the crypt wall in chalk. Nobody stops her.'] },
+    { act: 3, band: [1, 10], floor: ['The Shallows smell of woodsmoke now, not meat.', 'Something small hisses at you and flees. It does not come back.'] },
+    { act: 3, band: [11, 20], floor: ['The fever has broken here. The walls only sweat a little.', 'Old campfires along the walls. Somebody is living down here on purpose.'] },
+    { act: 4, band: [1, 30], floor: ['The rift breathes warm around you. Nothing on this floor wants to fight you any more.'] },
+  ];
+  const CAMP_GROWTH = {
+    'camp:gammer': { act: 2, line: 'Forty mouths now, and I feed every one. The rat population is in decline, I can tell you.' },
+    'camp:jory': { act: 2, line: 'More stock than I can carry. People come down from town to buy now. From town. Down here.' },
+    'camp:pell': { act: 2, line: 'I run the lift both ways all day. Families, mostly. Going down to see where their dead were.' },
+    'camp:twins': { act: 3, line: 'We have a stall.  /  A stall with a roof.  /  The roof is a shield.  /  It is still a roof.' },
+    'camp:ada': { act: 3, line: 'I baptised a baby in rift water this morning. It was warm. Nobody screamed. Not even me.' },
+    'camp:tam': { act: 3, line: 'No grey notes this week. I check every morning. I think he has stopped watching the camp. He is watching you.' },
+  };
 
   // ---------- R12.8 milestones: names and one-line flavour per counter; tier titles low → high ----------
   // The UI pairs tiers[i] with the i-th threshold from G.meta.getMilestones(); extra thresholds reuse the last title + numeral.
@@ -641,5 +701,5 @@
   ];
 
   meta.STORY = { NAMES, TAGLINE, TITLE, OLD_TITLES, OPENING, ACTS, STEPS, FINALE, PALLOR_INTRO, BOSS_LINES, WORLD_BOSS_IDS,
-    BOSSES, ECHO, ADVENTURERS, FALLEN_COMBINED, CURATOR, CAMP, SIDE, VENDOR_QUESTS, MILESTONES, TOWN, LORE };
+    BOSSES, ECHO, ADVENTURERS, FALLEN_COMBINED, CURATOR, CAMP, SIDE, VENDOR_QUESTS, RETURN_LINES, CAMP_GROWTH, MILESTONES, TOWN, LORE };
 })();

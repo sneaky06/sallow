@@ -3,6 +3,7 @@
   'use strict';
   const G = window.G, S = G.state, C = G.C;
   const ui = G.ui;
+  const TX = ui.S;
   const h = ui._h, fmt = ui._fmt;
 
   // stat -> [label, suffix]
@@ -25,7 +26,7 @@
     ['Utility', ['moveSpeed', 'lifeSteal', 'manaSteal', 'lifeOnKill', 'manaOnKill', 'magicFind', 'goldFind', 'xpGain', 'pickupRadius']],
   ];
   const SLOT_LABEL = { weapon: 'Wpn', offhand: 'Off', helm: 'Helm', chest: 'Body', gloves: 'Hand', boots: 'Feet', belt: 'Belt', amulet: 'Neck', ring1: 'Ring', ring2: 'Ring' };
-  const ATTRS = [['str', 'Strength'], ['dex', 'Dexterity'], ['int', 'Intelligence'], ['vit', 'Vitality']];
+  const ATTRS = [['str', TX.inventory.strength], ['dex', TX.inventory.dexterity], ['int', TX.inventory.intelligence], ['vit', TX.inventory.vitality]];
 
   function statLabel(k) { return (STAT[k] && STAT[k][0]) || k; }
   function statVal(k, v) { return fmt(v) + ((STAT[k] && STAT[k][1]) || ''); }
@@ -33,7 +34,7 @@
 
   function call(fnName, a, b, c) {
     const it = G.items;
-    if (!it || typeof it[fnName] !== 'function') { ui.toast('Not available yet.', '#8f8470'); return undefined; }
+    if (!it || typeof it[fnName] !== 'function') { ui.toast(TX.inventory.notAvailableYet, '#8f8470'); return undefined; }
     try { return it[fnName](a, b, c); } catch (err) { console.error('[ui items.' + fnName + ']', err); return undefined; }
   }
   ui._itemsCall = call;
@@ -107,7 +108,7 @@
       const want = wanted(item) && !wornIn(item);
       if (want) c.appendChild(h('i', { class: 'bk', 'aria-hidden': 'true' }));
       if (item.locked) c.appendChild(h('i', { class: 'lk', 'aria-hidden': 'true' }));
-      else if (opts.junk && !want && isJunk(item)) { c.className += ' junk'; c.appendChild(h('span', { class: 'jk', text: 'junk' })); }
+      else if (opts.junk && !want && isJunk(item)) { c.className += ' junk'; c.appendChild(h('span', { class: 'jk', text: TX.inventory.junk })); }
       c.setAttribute('aria-label', item.name || 'item');
       if (opts.onTap) c.addEventListener('click', function () { ui._sfx('click'); opts.onTap(item); });
     } else {
@@ -134,8 +135,8 @@
     }
     if (typeof hl === 'string') return { label: '', value: hl, delta: 0 };
     const b = item.base || {};
-    if (b.dmgMax) return { label: 'DPS', value: fmt(((b.dmgMin || 0) + b.dmgMax) / 2 * (b.attackSpeed || 1)), delta: (cmp && cmp.dps) || 0 };
-    if (b.armor) return { label: 'Armor', value: fmt(b.armor), delta: (cmp && cmp.armor) || 0 };
+    if (b.dmgMax) return { label: TX.inventory.dps, value: fmt(((b.dmgMin || 0) + b.dmgMax) / 2 * (b.attackSpeed || 1)), delta: (cmp && cmp.dps) || 0 };
+    if (b.armor) return { label: TX.common.armor, value: fmt(b.armor), delta: (cmp && cmp.armor) || 0 };
     const top = (item.mods || []).slice().sort(function (x, y) { return Math.abs(y.value) - Math.abs(x.value); })[0];
     if (top) return { label: '', value: modText(top), delta: 0 };
     return null;
@@ -174,7 +175,7 @@
         if (sp) sub.appendChild(sp);
       }
       const body = [plate];
-      if (opts.price != null) body.push(h('div', { class: 'ed-tipline' }, 'Price: ', ui._goldEl(opts.price)));
+      if (opts.price != null) body.push(h('div', { class: 'ed-tipline' }, TX.inventory.price, ui._goldEl(opts.price)));
 
       const fx = effectsOf(item);
       if (gear && !showDetails) {
@@ -187,18 +188,18 @@
           body.push(h('div', { class: 'ed-hl' },
             h('b', { class: hl.power ? 'pw' : null, text: hl.text || (hl.value + (hl.label ? ' ' + hl.label : '')) }),
             d ? h('span', { class: d > 0 ? 'ed-good' : 'ed-bad', text: (d > 0 ? '▲ +' : '▼ ') + fmt(d) + (hl.unit || '') }) : null,
-            !d && v === 'up' ? h('span', { class: 'ed-good', text: '▲ better' }) : null,
-            !d && v === 'down' ? h('span', { class: 'ed-bad', text: '▼ worse' }) : null,
+            !d && v === 'up' ? h('span', { class: 'ed-good', text: TX.inventory.better }) : null,
+            !d && v === 'down' ? h('span', { class: 'ed-bad', text: TX.inventory.worse }) : null,
             dt ? h('small', { text: dt }) : null));
         }
         const wi = opts.price == null && wanted(item) && !wornIn(item) ? wantedInfo(item) : null;
-        if (wi) body.push(h('div', { class: 'ed-tipline', style: 'color:#0e5c52' }, h('i', { class: 'bk' }), 'Collection Book: ' + wi.name + (wi.total ? ' (' + wi.count + '/' + wi.total + ')' : '')));
+        if (wi) body.push(h('div', { class: 'ed-tipline', style: 'color:#0e5c52' }, h('i', { class: 'bk' }), TX.inventory.collectionBook + wi.name + (wi.total ? ' (' + wi.count + '/' + wi.total + ')' : '')));
         for (const e of fx) body.push(h('div', { class: 'ed-fx' }, e.name || 'Mythic effect', e.desc ? h('small', { text: e.desc }) : null));
         for (const m of (item.mods || [])) body.push(h('div', { class: 'ed-tipline', text: modText(m) }));
         for (const g of (item.sockets || [])) body.push(h('div', { class: 'ed-tipline', style: 'color:' + (g ? '#5a1c6e' : '#4a3d2a'), text: g ? '◆ ' + g.name : '◇ Empty socket' }));
         extraLines(item, null).forEach(function (n) { body.push(n); });
         const lvl = (S.player && S.player.level) || 1;
-        if (item.reqLevel > lvl) body.push(h('div', { class: 'ed-tipline ed-bad', text: 'Requires level ' + item.reqLevel }));
+        if (item.reqLevel > lvl) body.push(h('div', { class: 'ed-tipline ed-bad', text: TX.inventory.requiresLevel + item.reqLevel }));
       } else {
         // full view: every line the items team wrote; effect lines keep their plate
         let fxShown = 0;
@@ -216,7 +217,7 @@
         extraLines(item, tip.lines).forEach(function (n) { body.push(n); });
         const keys = cmp ? Object.keys(cmp).filter(function (k) { return cmp[k]; }) : [];
         if (gear && keys.length) {
-          const box = h('div', { class: 'ed-cmp' }, h('div', { class: 'ed-note', text: 'If equipped:' }));
+          const box = h('div', { class: 'ed-cmp' }, h('div', { class: 'ed-note', text: TX.inventory.ifEquipped }));
           for (const k of keys) box.appendChild(h('div', { class: 'ed-tipline ' + (cmp[k] > 0 ? 'ed-good' : 'ed-bad'), text: deltaText(k, cmp[k]) }));
           body.push(box);
         }
@@ -236,7 +237,7 @@
         btns.push(ui._btn(item.locked ? 'Unlock' : 'Lock', function () { toggleLock(item); rebuild(); ui._refresh(); }, item.locked ? 'on' : ''));
       }
       if (gear) btns.push(ui._btn(showDetails ? 'Less' : 'Details', function () { showDetails = !showDetails; rebuild(); }));
-      btns.push(ui._btn('Close', function () { close(); }));
+      btns.push(ui._btn(TX.common.close, function () { close(); }));
       return ui._dialog(body, btns, 'tip');
     };
     let dialogEl = build();
@@ -306,7 +307,7 @@
             // [[stat, value], ...] from the items table, or plain text
             const txt = typeof d === 'string' ? d : Array.isArray(d)
               ? d.map(function (b) { return Array.isArray(b) ? modText({ stat: b[0], value: b[1] }) : String(b); }).join(', ') : (d.desc || '');
-            if (txt) out.push(h('div', { class: 'ed-tipline ed-note', style: 'padding-left:18px' + (withThis >= k ? ';color:#17571b' : ''), text: k + ' worn: ' + txt }));
+            if (txt) out.push(h('div', { class: 'ed-tipline ed-note', style: 'padding-left:18px' + (withThis >= k ? ';color:#17571b' : ''), text: k + TX.inventory.worn + txt }));
           });
         }
       } else out.push(h('div', { class: 'ed-tipline ed-look', text: line }));
@@ -324,10 +325,10 @@
       const k = item.kills | 0;
       const steps = (G.items && Array.isArray(G.items.AWAKEN_AT)) ? G.items.AWAKEN_AT : AWAKEN_AT;
       const next = steps.filter(function (x) { return x > k; })[0];
-      out.push(h('div', { class: 'ed-tipline ed-note', text: next ? 'Awakening: ' + k + ' / ' + next + ' kills' : k + ' kills · fully awakened' }));
+      out.push(h('div', { class: 'ed-tipline ed-note', text: next ? TX.inventory.awakening + k + ' / ' + next + TX.inventory.kills : k + TX.inventory.killsFullyAwakened }));
     }
     if (item.bleached && item.hidden != null && !has(/\?\?\?/)) {
-      out.push(h('div', { class: 'ed-bleach' }, '???', h('small', { text: 'Bleached. Bring it home alive to learn what it hides.' })));
+      out.push(h('div', { class: 'ed-bleach' }, '???', h('small', { text: TX.inventory.bleachedBringItHome })));
     }
     return out;
   }
@@ -361,7 +362,7 @@
         ui._icon(r.item.icon, 32),
         h('span', { class: 'n', style: 'color:' + ui._rarityColor(r.item.rarity) }, r.item.name, r.sub ? h('small', { text: r.sub }) : null));
     });
-    close = ui._modal(ui._dialog([h('div', { class: 'ed-h', text: title }), list], [ui._btn('Cancel', function () { close(); })]));
+    close = ui._modal(ui._dialog([h('div', { class: 'ed-h', text: title }), list], [ui._btn(TX.common.cancel, function () { close(); })]));
   }
 
   function ok(result) { if (result === false) ui._sfx('error'); return result; }
@@ -375,7 +376,7 @@
   }
   function matsText(o) {
     const parts = [];
-    if (o && o.gold) parts.push(fmt(o.gold) + ' gold');
+    if (o && o.gold) parts.push(fmt(o.gold) + TX.filter.gold2);
     for (const k of matKeys(o)) parts.push(o[k] + ' ' + matName(k));
     return parts.join(', ');
   }
@@ -387,16 +388,16 @@
   function upgradeInfo(item) {
     const cost = probe('upgradeCost', item);
     if (cost === undefined) return { line: null, blocked: false };
-    if (!cost) return { line: { text: 'Cannot be upgraded further.' }, blocked: true };
+    if (!cost) return { line: { text: TX.inventory.cannotBeUpgradedFurther }, blocked: true };
     const p = S.player, m = p.materials || {};
     const short = (p.gold || 0) < (cost.gold || 0) || matKeys(cost).some(function (k) { return (m[k] || 0) < (cost[k] || 0); });
-    return { line: { text: 'Upgrade costs ' + matsText(cost), bad: short }, blocked: false };
+    return { line: { text: TX.inventory.upgradeCosts + matsText(cost), bad: short }, blocked: false };
   }
   ui._upgradeInfo = upgradeInfo; ui._matsText = matsText;
   function salvageLine(item) {
     const y = probe('salvageYield', item);
     const t = y ? matsText(y) : '';
-    return t ? { text: 'Salvage yields ' + t } : null;
+    return t ? { text: TX.inventory.salvageYields + t } : null;
   }
 
   // Both ring fingers taken: ask which ring to swap out (items.equip takes the slot as an optional 2nd argument).
@@ -406,7 +407,7 @@
     let p = null;
     try { p = G.items.classPenalty(item); } catch (err) { return null; }
     if (!p) return null;
-    if (typeof p === 'number') return { text: 'This is not made for your class: -' + Math.round(p <= 1 ? p * 100 : p) + '% damage with it.' };
+    if (typeof p === 'number') return { text: TX.inventory.thisIsNotMade + Math.round(p <= 1 ? p * 100 : p) + TX.inventory.damageWithIt };
     const pct = p.pct != null ? p.pct : (p.damage != null ? p.damage : null);
     return { text: typeof p.text === 'string' && p.text ? p.text : (typeof p.label === 'string' && p.label ? p.label
       : 'This is not made for your class' + (pct != null ? ': -' + Math.round(Math.abs(pct) <= 1 ? Math.abs(pct) * 100 : Math.abs(pct)) + '% damage with it.' : ': it weakens you.')) };
@@ -415,7 +416,7 @@
   function equip(item, index) {
     const pen = penaltyOf(item);
     if (pen && !item.penaltyOk) {
-      ui._confirm('Equip ' + item.name + '?', 'Equip anyway', function () { item.penaltyOk = true; equipNow(item, index); }, { danger: true, note: pen.text });
+      ui._confirm(TX.inventory.equip + item.name + '?', 'Equip anyway', function () { item.penaltyOk = true; equipNow(item, index); }, { danger: true, note: pen.text });
       return;
     }
     equipNow(item, index);
@@ -438,8 +439,8 @@
       // R3.3: a bloodstone only fuses when the call carries the confirmation flag, and we only send it after asking
       const go = function () { ok(call('socketGem', gemIndex, target, perm ? { confirmPermanent: true } : undefined)); ui._refresh(); };
       if (perm) {
-        ui._confirm('Fuse ' + gem.name + ' into ' + host.name + '?', 'Fuse forever', go,
-          { danger: true, note: 'A bloodstone can never be removed once it is set.' });
+        ui._confirm(TX.inventory.fuse + gem.name + TX.inventory.into + host.name + '?', 'Fuse forever', go,
+          { danger: true, note: TX.inventory.aBloodstoneCanNever });
       } else go();
     };
     for (const slot of C.EQUIP_SLOTS) {
@@ -449,7 +450,7 @@
     (p.inventory || []).forEach(function (it, i) {
       if (free(it)) rows.push({ item: it, sub: 'In your pack', fn: function () { fuse(it, i); } });
     });
-    if (!rows.length) { ui._sfx('error'); ui.toast('Nothing you carry has an empty socket.', '#a89f8f'); return; }
+    if (!rows.length) { ui._sfx('error'); ui.toast(TX.inventory.nothingYouCarryHas, '#a89f8f'); return; }
     choose('Socket ' + gem.name + ' into', rows);
   }
 
@@ -463,7 +464,7 @@
       let cost = null;
       try { cost = G.items.unsocketCost(item, si); } catch (err) { cost = null; }
       if (cost == null) return;                 // permanent (bloodstone): nothing to offer
-      out.push({ label: 'Remove ' + (gem.name || 'gem') + ' ' + fmt(cost) + 'g', disabled: (S.player.gold || 0) < cost,
+      out.push({ label: TX.inventory.remove + (gem.name || 'gem') + ' ' + fmt(cost) + 'g', disabled: (S.player.gold || 0) < cost,
         fn: function () { ok(call('unsocketGem', target, si)); } });
     });
     return out;
@@ -473,21 +474,21 @@
   // R7.11 "Send to Curator": registers a bag (or stash) item in the Collection Book — the item is consumed.
   function sendToCurator(index, source) {
     const co = G.items && G.items.collection;
-    if (!co || typeof co.register !== 'function') { ui.toast('The Curator is not here yet.', '#8f8470'); return null; }
+    if (!co || typeof co.register !== 'function') { ui.toast(TX.inventory.theCuratorIsNot, '#8f8470'); return null; }
     let res = null;
     try { res = source === 'stash' ? co.register(index, 'stash') : co.register(index); } catch (err) { console.error('[ui collection.register]', err); }
     if (!res || !res.ok) { ui._sfx('error'); return res; }
     ui._sfx('quest');
     let pg = null;
     try { pg = (co.getPages() || []).filter(function (x) { return x.id === res.page; })[0]; } catch (err) { pg = null; }
-    if (!res.completed) ui.toast('Registered: ' + (pg ? pg.name + ' ' + pg.count + '/' + pg.total : 'Collection Book'), '#7fd4c8');
+    if (!res.completed) ui.toast(TX.inventory.registered + (pg ? pg.name + ' ' + pg.count + '/' + pg.total : 'Collection Book'), '#7fd4c8');
     ui._refresh();
     return res;
   }
   ui._sendToCurator = sendToCurator;
   function curatorAction(item, index, source) {
     if (S.scene !== 'town' || !wanted(item) || wornIn(item)) return null;       // R8.1: handing in is a town errand
-    return { label: 'Send to Curator', cls: 'gold', fn: function () { sendToCurator(index, source); } };
+    return { label: TX.inventory.sendToCurator, cls: 'gold', fn: function () { sendToCurator(index, source); } };
   }
   ui._curatorAction = curatorAction;
 
@@ -499,7 +500,7 @@
     if (!cost) return null;
     const p = S.player, m = p.materials || {};
     const short = (p.gold || 0) < (cost.gold || 0) || matKeys(cost).some(function (k) { return (m[k] || 0) < cost[k]; });
-    return { label: 'Cleanse', cls: 'gold', disabled: short, fn: function () { if (ok(call('cleanse', target))) G.emit('item:cleansed', { item: item }); }, info: 'Cleanse costs ' + matsText(cost), bad: short };
+    return { label: TX.inventory.cleanse, cls: 'gold', disabled: short, fn: function () { if (ok(call('cleanse', target))) G.emit('item:cleansed', { item: item }); }, info: TX.inventory.cleanseCosts + matsText(cost), bad: short };
   }
   ui._cleanseAction = cleanseAction;
 
@@ -510,7 +511,7 @@
     const cur = curatorAction(item, index);
     if (ctx === 'stash') {
       if (cur) a.push(cur);
-      a.push({ label: 'Stash', cls: cur ? '' : 'gold', fn: function () { ok(call('stashDeposit', index)); } });
+      a.push({ label: TX.common.stash, cls: cur ? '' : 'gold', fn: function () { ok(call('stashDeposit', index)); } });
       return a;
     }
     if (cur) a.push(cur);
@@ -524,22 +525,22 @@
       } });
     }
     if (ctx === 'forge' || (ctx === 'sell' && role === 'blacksmith')) {
-      if (ctx === 'forge' && item.slot) a.push({ label: 'Upgrade', cls: 'gold', disabled: upgradeInfo(item).blocked, fn: function () { ok(call('upgrade', index)); } });
+      if (ctx === 'forge' && item.slot) a.push({ label: TX.common.upgrade, cls: 'gold', disabled: upgradeInfo(item).blocked, fn: function () { ok(call('upgrade', index)); } });
       if (ctx === 'forge') { const cl = cleanseAction(item, index); if (cl) a.push(cl); }
-      if (item.slot) a.push({ label: 'Salvage', fn: function () { salvage(item, index); } });
+      if (item.slot) a.push({ label: TX.common.salvage, fn: function () { salvage(item, index); } });
       if (ctx === 'forge') unsocketActions(item, index).forEach(function (x) { a.push(x); });
     }
-    if (item.slot) a.push({ label: 'Equip', cls: ctx === 'inv' ? 'gold' : '', fn: function () { equip(item, index); } });
+    if (item.slot) a.push({ label: TX.common.equip, cls: ctx === 'inv' ? 'gold' : '', fn: function () { equip(item, index); } });
     if (item.type === 'gem') {
       if (ctx === 'forge' && G.items && G.items.upgradeGem && G.items.gemUpgradeCost) {
         let cost = null;
         try { cost = G.items.gemUpgradeCost(index); } catch (err) { cost = null; }
-        if (cost) a.push({ label: 'Improve ' + matsText(cost), cls: 'gold', fn: function () { ok(call('upgradeGem', index)); } });
+        if (cost) a.push({ label: TX.inventory.improve + matsText(cost), cls: 'gold', fn: function () { ok(call('upgradeGem', index)); } });
       }
       if (ctx === 'forge') return a;            // the forge only works the gem; socketing happens from the bag
-      if (G.items && G.items.socketGem) a.push({ label: 'Socket', cls: 'gold', fn: function () { socket(item, index); } });
+      if (G.items && G.items.socketGem) a.push({ label: TX.inventory.socket, cls: 'gold', fn: function () { socket(item, index); } });
       if (G.items && G.items.combineGems && (ctx === 'inv' || role === 'mystic')) {
-        a.push({ label: 'Combine 3', disabled: (item.qty || 1) < 3, fn: function () { ok(call('combineGems', index)); } });
+        a.push({ label: TX.inventory.combine3, disabled: (item.qty || 1) < 3, fn: function () { ok(call('combineGems', index)); } });
       }
     }
     if (item.type === 'consumable' && ctx === 'inv') {
@@ -547,8 +548,8 @@
       a.push({ label: tome ? 'Read (+1 skill point)' : 'Use', cls: 'gold', fn: function () { ok(call('useItem', index)); } });
     }
     if (ctx === 'inv') {
-      a.push({ label: 'Drop', cls: 'danger', fn: function () {
-        if (ui._rarityAtLeast(item.rarity, 'rare')) ui._confirm('Drop ' + item.name + '?', 'Drop', function () { call('dropFromInventory', index); ui._refresh(); }, { danger: true });
+      a.push({ label: TX.inventory.drop, cls: 'danger', fn: function () {
+        if (ui._rarityAtLeast(item.rarity, 'rare')) ui._confirm(TX.inventory.drop2 + item.name + '?', 'Drop', function () { call('dropFromInventory', index); ui._refresh(); }, { danger: true });
         else call('dropFromInventory', index);
       } });
     }
@@ -576,8 +577,8 @@
       pv = { gems: n, gemdust: 0 };
     }
     if (!(pv.gems > 0)) { go(); return false; }
-    ui._confirm(pv.gems + ' socketed gem' + (pv.gems === 1 ? '' : 's') + ' will be ground to dust with this item.', verb + ' anyway', go,
-      { danger: true, note: pv.gemdust ? 'Returns ' + pv.gemdust + ' gem dust.' : null });
+    ui._confirm(pv.gems + TX.chute.socketedGem + (pv.gems === 1 ? '' : 's') + TX.inventory.willBeGroundTo, verb + TX.inventory.anyway, go,
+      { danger: true, note: pv.gemdust ? TX.inventory.returns + pv.gemdust + TX.inventory.gemDust : null });
     return true;
   }
   ui._gemGuard = gemGuard;
@@ -586,7 +587,7 @@
     const go = function () { ok(call('salvage', index)); ui._refresh(); };
     const y = salvageLine(item);
     if (gemGuard(index, 'Salvage', go)) return;
-    if (ui._rarityAtLeast(item.rarity, 'rare')) ui._confirm('Salvage ' + item.name + '? It will be destroyed.', 'Salvage', go, { danger: true, note: y ? y.text + '.' : null });
+    if (ui._rarityAtLeast(item.rarity, 'rare')) ui._confirm(TX.inventory.salvage + item.name + TX.inventory.itWillBeDestroyed, 'Salvage', go, { danger: true, note: y ? y.text + '.' : null });
     else go();
   }
 
@@ -610,7 +611,7 @@
       const it = (p.equipment && p.equipment[slot]) || null;
       d.appendChild(cell(it, { area: slot, slot: SLOT_LABEL[slot] || slot, onTap: function (item) {
         const x = extra ? extra(slot, item) : { acts: [], info: [] };
-        x.acts.push({ label: 'Unequip', fn: function () { ok(call('unequip', slot)); } });
+        x.acts.push({ label: TX.inventory.unequip, fn: function () { ok(call('unequip', slot)); } });
         showItem(item, x.acts, { compare: false, info: x.info });
       } }));
     }
@@ -683,9 +684,9 @@
     const left = h('div', { class: 'ed-box' },
       h('div', { style: 'display:flex;gap:8px;align-items:center;margin-bottom:6px' }, preview(p, 48),
         h('div', null, h('div', { class: 'ed-ember', text: (p.name || 'Hero') + (ui._heroTitle && ui._heroTitle() ? ', ' + ui._heroTitle() : '') }),
-          h('div', { class: 'ed-note', text: 'Level ' + (p.level || 1) + ' ' + ((cls && cls.name) || '') }),
-          h('div', { class: 'ed-note', text: 'XP ' + fmt(p.xp || 0) + ' / ' + fmt(p.xpNext || 0) }))),
-      h('div', { class: pts > 0 ? 'ed-gold' : 'ed-note', text: pts > 0 ? pts + ' attribute point' + (pts > 1 ? 's' : '') + ' to spend' : 'No attribute points to spend' }),
+          h('div', { class: 'ed-note', text: TX.hud.level + (p.level || 1) + ' ' + ((cls && cls.name) || '') }),
+          h('div', { class: 'ed-note', text: TX.inventory.xp + fmt(p.xp || 0) + ' / ' + fmt(p.xpNext || 0) }))),
+      h('div', { class: pts > 0 ? 'ed-gold' : 'ed-note', text: pts > 0 ? pts + TX.inventory.attributePoint + (pts > 1 ? 's' : '') + TX.inventory.toSpend : 'No attribute points to spend' }),
       ATTRS.map(function (a) {
         const base = (p.attrs && p.attrs[a[0]]) || 0;
         const total = st[a[0]] != null ? st[a[0]] : base;
@@ -698,13 +699,13 @@
         if (pts <= 0) plus.disabled = true;
         return h('div', { class: 'ed-attr' }, h('span', { text: a[1] }), h('b', { text: fmt(total) + (total !== base ? ' (' + fmt(base) + ')' : '') }), plus);
       }),
-      p.autoBuild ? h('div', { class: 'ed-note', style: 'margin-top:6px', text: 'Auto-build is on: attribute points are spent for you.' }) : null);
+      p.autoBuild ? h('div', { class: 'ed-note', style: 'margin-top:6px', text: TX.inventory.autoBuildIsOn }) : null);
     // Short summary first (R3.4): what you hit for, how much you can take. The long list is one tap away.
     let w = null;
     if (G.items && G.items.getWeapon) { try { w = G.items.getWeapon(p); } catch (err) { w = null; } }
     const res = function (k) { return fmt(Math.min(75, (st[k] || 0) + (st.resAll || 0))) + '%'; };
     const right = h('div', { class: 'ed-box' },
-      h('div', { class: 'ed-h', text: 'At a glance' }),
+      h('div', { class: 'ed-h', text: TX.inventory.atAGlance }),
       w ? kv('Damage per hit', fmt((w.dmgMin + (st.dmgMin || 0)) * (1 + (st.dmgPct || 0) / 100)) + ' - ' + fmt((w.dmgMax + (st.dmgMax || 0)) * (1 + (st.dmgPct || 0) / 100))) : null,
       kv('Life', fmt(st.hpMax || 0)),
       kv('Armor', fmt(st.armor || 0)),
@@ -718,8 +719,8 @@
   }
 
   // ---------- sorting (R5.7) ----------
-  const SORTS = [['rarity', 'Rarity', 'Best colour first'], ['upgrades', 'Upgrades', 'Green arrows first'], ['newest', 'Newest', 'Latest finds first'],
-    ['slot', 'Slot', 'Weapons, armour, jewellery'], ['level', 'Level', 'Highest item level first'], ['value', 'Value', 'Most gold first']];
+  const SORTS = [['rarity', TX.inventory.rarity, 'Best colour first'], ['upgrades', TX.inventory.upgrades, 'Green arrows first'], ['newest', TX.inventory.newest, 'Latest finds first'],
+    ['slot', TX.inventory.slot, 'Weapons, armour, jewellery'], ['level', TX.inventory.level, 'Highest item level first'], ['value', TX.inventory.value, 'Most gold first']];
   function sortMode() { const m = S.settings.sort; return SORTS.some(function (s) { return s[0] === m; }) ? m : 'rarity'; }
   function doSort(which, mode) {
     if (which === 'surface') { if (ui._sortSurface) ui._sortSurface(mode); return; }
@@ -740,18 +741,18 @@
       } }, h('span', { class: 'n' }, s[1], h('small', { text: s[2] })), s[0] === cur ? h('b', { class: 'ed-gold', text: '✓' }) : null);
     });
     close = ui._modal(ui._dialog([h('div', { class: 'ed-h', text: which === 'surface' ? 'Sort the crate by' : which === 'stash' ? 'Sort stash by' : which === 'both' ? 'Sort stash and pack by' : 'Sort pack by' }), rows],
-      [ui._btn('Cancel', function () { close(); })]));
+      [ui._btn(TX.common.cancel, function () { close(); })]));
   }
   // R8.5: one tap re-sorts by the chosen mode; double-tap or press-and-hold opens the picker.
   function sortButton(which) {
     let lastTap = 0, hold = null, held = false;
-    const b = ui._btn('Sort', function () {
+    const b = ui._btn(TX.inventory.sort, function () {
       if (held) { held = false; return; }
       const now = Date.now();
       if (now - lastTap < 350) { lastTap = 0; sortPicker(which); return; }
       lastTap = now;
       doSort(which, sortMode());
-      ui.toast('Sorted by ' + sortMode() + '. Double-tap to change.', '#a89f8f');
+      ui.toast(TX.inventory.sortedBy + sortMode() + '. Double-tap to change.', '#a89f8f');
       ui._refreshNow();
     });
     b.addEventListener('pointerdown', function () { held = false; clearTimeout(hold); hold = setTimeout(function () { held = true; sortPicker(which); }, 550); });
@@ -797,13 +798,13 @@
   // The one "Clear junk" action. Selling only works in town; salvaging works anywhere.
   function clearJunk() {
     const p = S.player, rules = junkRules();
-    if (!G.items || !G.items.processJunk) { ui.toast('Junk rules are not available yet.', '#a89f8f'); return; }
-    if (S.scene !== 'town') { ui._sfx('error'); ui.toast('Send junk down a chute; sell or salvage it in town.', '#a89f8f'); return; }
+    if (!G.items || !G.items.processJunk) { ui.toast(TX.inventory.junkRulesAreNot, '#a89f8f'); return; }
+    if (S.scene !== 'town') { ui._sfx('error'); ui.toast(TX.inventory.sendJunkDownA, '#a89f8f'); return; }
     const go = function () {
       let r = null;
       try { r = G.items.processJunk(); } catch (err) { console.error('[ui processJunk]', err); }
       if (r && r.count > 0) ui._sfx(rules.action === 'sell' ? 'sell' : 'click');
-      else ui.toast('No junk to clear.', '#a89f8f');
+      else ui.toast(TX.inventory.noJunkToClear, '#a89f8f');
       ui._refresh();
     };
     // gems inside junk are destroyed too: only possible when "keep socketed" is off, and then we still ask once
@@ -815,8 +816,8 @@
       });
     }
     if (gems > 0) {
-      ui._confirm(gems + ' socketed gem' + (gems === 1 ? '' : 's') + ' will be ground to dust with the junk.', 'Clear anyway', go,
-        { danger: true, note: dust ? 'Returns ' + dust + ' gem dust.' : null });
+      ui._confirm(gems + TX.chute.socketedGem + (gems === 1 ? '' : 's') + TX.inventory.willBeGroundTo2, 'Clear anyway', go,
+        { danger: true, note: dust ? TX.inventory.returns + dust + TX.inventory.gemDust : null });
     } else go();
   }
   ui._clearJunk = clearJunk;
@@ -848,7 +849,7 @@
       row('Automatic', onOff(r.auto), r.auto ? 'ed-good' : 'ed-bad', function () { r.auto = !r.auto; }),
       row('Keep upgrades', onOff(r.keepUpgrades), r.keepUpgrades ? 'ed-good' : 'ed-bad', function () { r.keepUpgrades = !r.keepUpgrades; }),
       row('Keep gear with gems', onOff(r.keepSocketed), r.keepSocketed ? 'ed-good' : 'ed-bad', function () { r.keepSocketed = !r.keepSocketed; }),
-      h('div', { class: 'ed-note', text: 'Set pieces, Legendary items and gear the Collection Book wants are never junk. ' + (r.auto
+      h('div', { class: 'ed-note', text: TX.inventory.setPiecesLegendaryItems + (r.auto
         ? 'Junk waits in your bag until you use a chute: one tap there sends it all up to the surface crate.' : 'Junk is only marked. Use "Send junk" at a chute.') }),
     ];
   }
@@ -858,11 +859,11 @@
   function junkPopup() {
     let close = null, box = null;
     const fill = function () {
-      box.replaceChildren.apply(box, [h('div', { class: 'ed-h', text: 'Junk rules' })].concat(junkBlock(function () { fill(); ui._refresh(); })));
+      box.replaceChildren.apply(box, [h('div', { class: 'ed-h', text: TX.common.junkRules })].concat(junkBlock(function () { fill(); ui._refresh(); })));
     };
     box = h('div', { class: 'ed-list' });
     fill();
-    close = ui._modal(ui._dialog([box], [ui._btn('Done', function () { close(); ui._refreshNow(); }, 'gold')]));
+    close = ui._modal(ui._dialog([box], [ui._btn(TX.common.done, function () { close(); ui._refreshNow(); }, 'gold')]));
   }
   ui._junkPopup = junkPopup;
 
@@ -878,15 +879,15 @@
   ui._register('inventory', {
     render: function (view, arg) {
       const p = S.player;
-      if (!p) return ui._frame('Inventory', null, h('div', { class: 'ed-body' }));
+      if (!p) return ui._frame(TX.inventory.inventory, null, h('div', { class: 'ed-body' }));
       if (!view.tab) view.tab = arg === 'character' ? 'char' : 'items';
       const pts = p.attrPoints | 0;
-      return ui._frame('Hero', {
-        tabs: [{ id: 'items', label: 'Items' }, { id: 'char', label: 'Stats', badge: pts > 0 ? '+' + pts : null }],
+      return ui._frame(TX.inventory.hero, {
+        tabs: [{ id: 'items', label: TX.inventory.items }, { id: 'char', label: TX.inventory.stats, badge: pts > 0 ? '+' + pts : null }],
         tab: view.tab, onTab: function (id) { view.tab = id; ui._refreshNow(); },
         right: view.tab === 'items' ? [sortButton('inv')] : null,
         foot: view.tab === 'items' ? [ui._reviewButton ? ui._reviewButton() : null, bookButton(),
-          G.items && G.items.processJunk ? junkButton() : null, G.items && G.items.processJunk ? ui._btn('Rules', junkPopup) : null] : null,
+          G.items && G.items.processJunk ? junkButton() : null, G.items && G.items.processJunk ? ui._btn(TX.inventory.rules, junkPopup) : null] : null,
       }, view.tab === 'char' ? renderChar(p, view) : renderItems(p));
     },
   });

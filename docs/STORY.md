@@ -135,3 +135,18 @@ Six quests raise the surface crate's bulk rate, one per act from each trader, ch
   He wants to be the last shop open when the town dies.
 - **Brakka (salvage yield):** Feed the Forge (salvage 15 at his anvil) · Shards for the Quench (bring 3 Rift Shards) ·
   The Last Anvil (spend 15,000 at the forge). His father's anvil cracked the winter the rift went cold.
+
+## Return trips (R15)
+These six quests (two per act, `chain: 'return'`) send the hero back up to floors they have outgrown.
+- **Act I:**
+  - Maren, *The Priest's Hymnal*: fetch Morgrath's hymnal from depth 2.
+  - The Elder, *The First Stair*: stand on depth 1 again and see how small it is.
+- **Act II:**
+  - Maren, *Medicine for Lamp Camp*: carry medicine to the camp, which has doubled in size.
+  - Isra, *A Ring on a String*: Lise's ring has resurfaced on depth 6.
+- **Act III:**
+  - The Elder, *What We Left at Three*: Hob Garrow's first lantern, for the square.
+  - Old Wick, *A Grave by the Stair*: read the name on the grave you passed on day one. It is his wife's.
+
+`RETURN_LINES` gives floor banners for each act and depth band, saying how quiet the old floors have become. `CAMP_GROWTH`
+gives each camp NPC a line about how the camp has grown.

@@ -7,6 +7,7 @@
   const G = window.G, S = G.state;
   const meta = G.meta = G.meta || {};
   const ui = G.ui;
+  const TX = ui.S;
   const h = ui._h;
   const D = meta.STORY;
   const NAMES = D.NAMES;
@@ -88,7 +89,7 @@
   function page(title, text, onClose) {
     let close = null;
     close = ui._modal(ui._dialog([h('div', { class: 'ed-tipname', text: title, style: 'color:#e8dec6' }),
-      h('div', { class: 'ed-page', text: text })], [ui._btn('Close', function () { close(); if (onClose) onClose(); })], 'tip'), { dismiss: false, pause: true });
+      h('div', { class: 'ed-page', text: text })], [ui._btn(TX.common.close, function () { close(); if (onClose) onClose(); })], 'tip'), { dismiss: false, pause: true });
   }
   function opening() {
     const O = D.OPENING;
@@ -237,7 +238,7 @@
     syncTown(false);
     if (G.meta.save) G.meta.save();
     ui._sfx('levelup');
-    ui._banner('Title earned', D.TITLE, '#dfc06a', 5);
+    ui._banner(TX.story.titleEarned, D.TITLE, '#dfc06a', 5);
     if (first) setTimeout(function () { say(fill(D.PALLOR_INTRO), {}); }, 600);
   }
   ui._heroTitle = function () { return (S.player && typeof S.flags.title === 'string') ? S.flags.title : ''; };
@@ -295,12 +296,12 @@
   G.on('monster:killed', function (e) {
     const m = e && e.monster;
     if (!m || (m.faction && m.faction !== 'enemy')) return;
-    if (isEcho(m)) { ui._banner(echoName(m) + ' falls', names(D.ECHO.death), '#bfe6ff', 6); return; }
+    if (isEcho(m)) { ui._banner(echoName(m) + TX.story.falls, names(D.ECHO.death), '#bfe6ff', 6); return; }
     const adv = adventurer(m);
-    if (adv) { ui._banner(names(adv.name) + ' falls', names(adv.death), '#c96aff', 6); return; }
+    if (adv) { ui._banner(names(adv.name) + TX.story.falls, names(adv.death), '#c96aff', 6); return; }
     if (m.rarity !== 'boss') return;
     const lines = D.BOSS_LINES[m.monsterId];
-    ui._banner(bossTitle(m) + ' falls', lines ? names(lines.death) : '', '#dfc06a', 6);
+    ui._banner(bossTitle(m) + TX.story.falls, lines ? names(lines.death) : '', '#dfc06a', 6);
   });
 
   // ---------- lore pages ----------
@@ -333,25 +334,25 @@
   ui._register('journal', {
     render: function () {
       const have = list('loreFound').slice().sort(function (a, b) { return a - b; });
-      const story = h('div', { class: 'ed-box' }, h('div', { class: 'ed-h', text: 'The tale so far' }),
+      const story = h('div', { class: 'ed-box' }, h('div', { class: 'ed-h', text: TX.story.theTaleSoFar }),
         h('p', { class: 'ed-page', text: names('Your home was burned. A man in grey sent you to {town}, a cold town over a rotting rift. Its Elder asked you to cleanse it.') }),
         D.ACTS.filter(function (a) { return seen('act:' + a.n); }).map(function (a) {
           return h('p', { class: 'ed-page', style: 'color:#b8b0a0' }, h('b', { text: names(a.intro[0]) + '  ' }), names(a.intro[1]));
         }),
         seen('finale') ? h('p', { class: 'ed-page', style: 'color:#dfc06a', text: names('The Hearthking is dead and {town} is warm. You carry {ember} now.') }) : null);
-      const pages = h('div', { class: 'ed-list' }, h('div', { class: 'ed-h', text: 'Pages found  ' + have.length + ' / ' + meta.LORE.length }));
+      const pages = h('div', { class: 'ed-list' }, h('div', { class: 'ed-h', text: TX.story.pagesFound + have.length + ' / ' + meta.LORE.length }));
       have.forEach(function (i) {
         const pg = meta.LORE[i];
         if (pg) pages.appendChild(h('button', { type: 'button', class: 'ed-row', onclick: function () { ui._sfx('click'); showPage(i); } },
           ui._icon({ shape: 'scroll', color: '#d9cba3', accent: '#8f8470' }, 32), h('span', { class: 'n', text: pg.title })));
       });
-      if (!have.length) pages.appendChild(h('div', { class: 'ed-note', text: 'Torn pages turn up in chests and on the strongest monsters.' }));
+      if (!have.length) pages.appendChild(h('div', { class: 'ed-note', text: TX.story.tornPagesTurnUp }));
       // R7.10 / R7.11: the Relics and the Collection Book are one tap from the journal, wherever the player is
       const right = [];
-      if (ui._relicsBody && G.items && G.items.RELICS) right.push(ui._btn('Relics', function () { ui.open('relics'); }));
-      if (ui._frame && G.meta && G.meta.getMilestones) right.push(ui._btn('Milestones', function () { ui.open('milestones'); }));
-      if (ui._bookBody && G.items && G.items.collection) right.push(ui._btn('Book', function () { ui.open('collection'); }));
-      return ui._frame('Journal', { right: right }, h('div', { class: 'ed-body' }, h('div', { class: 'ed-list' }, story, pages)));
+      if (ui._relicsBody && G.items && G.items.RELICS) right.push(ui._btn(TX.common.relics, function () { ui.open('relics'); }));
+      if (ui._frame && G.meta && G.meta.getMilestones) right.push(ui._btn(TX.common.milestones, function () { ui.open('milestones'); }));
+      if (ui._bookBody && G.items && G.items.collection) right.push(ui._btn(TX.common.book, function () { ui.open('collection'); }));
+      return ui._frame(TX.common.journal, { right: right }, h('div', { class: 'ed-body' }, h('div', { class: 'ed-list' }, story, pages)));
     },
   });
 
@@ -364,17 +365,17 @@
       const mins = Math.floor((S.time || 0) / 60), f = S.flags;
       const relics = G.items && G.items.relicCount ? G.items.relicCount() : 0;
       const leave = function (home) { ui.close(); unlockEndgame(); if (home) G.scenes.enterTown(); };
-      return ui._frame('The Rift Core', { noClose: true }, h('div', { class: 'ed-body' }, h('div', { class: 'ed-list', style: 'text-align:center' },
+      return ui._frame(TX.story.theRiftCore, { noClose: true }, h('div', { class: 'ed-body' }, h('div', { class: 'ed-list', style: 'text-align:center' },
         h('div', { style: 'display:flex;justify-content:center;margin:6px 0' }, ui._emblem(64, true)),
         h('p', { class: 'ed-page', style: 'color:#dfc06a', text: names('The Hearthking is dead and {town} is warm. You carry {ember} now.') }),
         h('div', { class: 'ed-box' },
-          h('div', { class: 'ed-kv' }, h('span', { text: 'Time played' }), h('b', { text: mins + ' min' })),
-          h('div', { class: 'ed-kv' }, h('span', { text: 'Foes slain' }), h('b', { text: String(f.kills | 0) })),
-          h('div', { class: 'ed-kv' }, h('span', { text: 'Deaths' }), h('b', { text: String(f.deaths | 0) })),
-          relics ? h('div', { class: 'ed-kv' }, h('span', { text: 'Relics of the fallen' }), h('b', { text: relics + ' / 10' })) : null),
+          h('div', { class: 'ed-kv' }, h('span', { text: TX.story.timePlayed }), h('b', { text: mins + TX.story.min })),
+          h('div', { class: 'ed-kv' }, h('span', { text: TX.common.foesSlain }), h('b', { text: String(f.kills | 0) })),
+          h('div', { class: 'ed-kv' }, h('span', { text: TX.story.deaths }), h('b', { text: String(f.deaths | 0) })),
+          relics ? h('div', { class: 'ed-kv' }, h('span', { text: TX.story.relicsOfTheFallen }), h('b', { text: relics + ' / 10' })) : null),
         h('p', { class: 'ed-note', text: names('The rift goes on below. The deeper floors are open, and the Ember is hungry.') }),
         ui._btn('Go home to {town}'.replace('{town}', ui._townName()), function () { leave(true); }, 'big gold'),
-        ui._btn('Keep descending', function () { leave(false); }, 'big'))));
+        ui._btn(TX.story.keepDescending, function () { leave(false); }, 'big'))));
     },
   });
   G.on('object:interact', function (e) {

@@ -3,13 +3,14 @@
   'use strict';
   const G = window.G, S = G.state, C = G.C;
   const ui = G.ui;
+  const TX = ui.S;
   const h = ui._h;
 
   const AUTO = [
-    { mode: 'single', label: 'Single Target', desc: 'Boss killer: points go to skills that hit one foe hard.' },
-    { mode: 'aoe', label: 'Group Damage', desc: 'Pack clearer: points go to skills that hit many at once.' },
-    { mode: 'balanced', label: 'Balanced', desc: 'A bit of both: alternates single and group skills.' },
-    { mode: null, label: 'Manual', desc: 'You place every point yourself.' },
+    { mode: 'single', label: TX.skills.singleTarget, desc: TX.skills.bossKillerPointsGo },
+    { mode: 'aoe', label: TX.skills.groupDamage, desc: TX.skills.packClearerPointsGo },
+    { mode: 'balanced', label: TX.skills.balanced, desc: TX.skills.aBitOfBoth },
+    { mode: null, label: TX.skills.manual, desc: TX.skills.youPlaceEveryPoint },
   ];
   const TAG = { single: 'Single target', aoe: 'Group', defense: 'Defense', mobility: 'Mobility', summon: 'Summon', buff: 'Buff' };
   const CW = 72, RH = 74, NODE = 48;
@@ -33,7 +34,7 @@
       return h('button', { type: 'button', class: 'ed-autobtn' + (on ? ' on' : ''), 'aria-pressed': on ? 'true' : 'false', onclick: function () {
         ui._sfx('click');
         if (G.game.setAutoBuild) G.game.setAutoBuild(a.mode); else p.autoBuild = a.mode;
-        ui.toast(a.mode ? 'Auto-build: ' + a.label : 'Manual build', '#ffd94a');
+        ui.toast(a.mode ? TX.skills.autoBuild + a.label : 'Manual build', '#ffd94a');
         ui._refresh();
       } }, h('b', { text: a.label }), h('small', { text: a.desc }));
     }));
@@ -101,7 +102,7 @@
   function details(view, p) {
     const box = h('div', { class: 'ed-skinfo' });
     if (!view.sel || !G.game.SKILLS[view.sel]) {
-      box.appendChild(h('div', { class: 'ed-note', text: 'Tap a skill to see what it does. Tap it again (or press Learn) to spend a point.' }));
+      box.appendChild(h('div', { class: 'ed-note', text: TX.skills.tapASkillTo }));
       return box;
     }
     const i = info(view.sel);
@@ -113,15 +114,15 @@
     box.appendChild(h('div', { class: 'ed-note', text: [i.kind === 'passive' ? 'Passive' : 'Active'].concat(tags).join(' · ') }));
     box.appendChild(h('div', { style: 'margin:4px 0', text: i.desc || '' }));
     const meta = [];
-    if (i.mpCost) meta.push('Mana ' + ui._fmt(i.mpCost));
-    if (i.cooldown) meta.push('Cooldown ' + ui._fmt(i.cooldown) + 's');
+    if (i.mpCost) meta.push(TX.skills.mana + ui._fmt(i.mpCost));
+    if (i.cooldown) meta.push(TX.skills.cooldown + ui._fmt(i.cooldown) + 's');
     if (meta.length) box.appendChild(h('div', { style: 'color:#8ab0ff', text: meta.join('   ') }));
-    if (i.nextRankDesc && rank < max) box.appendChild(h('div', { class: 'ed-good', text: 'Next rank: ' + i.nextRankDesc }));
+    if (i.nextRankDesc && rank < max) box.appendChild(h('div', { class: 'ed-good', text: TX.skills.nextRank + i.nextRankDesc }));
     if (!i.learnable && rank < max && i.lockedReason) box.appendChild(h('div', { class: 'ed-bad', text: i.lockedReason }));
     // R3.8 synergies: points in another skill feed this one; active ones (you have ranks there) are lit
     const syn = Array.isArray(i.synergies) ? i.synergies : [];
     if (syn.length) {
-      box.appendChild(h('div', { class: 'ed-h', style: 'margin-top:6px', text: 'Synergies' }));
+      box.appendChild(h('div', { class: 'ed-h', style: 'margin-top:6px', text: TX.skills.synergies }));
       for (const s of syn) {
         const nm = s.name || (G.game.SKILLS[s.from] && G.game.SKILLS[s.from].name) || s.from;
         box.appendChild(h('div', { class: 'ed-syn' + (s.active ? ' on' : '') },
@@ -133,9 +134,9 @@
       const b = ui._btn(rank > 0 ? 'Rank up' : 'Learn', function () { learn(i.id); }, 'gold');
       if (!i.learnable) b.disabled = true;
       row.appendChild(b);
-    } else row.appendChild(h('span', { class: 'ed-gold', text: 'Mastered' }));
+    } else row.appendChild(h('span', { class: 'ed-gold', text: TX.skills.mastered }));
     if (i.kind !== 'passive' && rank > 0) {
-      row.appendChild(h('span', { class: 'ed-note', text: 'Slot:' }));
+      row.appendChild(h('span', { class: 'ed-note', text: TX.skills.slot }));
       for (let s = 0; s < C.SKILL_SLOTS; s++) {
         const curId = p.skillBar && p.skillBar[s];
         const b = ui._btn(curId && G.game.SKILLS[curId] ? ui._icon(G.game.SKILLS[curId].icon, 28) : String(s + 1), function () {
@@ -160,20 +161,20 @@
   function respec(p) {
     let cost = null;
     if (G.game.getRespecCost) { try { cost = G.game.getRespecCost(); } catch (err) { cost = null; } }
-    ui._confirm('Unlearn everything? All skill and attribute points are refunded' + (cost != null ? ' for ' + ui._fmt(cost) + ' gold.' : ' for a fee in gold.'),
+    ui._confirm(TX.skills.unlearnEverythingAllSkill + (cost != null ? TX.filter.for + ui._fmt(cost) + TX.filter.gold : ' for a fee in gold.'),
       'Respec', function () {
         const done = G.game.respec ? G.game.respec() : false;
-        if (done) ui.toast('Your points have been refunded.', '#ffd94a');
-        else { ui._sfx('error'); ui.toast('The respec failed - not enough gold?', '#ff5b5b'); }
+        if (done) ui.toast(TX.skills.yourPointsHaveBeen, '#ffd94a');
+        else { ui._sfx('error'); ui.toast(TX.skills.theRespecFailedNot, '#ff5b5b'); }
         ui._refresh();
-      }, { danger: true, note: 'You have ' + ui._fmt(p.gold || 0) + ' gold.' });
+      }, { danger: true, note: TX.skills.youHave + ui._fmt(p.gold || 0) + TX.filter.gold });
   }
 
   ui._register('skills', {
     render: function (view) {
       const p = S.player;
       const cls = p && G.game && G.game.CLASSES && G.game.CLASSES[p.classId];
-      if (!cls || !G.game.SKILLS) return ui._frame('Skills', null, h('div', { class: 'ed-body', text: 'Skills are not available yet.' }));
+      if (!cls || !G.game.SKILLS) return ui._frame(TX.common.skills, null, h('div', { class: 'ed-body', text: TX.skills.skillsAreNotAvailable }));
       const trees = cls.trees || [];
       if (!(view.tree >= 0 && view.tree < trees.length)) {
         view.tree = 0;
@@ -196,10 +197,10 @@
           h('div', { class: 'ed-treewrap' }, tree && tree.desc ? h('div', { class: 'ed-note', style: 'text-align:center;margin-bottom:8px', text: tree.desc }) : null, tree ? treeEl(tree, view, p) : null)),
         details(view, p));
       const ptabs = ui._perkTabs ? ui._perkTabs() : null;
-      return ui._frame('Skills', {
+      return ui._frame(TX.common.skills, {
         tabs: ptabs, tab: 'skills', onTab: function (id) { if (id === 'perks') ui.open('perks'); },
         right: [h('span', { class: sp > 0 ? 'ed-gold' : 'ed-dim', style: 'margin-right:4px;white-space:nowrap', text: sp + ' pt' + (sp === 1 ? '' : 's') }),
-          ui._btn('Respec', function () { respec(p); })],
+          ui._btn(TX.common.respec, function () { respec(p); })],
         sub: autoBar(p),
       }, main);
     },

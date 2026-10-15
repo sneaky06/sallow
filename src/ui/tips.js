@@ -5,37 +5,38 @@
   'use strict';
   const G = window.G, S = G.state, C = G.C;
   const ui = G.ui;
+  const TX = ui.S;
   const h = ui._h;
 
   // id -> [title, text, icon]. Wording is data: the story/rename pass edits this table only.
   const ico = function (shape, color, accent) { return { shape: shape, color: color, accent: accent || '#ffffff' }; };
   const TIPS = {
-    rar_uncommon: ['Uncommon', 'Green gear carries a stat or two beyond the plain kind. Common grey is mostly vendor fodder.', ico('armor', '#4ddc6a')],
-    rar_rare: ['Rare', 'Blue gear has more and better stats. Worth comparing with what you wear: the arrow shows if it is better.', ico('armor', '#5b8cff')],
-    rar_magic: ['Magic', 'Purple gear glows faintly. Higher power, more affixes, and often sockets.', ico('armor', '#b65bff')],
-    rar_legendary: ['Legendary Elite', 'Yellow, and glowing: a named or set piece. Sets give bonuses when you wear several. Never sold by accident.', ico('armor', '#ffe45b')],
-    rar_mythic: ['Legendary Mythic', 'Orange: a mythic carries a special effect that can change how you fight. Read its plate.', ico('armor', '#ff8a2b')],
-    rar_unique: ['Unique', 'Red and burning: very rare, very strong, usually with a price attached. Read all of it.', ico('armor', '#ff3b3b')],
-    rar_rift: ['Rift', 'Pink and pulsing: the rarest drop in the game, born deep in the rift. Keep it.', ico('armor', '#ff6aa8')],
-    sockets: ['Sockets', 'Small squares on an item are sockets. Fill one with a gem from your bag: select the gem, then Socket.', ico('gem', '#b65bff')],
-    gems: ['Gems', 'Gems add a bonus when socketed. Three of a kind combine into a better one at the mystic. The blacksmith improves them with gem dust.', ico('gem', '#7fd4ff')],
-    bloodstone: ['Bloodstones', 'Bloodstones are powerful but fuse to the item for good. You are asked before one is set.', ico('gem', '#d0202c')],
-    corrupted: ['Corrupted gear', 'Corrupted items hide a strong bonus and a drawback. The blacksmith can cleanse one: the drawback goes, a hidden bonus appears.', ico('armor', '#b98cff')],
-    materials: ['Materials', 'Dust, shards and class ore pay for upgrades, rerolls and cleansing at the blacksmith and mystic. They never take bag space.', ico('rune', '#8fb4ff')],
-    tome: ['Tome of Insight', 'Reading a Tome of Insight gives one skill point. Use it from your bag.', ico('tome', '#e8d8a0', '#b65bff')],
-    chute: ['The chute', 'Mark items and send them up the chute: they arrive at the surface crate in town. Selling and salvaging happen up there.', ico('bag', '#d8c9a3')],
-    surface: ['The surface crate', 'Everything you sent up the chute waits here. Sell it, salvage it, hand it to the Curator or stash it.', ico('chest', '#d8c9a3')],
-    crateRate: ['Bulk rate', 'Selling or salvaging straight from the crate pays a bulk rate: it starts at 50% of what a trader pays and rises, up to 80%, as you help the merchant and the blacksmith. Carry items to a trader for full price.', ico('chest', '#d8c9a3')],
-    curator: ['The Curator', 'The Curator keeps a book of every armour look and set. Pieces with a teal book mark fill a gap: hand them in for permanent rewards.', ico('scroll', '#9ae6d8')],
-    relic: ['Relics', 'A fallen adventurer leaves a relic: a permanent power. Collect all ten and they combine at the Elder.', ico('star', '#ffe45b')],
-    fallen: ['A fallen adventurer', 'Corrupted former adventurers wait on deeper floors. They are hard and optional. Beating one earns a relic.', ico('skull', '#ff6a5a')],
-    event: ['Timed event', 'Something is happening on this floor, and the clock is running. The goal and timer are on screen.', ico('rune', '#ff8a2b')],
-    pallor: ['Pallor', 'Pallor builds as you push deeper in the endgame. More of it means better loot and a harder rift.', ico('rune', '#f4f1ea')],
-    echo: ['Your Echo', 'What you left behind has risen as an Echo. Beat it and its reward is yours.', ico('skull', '#bfe6ff')],
-    shrine: ['Shrines', 'Shrines give a short boost when you touch them. Each works once.', ico('rune', '#7fd4ff')],
-    lockdown: ['Sealed rooms', 'The doors have shut. Survive the waves and the seal breaks, with a chest as the prize.', ico('rune', '#d12b30')],
-    dash: ['Dash', 'The dash button moves you out of danger in a flash. It recharges over time.', ico('slash', '#ffb0a0')],
-    closecall: ['Close Call', 'Stepping out of a danger circle at the last moment gives a damage boost and shortens your cooldowns.', ico('ring', '#7fffd4')],
+    rar_uncommon: [TX.tipcards.rar_uncommonTitle, TX.tipcards.rar_uncommonText, ico('armor', '#4ddc6a')],
+    rar_rare: [TX.tipcards.rar_rareTitle, TX.tipcards.rar_rareText, ico('armor', '#5b8cff')],
+    rar_magic: [TX.tipcards.rar_magicTitle, TX.tipcards.rar_magicText, ico('armor', '#b65bff')],
+    rar_legendary: [TX.tipcards.rar_legendaryTitle, TX.tipcards.rar_legendaryText, ico('armor', '#ffe45b')],
+    rar_mythic: [TX.tipcards.rar_mythicTitle, TX.tipcards.rar_mythicText, ico('armor', '#ff8a2b')],
+    rar_unique: [TX.tipcards.rar_uniqueTitle, TX.tipcards.rar_uniqueText, ico('armor', '#ff3b3b')],
+    rar_rift: [TX.tipcards.rar_riftTitle, TX.tipcards.rar_riftText, ico('armor', '#ff6aa8')],
+    sockets: [TX.tipcards.socketsTitle, TX.tipcards.socketsText, ico('gem', '#b65bff')],
+    gems: [TX.tipcards.gemsTitle, TX.tipcards.gemsText, ico('gem', '#7fd4ff')],
+    bloodstone: [TX.tipcards.bloodstoneTitle, TX.tipcards.bloodstoneText, ico('gem', '#d0202c')],
+    corrupted: [TX.tipcards.corruptedTitle, TX.tipcards.corruptedText, ico('armor', '#b98cff')],
+    materials: [TX.tipcards.materialsTitle, TX.tipcards.materialsText, ico('rune', '#8fb4ff')],
+    tome: [TX.tipcards.tomeTitle, TX.tipcards.tomeText, ico('tome', '#e8d8a0', '#b65bff')],
+    chute: [TX.tipcards.chuteTitle, TX.tipcards.chuteText, ico('bag', '#d8c9a3')],
+    surface: [TX.tipcards.surfaceTitle, TX.tipcards.surfaceText, ico('chest', '#d8c9a3')],
+    crateRate: [TX.tipcards.crateRateTitle, TX.tipcards.crateRateText, ico('chest', '#d8c9a3')],
+    curator: [TX.tipcards.curatorTitle, TX.tipcards.curatorText, ico('scroll', '#9ae6d8')],
+    relic: [TX.tipcards.relicTitle, TX.tipcards.relicText, ico('star', '#ffe45b')],
+    fallen: [TX.tipcards.fallenTitle, TX.tipcards.fallenText, ico('skull', '#ff6a5a')],
+    event: [TX.tipcards.eventTitle, TX.tipcards.eventText, ico('rune', '#ff8a2b')],
+    pallor: [TX.tipcards.pallorTitle, TX.tipcards.pallorText, ico('rune', '#f4f1ea')],
+    echo: [TX.tipcards.echoTitle, TX.tipcards.echoText, ico('skull', '#bfe6ff')],
+    shrine: [TX.tipcards.shrineTitle, TX.tipcards.shrineText, ico('rune', '#7fd4ff')],
+    lockdown: [TX.tipcards.lockdownTitle, TX.tipcards.lockdownText, ico('rune', '#d12b30')],
+    dash: [TX.tipcards.dashTitle, TX.tipcards.dashText, ico('slash', '#ffb0a0')],
+    closecall: [TX.tipcards.closecallTitle, TX.tipcards.closecallText, ico('ring', '#7fffd4')],
   };
   ui._TIPS = TIPS;
 
@@ -55,9 +56,9 @@
     if (!layer) return;
     const done = function () { if (Date.now() - shownAt < 400) return; ui._sfx('click'); hide(); };
     const body = h('div', { class: 'ed-tipbody' }, ui._icon(icon, 32), h('div', null, h('div', { class: 'ed-h', text: title }), h('p', { text: text })));
-    const off = ui._btn('Turn tips off', function () { if (Date.now() - shownAt < 400) return; S.settings.tips = false; queue.length = 0; hide(); ui.toast('Tips off. You can turn them on in the menu.', '#a89f8f'); });
-    const close = ui._modal(ui._dialog([body, h('div', { class: 'ed-note', style: 'margin-top:6px', text: 'Tap anywhere to continue' + (queue.length ? '  ·  ' + queue.length + ' more' : '') })],
-      [ui._btn('OK', done, 'gold'), off], 'ed-tipdlg'), { pause: true, dismiss: false });
+    const off = ui._btn(TX.tips.turnTipsOff, function () { if (Date.now() - shownAt < 400) return; S.settings.tips = false; queue.length = 0; hide(); ui.toast(TX.tips.tipsOffYouCan, '#a89f8f'); });
+    const close = ui._modal(ui._dialog([body, h('div', { class: 'ed-note', style: 'margin-top:6px', text: TX.tips.tapAnywhereToContinue + (queue.length ? '  ·  ' + queue.length + TX.tips.more : '') })],
+      [ui._btn(TX.tips.ok, done, 'gold'), off], 'ed-tipdlg'), { pause: true, dismiss: false });
     curClose = close;
     curEl = layer.lastChild;
     shownAt = Date.now();

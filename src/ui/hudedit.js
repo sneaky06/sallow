@@ -13,6 +13,7 @@
   'use strict';
   const G = window.G, S = G.state;
   const ui = G.ui;
+  const TX = ui.S;
   const h = ui._h;
 
   const GRID = 16;                                  // snap step in CSS px (the editor draws the same grid)
@@ -106,7 +107,7 @@
     hud.classList.add('ed-editing');
     ed = { bg: h('div', { class: 'ed-editbg' }), bar: h('div', { class: 'ed-editbar' }), grabs: [], o: orient() };
     hud.insertBefore(ed.bg, hud.firstChild);
-    const pieces = [{ id: 'joy', el: joyEl, label: 'Stick' }];
+    const pieces = [{ id: 'joy', el: joyEl, label: TX.hudedit.stick }];
     const M = ui._hudMovables || {};
     for (const id in M) pieces.push({ id: id, el: M[id].el, label: M[id].label });
     for (const p of pieces) {
@@ -132,7 +133,7 @@
     if (!ui.isOpen()) S.paused = false;
     if (save !== false) {
       if (G.meta && G.meta.save) G.meta.save();
-      ui.toast('HUD layout saved.', '#dfc06a');
+      ui.toast(TX.hudedit.hudLayoutSaved, '#dfc06a');
     }
   }
   ui._isEditingHud = function () { return !!ed; };
@@ -203,20 +204,20 @@
     };
     const pct = Math.round(s.opacity * 100);
     ed.bar.replaceChildren(
-      h('div', { class: 'ed-grip' }, h('span', { text: 'Edit HUD' }), h('small', { text: (o === 'portrait' ? 'Portrait' : 'Landscape') + ' · drag to move' })),
+      h('div', { class: 'ed-grip' }, h('span', { text: TX.hudedit.editHud }), h('small', { text: (o === 'portrait' ? 'Portrait' : 'Landscape') + TX.hudedit.dragToMove })),
       // one wrapping row: 3 lines in portrait, 2 in landscape (wide buttons carry class w2)
       h('div', { class: 'ed-editrow' },
         w2(opt('Floating stick', s.joystick.mode === 'floating', function () { s.joystick.mode = 'floating'; })),
         w2(opt('Fixed stick', s.joystick.mode === 'fixed', function () { s.joystick.mode = 'fixed'; })),
         ['S', 'M', 'L'].map(function (k) { return opt('Size ' + k, s.size === k, function () { s.size = k; }); }),
         opt('Fade ' + pct + '%', false, function () { s.opacity = OPACITY[(OPACITY.indexOf(s.opacity) + 1) % OPACITY.length]; }),
-        w2(ui._btn('Reset', function () {
-          ui._confirm('Put every button back where it started (' + (o === 'portrait' ? 'portrait' : 'landscape') + ' layout), size M, no fade?', 'Reset', function () {
+        w2(ui._btn(TX.hudedit.reset, function () {
+          ui._confirm(TX.hudedit.putEveryButtonBack + (o === 'portrait' ? 'portrait' : 'landscape') + TX.hudedit.layoutSizeMNo, 'Reset', function () {
             s.layouts[o] = {}; s.size = 'M'; s.opacity = 1;
             applied = ''; apply(); fillBar();
           }, { danger: true });
         }, 'danger')),
-        w2(ui._btn('Done', function () { endEdit(true); }, 'gold'))));
+        w2(ui._btn(TX.common.done, function () { endEdit(true); }, 'gold'))));
   }
   function w2(b) { b.classList.add('w2'); return b; }
 

@@ -5,10 +5,11 @@
   'use strict';
   const G = window.G, S = G.state;
   const ui = G.ui;
+  const TX = ui.S;
   const h = ui._h;
 
   const TEXT = {
-    title: 'Go deeper?',
+    title: TX.deeper.goDeeper,
     stay: 'Stay', go: 'Descend',
     noAsk: 'Don\'t ask again this run',
     nextTier: 'Pallor {tier} brings',
@@ -43,8 +44,8 @@
     if (typeof l === 'number') return '+' + Math.round(l) + '%';
     if (l && typeof l === 'object') {
       const parts = [];
-      if (l.quantity != null || l.qty != null) parts.push('+' + Math.round(l.quantity != null ? l.quantity : l.qty) + '% items');
-      if (l.rarity != null || l.magicFind != null) parts.push('+' + Math.round(l.rarity != null ? l.rarity : l.magicFind) + '% rarity');
+      if (l.quantity != null || l.qty != null) parts.push('+' + Math.round(l.quantity != null ? l.quantity : l.qty) + TX.deeper.items);
+      if (l.rarity != null || l.magicFind != null) parts.push('+' + Math.round(l.rarity != null ? l.rarity : l.magicFind) + TX.deeper.rarity);
       if (l.text) parts.push(String(l.text));
       return parts.join(', ');
     }
@@ -99,9 +100,9 @@
 
     const body = [
       h('div', { class: 'ed-dptitle', text: TEXT.title }),
-      h('div', { class: 'ed-dpdepth', text: 'Depth ' + (S.depth | 0) + '  ▶  ' + toD + (ui._themeName ? '  ·  ' + ui._themeName(toD) : '') }),
+      h('div', { class: 'ed-dpdepth', text: TX.deeper.depth + (S.depth | 0) + '  ▶  ' + toD + (ui._themeName ? '  ·  ' + ui._themeName(toD) : '') }),
       h('div', { class: 'ed-dprow' },
-        h('span', { class: 'ed-dpt t' + Math.min(4, now.tier), text: 'Pallor ' + now.value + (now.tier ? ' ' + (ROMAN[now.tier] || '') : '') }),
+        h('span', { class: 'ed-dpt t' + Math.min(4, now.tier), text: TX.deeper.pallor + now.value + (now.tier ? ' ' + (ROMAN[now.tier] || '') : '') }),
         h('span', { class: 'ed-dpt t' + Math.min(4, next.tier), text: '▶ ' + next.value + (next.tier ? ' ' + (ROMAN[next.tier] || '') : '') })),
       bar(now, next),
       lines,

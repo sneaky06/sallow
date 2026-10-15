@@ -5,6 +5,7 @@
   'use strict';
   const G = window.G, S = G.state;
   const ui = G.ui;
+  const TX = ui.S;
   const h = ui._h, fmt = ui._fmt;
 
   function co() { return G.items && G.items.collection && typeof G.items.collection.getPages === 'function' ? G.items.collection : null; }
@@ -17,18 +18,18 @@
     if (!r) return '';
     const parts = [];
     if (r.buff && r.buff.length) parts.push(buffText(r.buff));
-    if (r.title) parts.push('Title: ' + r.title);
+    if (r.title) parts.push(TX.curator.title + r.title);
     return parts.join(' · ');
   }
   function tierText(t) {
     const parts = [];
     if (t.mats) parts.push(ui._matsText(t.mats));
     if (t.buff && t.buff.length) parts.push(buffText(t.buff));
-    if (t.stash) parts.push('+' + t.stash + ' stash row' + (t.stash > 1 ? 's' : ''));
-    parts.push('title ' + t.name);
+    if (t.stash) parts.push('+' + t.stash + TX.curator.stashRow + (t.stash > 1 ? 's' : ''));
+    parts.push(TX.curator.title2 + t.name);
     return parts.join(' · ');
   }
-  const KINDS = [['all', 'All'], ['armour', 'Armour'], ['weapon', 'Weapons'], ['set', 'Sets']];
+  const KINDS = [['all', TX.curator.all], ['armour', TX.curator.armour], ['weapon', TX.curator.weapons], ['set', TX.curator.sets]];
   function kindOf(pg) {
     if (pg.kind === 'weapon') return 'weapon';
     if (pg.kind === 'heavy' || pg.kind === 'light' || pg.kind === 'cloth') return 'armour';
@@ -62,7 +63,7 @@
   }
 
   function register(w) {
-    if (S.scene !== 'town') { ui._sfx('error'); ui.toast('The Curator takes pieces in town. Send them up the chute.', '#a89f8f'); return; }      // R8.1
+    if (S.scene !== 'town') { ui._sfx('error'); ui.toast(TX.curator.theCuratorTakesPieces, '#a89f8f'); return; }      // R8.1
     ui._sendToCurator(w.index, w.source === 'stash' ? 'stash' : undefined);
     ui._refreshNow();
   }
@@ -71,19 +72,19 @@
   function handIn() {
     const c = co();
     const body = h('div', { class: 'ed-body' });
-    if (!c) { body.appendChild(h('div', { class: 'ed-note', text: 'The Curator has nothing to say yet.' })); return body; }
+    if (!c) { body.appendChild(h('div', { class: 'ed-note', text: TX.curator.theCuratorHasNothing })); return body; }
     const list = wantedList(), pages = pageMap();
     const bag = list.filter(function (w) { return w.source === 'bag'; });
     const loose = S.scene === 'town' ? bag.filter(function (w) { return !w.item.locked; }).length : 0;
     const auto = c.isAuto && c.isAuto();
-    const all = ui._btn(loose ? 'Hand in all (' + loose + ')' : 'Nothing to hand in', function () {
+    const all = ui._btn(loose ? TX.curator.handInAll + loose + ')' : 'Nothing to hand in', function () {
       let n = 0;
       try { n = c.registerAll() | 0; } catch (err) { console.error('[ui registerAll]', err); }
       ui._sfx(n ? 'quest' : 'error');
       ui._refreshNow();
     }, 'gold');
     if (!loose) all.disabled = true;
-    const auto2 = ui._btn('Auto: ' + (auto ? 'On' : 'Off'), function () {
+    const auto2 = ui._btn(TX.curator.auto + (auto ? 'On' : 'Off'), function () {
       try { c.setAuto(!auto); } catch (err) { /* ignore */ }
       if (G.meta && G.meta.save) G.meta.save();
       ui._refreshNow();
@@ -101,13 +102,13 @@
         h('i', { class: 'bk' }));
       const look = h('button', { type: 'button', class: 'ed-btn ed-pinfo', 'aria-label': 'Look at ' + w.item.name, onclick: function (e) {
         e.stopPropagation(); ui._sfx('click');
-        ui._showItem(w.item, [{ label: 'Hand in', cls: 'gold', fn: function () { register(w); } }], { lock: false });
+        ui._showItem(w.item, [{ label: TX.common.handIn, cls: 'gold', fn: function () { register(w); } }], { lock: false });
       } }, '?');
       return h('div', { style: 'display:flex;align-items:center' }, b, look);
     };
-    if (!list.length) body.appendChild(h('div', { class: 'ed-box ed-note', text: 'Nothing you carry fills a gap in the book. Look for the teal book mark on drops.' }));
+    if (!list.length) body.appendChild(h('div', { class: 'ed-box ed-note', text: TX.curator.nothingYouCarryFills }));
     else {
-      body.appendChild(h('div', { class: 'ed-h', text: 'Wanted pieces' }));
+      body.appendChild(h('div', { class: 'ed-h', text: TX.curator.wantedPieces }));
       list.forEach(function (w) { body.appendChild(row(w)); });
     }
     return body;
@@ -120,16 +121,16 @@
       h('div', { class: 't' }, h('b', { class: pg.done ? 'ed-gold' : null, text: pg.name }),
         h('span', { class: pg.done ? 'ed-gold' : 'ed-dim', text: (pg.done ? '✓ ' : '') + pg.count + '/' + pg.total })),
       h('div', { class: 'ed-prog' + (full ? ' done' : '') }, h('i', { style: 'width:' + (pg.total ? Math.round(pg.count / pg.total * 100) : 0) + '%' })),
-      h('small', { text: (KIND_NAME[pg.kind] || pg.kind) + ' · ' + (pg.hint || '') + (inBag ? '  ·  ' + inBag + ' in your bag' : '') }));
+      h('small', { text: (KIND_NAME[pg.kind] || pg.kind) + ' · ' + (pg.hint || '') + (inBag ? '  ·  ' + inBag + TX.curator.inYourBag : '') }));
   }
 
   function pageDetail(view, pg, wl) {
     const body = h('div', { class: 'ed-body' });
     body.appendChild(h('div', { class: 'ed-box' },
       h('div', { class: 'ed-h', text: pg.name }),
-      h('div', { class: 'ed-kv' }, h('span', { text: 'Collected' }), h('b', { text: pg.count + ' / ' + pg.total })),
+      h('div', { class: 'ed-kv' }, h('span', { text: TX.curator.collected }), h('b', { text: pg.count + ' / ' + pg.total })),
       h('div', { class: 'ed-prog' + (pg.done ? ' done' : '') }, h('i', { style: 'width:' + (pg.total ? Math.round(pg.count / pg.total * 100) : 0) + '%' })),
-      h('div', { class: 'ed-note', text: 'Drops: ' + (pg.hint || 'unknown') }),
+      h('div', { class: 'ed-note', text: TX.curator.drops + (pg.hint || 'unknown') }),
       h('div', { class: pg.done ? 'ed-gold' : 'ed-note', style: 'margin-top:4px', text: (pg.done ? 'Claimed: ' : 'Reward: ') + rewardText(pg.reward) })));
     const mine = wl.filter(function (w) { return w.page === pg.id; });
     body.appendChild(h('div', { class: 'ed-slots' }, pg.entries.map(function (e) {
@@ -140,16 +141,16 @@
       }
       if (heldHere) {
         return h('button', { type: 'button', class: 'ed-slot', style: 'border-style:solid;border-color:#2fb7a6;text-align:left;pointer-events:auto', onclick: function () { register(heldHere); } },
-          h('i', { class: 'bk' }), h('div', null, e.label, h('small', { style: 'color:' + ui._rarityColor(heldHere.item.rarity), text: 'Tap to hand in: ' + heldHere.item.name })));
+          h('i', { class: 'bk' }), h('div', null, e.label, h('small', { style: 'color:' + ui._rarityColor(heldHere.item.rarity), text: TX.curator.tapToHandIn + heldHere.item.name })));
       }
-      return h('div', { class: 'ed-slot' }, h('span', { class: 'ck', style: 'color:#4a433c', text: '?' }), h('div', null, e.label, h('small', { text: 'Missing' })));
+      return h('div', { class: 'ed-slot' }, h('span', { class: 'ck', style: 'color:#4a433c', text: '?' }), h('div', null, e.label, h('small', { text: TX.curator.missing })));
     })));
     return body;
   }
 
   function bookBody(view) {
     const c = co();
-    if (!c) return h('div', { class: 'ed-body' }, h('div', { class: 'ed-note', text: 'The Collection Book is not available yet.' }));
+    if (!c) return h('div', { class: 'ed-body' }, h('div', { class: 'ed-note', text: TX.curator.theCollectionBookIs }));
     let pages = [], prog = null;
     try { pages = c.getPages() || []; prog = c.getProgress ? c.getProgress() : null; } catch (err) { console.error('[ui collection]', err); }
     const wl = wantedList();
@@ -161,15 +162,15 @@
     const body = h('div', { class: 'ed-body' });
     if (prog) {
       body.appendChild(h('div', { class: 'ed-box', style: 'margin-bottom:8px' },
-        h('div', { class: 'ed-kv' }, h('b', { class: 'ed-gold', text: 'Pages complete' }), h('b', { text: prog.pages + ' / ' + prog.total })),
+        h('div', { class: 'ed-kv' }, h('b', { class: 'ed-gold', text: TX.curator.pagesComplete }), h('b', { text: prog.pages + ' / ' + prog.total })),
         h('div', { class: 'ed-prog' + (prog.pages >= prog.total ? ' done' : '') }, h('i', { style: 'width:' + (prog.total ? Math.round(prog.pages / prog.total * 100) : 0) + '%' })),
         (prog.tiers || []).map(function (t) {
           return h('div', { class: 'ed-tier' + (t.claimed ? ' on' : '') }, h('b', { text: t.claimed ? '✓' : t.need }),
-            h('span', null, t.name, h('div', { class: 'ed-note', text: (t.claimed ? 'Claimed: ' : 'At ' + t.need + ' pages: ') + tierText(t) })));
+            h('span', null, t.name, h('div', { class: 'ed-note', text: (t.claimed ? 'Claimed: ' : TX.curator.at + t.need + TX.curator.pages) + tierText(t) })));
         }),
-        prog.stash ? h('div', { class: 'ed-note', style: 'margin-top:4px', text: 'Extra stash rows from the book: ' + prog.stash }) : null));
+        prog.stash ? h('div', { class: 'ed-note', style: 'margin-top:4px', text: TX.curator.extraStashRowsFrom + prog.stash }) : null));
       if (prog.titles && prog.titles.length) {
-        body.appendChild(h('div', { class: 'ed-h', text: 'Titles' }));
+        body.appendChild(h('div', { class: 'ed-h', text: TX.curator.titles }));
         body.appendChild(h('div', { class: 'ed-seg', style: 'flex-wrap:wrap' }, prog.titles.map(function (t) {
           return ui._btn(t, function () { S.flags.title = S.flags.title === t ? null : t; if (G.meta && G.meta.save) G.meta.save(); ui._refreshNow(); }, S.flags.title === t ? 'gold on' : '');
         })));
@@ -191,9 +192,9 @@
   ui._register('collection', {
     render: function (view) {
       if (!view.tab) view.tab = ui._wantedCount() > 0 ? 'hand' : 'book';
-      const back = view.tab === 'book' && view.page ? [ui._btn('◀ Pages', function () { view.page = null; ui._refreshNow(); })] : null;
-      return ui._frame('Collection', {
-        tabs: [{ id: 'hand', label: 'Hand in', badge: ui._wantedCount() || null }, { id: 'book', label: 'Book' }],
+      const back = view.tab === 'book' && view.page ? [ui._btn(TX.common.pages, function () { view.page = null; ui._refreshNow(); })] : null;
+      return ui._frame(TX.curator.collection, {
+        tabs: [{ id: 'hand', label: TX.common.handIn, badge: ui._wantedCount() || null }, { id: 'book', label: TX.common.book }],
         tab: view.tab, onTab: function (id) { view.tab = id; ui._refreshNow(); }, right: back,
       }, view.tab === 'hand' ? handIn() : bookBody(view));
     },
@@ -203,18 +204,18 @@
   function relicsBody() {
     const I = G.items;
     const body = h('div', { class: 'ed-body' });
-    if (!I || !I.RELICS || !I.RELIC_IDS) { body.appendChild(h('div', { class: 'ed-note', text: 'The fallen have left nothing yet.' })); return body; }
+    if (!I || !I.RELICS || !I.RELIC_IDS) { body.appendChild(h('div', { class: 'ed-note', text: TX.curator.theFallenHaveLeft })); return body; }
     const ids = I.RELIC_IDS;
     const held = ids.filter(function (id) { return I.hasRelic(id); });
     const combined = !!(I.relicsCombined && I.relicsCombined());
     body.appendChild(h('div', { class: 'ed-box', style: 'margin-bottom:8px' },
-      h('div', { class: 'ed-kv' }, h('b', { class: 'ed-gold', text: 'Relics claimed' }), h('b', { text: held.length + ' / ' + ids.length })),
+      h('div', { class: 'ed-kv' }, h('b', { class: 'ed-gold', text: TX.curator.relicsClaimed }), h('b', { text: held.length + ' / ' + ids.length })),
       h('div', { class: 'ed-prog' + (held.length >= ids.length ? ' done' : '') }, h('i', { style: 'width:' + Math.round(held.length / ids.length * 100) + '%' })),
       h('div', { class: 'ed-note', text: combined ? 'Combined: the fallen fight beside you.' : 'Each fallen adventurer leaves a permanent power. Claim all ten and they combine into something greater.' })));
     const T = I.RELICS_COMBINED;
     if (I.canCombineRelics && I.canCombineRelics()) {
       const town = S.scene === 'town';
-      const b = ui._btn('Combine the relics' + (T && T.name ? ': ' + T.name : ''), function () {
+      const b = ui._btn(TX.curator.combineTheRelics + (T && T.name ? ': ' + T.name : ''), function () {
         let done = false;
         try { done = !!I.combineRelics(); } catch (err) { console.error('[ui combineRelics]', err); }
         ui._sfx(done ? 'quest' : 'error');
@@ -223,7 +224,7 @@
       b.style.width = '100%'; b.style.marginBottom = '8px';
       if (!town) b.disabled = true;
       body.appendChild(b);
-      if (!town) body.appendChild(h('div', { class: 'ed-note', style: 'margin:-4px 0 8px', text: 'The Elder in ' + (ui._townName ? ui._townName() : 'town') + ' can bind them.' }));
+      if (!town) body.appendChild(h('div', { class: 'ed-note', style: 'margin:-4px 0 8px', text: TX.curator.theElderIn + (ui._townName ? ui._townName() : 'town') + TX.curator.canBindThem }));
     }
     if (combined && T) {
       body.appendChild(h('div', { class: 'ed-box', style: 'margin-bottom:8px;border-color:#a8873a' },
@@ -240,7 +241,7 @@
       const cls = G.game && G.game.CLASSES && G.game.CLASSES[r.classId];
       if (!has) {
         grid.appendChild(h('div', { class: 'ed-relic', 'aria-label': 'Unclaimed relic' }, h('div', { class: 'sil', text: '?' }),
-          h('div', null, h('b', { class: 'ed-dim', text: '???' }), h('small', { text: 'Near depth ' + r.depth + ((cls && cls.name) ? ' · ' + cls.name : '') }))));
+          h('div', null, h('b', { class: 'ed-dim', text: '???' }), h('small', { text: TX.curator.nearDepth + r.depth + ((cls && cls.name) ? ' · ' + cls.name : '') }))));
         return;
       }
       grid.appendChild(h('div', { class: 'ed-relic have' }, h('div', { class: 'sil', text: '✦' }),
@@ -253,7 +254,7 @@
   }
   ui._relicsBody = relicsBody;
   ui._relicsCount = function () { try { return G.items && G.items.relicCount ? G.items.relicCount() : 0; } catch (err) { return 0; } };
-  ui._register('relics', { render: function () { return ui._frame('Relics', null, relicsBody()); } });
+  ui._register('relics', { render: function () { return ui._frame(TX.common.relics, null, relicsBody()); } });
 
   // Isra's own words when a page or milestone completes (story_data.js CURATOR); the items team's toast carries the numbers
   function curatorSays(list) {
@@ -261,7 +262,7 @@
     const l = D && D[list];
     if (!l || !l.length) return;
     const nm = G.meta._fillNames || String;
-    setTimeout(function () { ui._banner('Isra Vell', nm(l[Math.floor(Math.random() * l.length)]), '#7fd4c8', 5); }, 900);
+    setTimeout(function () { ui._banner(TX.curator.israVell, nm(l[Math.floor(Math.random() * l.length)]), '#7fd4c8', 5); }, 900);
   }
   G.on('collection:page', function () { curatorSays('pageDone'); });
   G.on('collection:tier', function () { curatorSays('tierDone'); });

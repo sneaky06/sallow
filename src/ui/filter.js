@@ -6,11 +6,12 @@
   'use strict';
   const G = window.G, S = G.state, C = G.C;
   const ui = G.ui;
+  const TX = ui.S;
   const h = ui._h, fmt = ui._fmt;
 
   const RARITIES = ['common', 'uncommon', 'rare', 'magic'];            // Legendary and above are never part of a bulk action
-  const SLOTS = [['weapon', 'Weapon'], ['offhand', 'Off-hand'], ['helm', 'Helm'], ['chest', 'Chest'], ['gloves', 'Gloves'], ['boots', 'Boots'], ['belt', 'Belt'], ['amulet', 'Amulet'], ['ring', 'Ring']];
-  const TOGGLES = [['upgrades', 'Upgrades ▲'], ['locked', 'Locked'], ['socketed', 'With gems'], ['sets', 'Set pieces'], ['wanted', 'Book pieces'], ['corrupted', 'Corrupted']];
+  const SLOTS = [['weapon', TX.common.weapon], ['offhand', TX.filter.offHand], ['helm', TX.common.helm], ['chest', TX.filter.chest], ['gloves', TX.common.gloves], ['boots', TX.common.boots], ['belt', TX.common.belt], ['amulet', TX.common.amulet], ['ring', TX.common.ring]];
+  const TOGGLES = [['upgrades', TX.filter.upgrades], ['locked', TX.filter.locked], ['socketed', TX.filter.withGems], ['sets', TX.filter.setPieces], ['wanted', TX.filter.bookPieces], ['corrupted', TX.filter.corrupted]];
   const DEFAULT = { rarity: 'uncommon', ilvl: 0, power: 0, slots: [], upgrades: false, locked: false, socketed: true, sets: false, wanted: false, corrupted: true };
   const PRESETS = [
     { name: 'Trash', f: { rarity: 'common' } },
@@ -49,7 +50,7 @@
     if (role !== 'merchant' && role !== 'blacksmith') return null;
     const kind = role === 'merchant' ? 'sell' : 'salvage', L = (S.flags.loyalty && S.flags.loyalty[kind]) || 0;
     const n = Math.max(0, Math.min(3, Math.round(L * 10)));
-    return h('div', { class: 'ed-loyal', title: 'Loyalty raises what the crate pays for ' + kind }, 'Loyalty ' + '★'.repeat(n) + '☆'.repeat(3 - n), h('small', { text: '  crate ' + kind + ' ' + Math.round(rateOf(kind) * 100) + '%' }));
+    return h('div', { class: 'ed-loyal', title: TX.filter.loyaltyRaisesWhatThe + kind }, TX.filter.loyalty + '★'.repeat(n) + '☆'.repeat(3 - n), h('small', { text: TX.filter.crate + kind + ' ' + Math.round(rateOf(kind) * 100) + '%' }));
   };
 
   // does this item belong to filter f? (equipment only)
@@ -102,15 +103,15 @@
       if (r) done++;
     });
     ui._sfx(done ? (verb === 'sell' ? 'sell' : 'click') : 'error');
-    if (done) ui.toast((verb === 'sell' ? 'Sold ' : 'Salvaged ') + done + ' item' + (done === 1 ? '' : 's') + (verb === 'sell' ? ' for ' + fmt(gold) + ' gold.' : '.'), '#dfc06a');
+    if (done) ui.toast((verb === 'sell' ? 'Sold ' : 'Salvaged ') + done + TX.chute.item + (done === 1 ? '' : 's') + (verb === 'sell' ? TX.filter.for + fmt(gold) + TX.filter.gold : '.'), '#dfc06a');
     ui._refreshNow();
     return done;
   }
 
   function describe(f) {
     const parts = ['≤ ' + (C.RARITY[f.rarity] ? C.RARITY[f.rarity].name : f.rarity)];
-    if (f.ilvl > 0) parts.push('level < ' + f.ilvl);
-    if (f.power > 0) parts.push('Power < ' + f.power);
+    if (f.ilvl > 0) parts.push(TX.filter.level + f.ilvl);
+    if (f.power > 0) parts.push(TX.filter.power + f.power);
     if (f.slots && f.slots.length) parts.push(f.slots.map(function (s) { return (SLOTS.filter(function (x) { return x[0] === s; })[0] || [0, s])[1]; }).join('/'));
     return parts.join(' · ');
   }
@@ -118,11 +119,11 @@
   // sell / salvage with a confirm that names the count and the gold
   function confirmRun(source, f, verb, after) {
     const pv = preview(source, f);
-    if (!pv.count) { ui._sfx('error'); ui.toast('Nothing matches this filter.', '#a89f8f'); return; }
+    if (!pv.count) { ui._sfx('error'); ui.toast(TX.filter.nothingMatchesThisFilter, '#a89f8f'); return; }
     const rate = source === 'surface' ? Math.round(bulkRate() * 100) : 0;
-    ui._confirm((verb === 'sell' ? 'Sell ' : 'Salvage ') + pv.count + ' item' + (pv.count === 1 ? '' : 's') + (verb === 'sell' ? ' for about ' + fmt(pv.gold) + ' gold' : '') + '?', verb === 'sell' ? 'Sell' : 'Salvage', function () { run(source, f, verb); if (after) after(); }, {
+    ui._confirm((verb === 'sell' ? 'Sell ' : 'Salvage ') + pv.count + TX.chute.item + (pv.count === 1 ? '' : 's') + (verb === 'sell' ? TX.filter.forAbout + fmt(pv.gold) + TX.filter.gold2 : '') + '?', verb === 'sell' ? 'Sell' : 'Salvage', function () { run(source, f, verb); if (after) after(); }, {
       danger: verb !== 'sell',
-      note: (pv.gems > 0 ? pv.gems + ' socketed gem' + (pv.gems === 1 ? '' : 's') + ' will be ground to dust. ' : '') +
+      note: (pv.gems > 0 ? pv.gems + TX.chute.socketedGem + (pv.gems === 1 ? '' : 's') + TX.filter.willBeGroundTo : '') +
         (rate ? 'Bulk rate: ' + rate + '% of the trader\'s price. ' : '') + 'Locked items, Legendary and better, and anything your filter leaves out are kept.' });
   }
 
@@ -140,28 +141,28 @@
     const fill = function () {
       const sf = store(), pv = preview(source, f);
       box.replaceChildren.apply(box, [
-        h('div', { class: 'ed-h', text: 'Sell / salvage filter' }),
+        h('div', { class: 'ed-h', text: TX.filter.sellSalvageFilter }),
         h('div', { class: 'ed-seg', style: 'flex-wrap:wrap' }, sf.presets.map(function (p, i) {
           return ui._btn(p.name, function () { Object.keys(f).forEach(function (k) { delete f[k]; }); Object.assign(f, DEFAULT, JSON.parse(JSON.stringify(p.f))); save(); fill(); }, '');
         })),
-        h('div', { class: 'ed-note', text: 'Rarity at or below' }),
+        h('div', { class: 'ed-note', text: TX.filter.rarityAtOrBelow }),
         h('div', { class: 'ed-seg' }, RARITIES.map(function (r) { const rr = C.RARITY[r]; const b = chip(rr ? rr.name : r, f.rarity === r, function () { f.rarity = r; }); b.style.color = rr ? rr.color : ''; return b; })),
         stepper('Item level below', 'ilvl', 5, 100),
         stepper('Power below', 'power', 50, 5000),
-        h('div', { class: 'ed-note', text: 'Slots (none chosen = all)' }),
+        h('div', { class: 'ed-note', text: TX.filter.slotsNoneChosenAll }),
         h('div', { class: 'ed-seg', style: 'flex-wrap:wrap' }, SLOTS.map(function (s) {
           return chip(s[1], f.slots.indexOf(s[0]) >= 0, function () { const i = f.slots.indexOf(s[0]); if (i >= 0) f.slots.splice(i, 1); else f.slots.push(s[0]); });
         })),
-        h('div', { class: 'ed-note', text: 'Also include (tap to switch)' }),
+        h('div', { class: 'ed-note', text: TX.filter.alsoIncludeTapTo }),
         h('div', { class: 'ed-seg', style: 'flex-wrap:wrap' }, TOGGLES.map(function (t) { return chip(t[1] + ': ' + (f[t[0]] ? 'yes' : 'no'), !!f[t[0]], function () { f[t[0]] = !f[t[0]]; }); })),
-        h('div', { class: 'ed-box', style: 'margin-top:6px' }, h('div', { class: 'ed-kv' }, h('span', { text: 'Matches now' }), h('b', { class: pv.count ? 'ed-gold' : 'ed-dim', text: pv.count + ' item' + (pv.count === 1 ? '' : 's') + (source === 'surface' ? ' · ' : ' · ') + fmt(pv.gold) + ' g' })),
+        h('div', { class: 'ed-box', style: 'margin-top:6px' }, h('div', { class: 'ed-kv' }, h('span', { text: TX.filter.matchesNow }), h('b', { class: pv.count ? 'ed-gold' : 'ed-dim', text: pv.count + TX.chute.item + (pv.count === 1 ? '' : 's') + (source === 'surface' ? ' · ' : ' · ') + fmt(pv.gold) + ' g' })),
           source === 'surface' ? h('div', { class: 'ed-note', text: ui._bulkLine() }) : null),
         h('div', { class: 'ed-seg', style: 'margin-top:6px' },
-          ui._btn('Save as preset', function () {
-            sf.presets.push({ name: 'Mine ' + (sf.presets.length + 1), f: JSON.parse(JSON.stringify(f)) }); if (sf.presets.length > 6) sf.presets.splice(3, 1);
-            save(); ui.toast('Preset saved.', '#a89f8f'); fill();
+          ui._btn(TX.filter.saveAsPreset, function () {
+            sf.presets.push({ name: TX.filter.mine + (sf.presets.length + 1), f: JSON.parse(JSON.stringify(f)) }); if (sf.presets.length > 6) sf.presets.splice(3, 1);
+            save(); ui.toast(TX.filter.presetSaved, '#a89f8f'); fill();
           }),
-          ui._btn('Delete preset', function () {
+          ui._btn(TX.filter.deletePreset, function () {
             const i = sf.presets.findIndex(function (p) { return JSON.stringify(Object.assign({}, DEFAULT, p.f)) === JSON.stringify(f); });
             if (i >= 0) { sf.presets.splice(i, 1); save(); fill(); } else ui._sfx('error');
           }))]);
@@ -169,9 +170,9 @@
     box = h('div', { class: 'ed-list ed-fbuilder' });
     fill();
     close = ui._modal(ui._dialog([box], [
-      ui._btn('Sell', function () { confirmRun(source, f, 'sell', function () { close(); if (after) after(); }); }, 'gold'),
-      ui._btn('Salvage', function () { confirmRun(source, f, 'salvage', function () { close(); if (after) after(); }); }),
-      ui._btn('Done', function () { close(); if (after) after(); })]));
+      ui._btn(TX.common.sell, function () { confirmRun(source, f, 'sell', function () { close(); if (after) after(); }); }, 'gold'),
+      ui._btn(TX.common.salvage, function () { confirmRun(source, f, 'salvage', function () { close(); if (after) after(); }); }),
+      ui._btn(TX.common.done, function () { close(); if (after) after(); })]));
   }
 
   // ---------- the box shown in the Sell tab / the crate ----------
@@ -179,14 +180,14 @@
     const f = cur(), pv = preview(source, f);
     const canSell = source === 'surface' ? !!(G.items && G.items.surfaceSell) : !!(G.items && G.items.sell);
     const canSalv = source === 'surface' ? !!(G.items && G.items.surfaceSalvage) : !!(G.items && G.items.salvage);
-    const sell = ui._btn('Sell ' + pv.count + ' · ' + fmt(pv.gold) + 'g', function () { confirmRun(source, f, 'sell'); }, pv.count ? 'gold' : '');
-    const salv = ui._btn('Salvage', function () { confirmRun(source, f, 'salvage'); });
+    const sell = ui._btn(TX.filter.sell + pv.count + ' · ' + fmt(pv.gold) + 'g', function () { confirmRun(source, f, 'sell'); }, pv.count ? 'gold' : '');
+    const salv = ui._btn(TX.common.salvage, function () { confirmRun(source, f, 'salvage'); });
     if (!pv.count || !canSell) sell.disabled = true;
     if (!pv.count || !canSalv) salv.disabled = true;
     return h('div', { class: 'ed-box ed-fbox' },
-      h('div', { class: 'ed-kv' }, h('span', { text: 'Sell filter' }), h('b', { text: describe(f) })),
-      h('div', { class: 'ed-fbtns' }, sell, salv, ui._btn('Edit', function () { builder(source, ui._refreshNow); })),
-      source === 'surface' ? h('div', { class: 'ed-note', text: ui._bulkLine() + ' Carry items to a trader for full price.' }) : null);
+      h('div', { class: 'ed-kv' }, h('span', { text: TX.filter.sellFilter }), h('b', { text: describe(f) })),
+      h('div', { class: 'ed-fbtns' }, sell, salv, ui._btn(TX.filter.edit, function () { builder(source, ui._refreshNow); })),
+      source === 'surface' ? h('div', { class: 'ed-note', text: ui._bulkLine() + TX.filter.carryItemsToA }) : null);
   };
   ui._openFilter = builder;
 })();

@@ -8,6 +8,7 @@
   'use strict';
   const G = window.G, S = G.state;
   const ui = G.ui;
+  const TX = ui.S;
   const h = ui._h;
 
   const BRANCH_NAME = { craft: 'Craft', edge: 'Edge', cross: 'Crossroads', crossroads: 'Crossroads' };
@@ -71,27 +72,27 @@
     let close = null;
     const rows = [
       h('div', { class: 'ed-h', text: info.name }),
-      info.keystone ? h('div', { class: 'ed-keytag', text: 'KEYSTONE: a rule change, with a price' }) : null,
+      info.keystone ? h('div', { class: 'ed-keytag', text: TX.perks.keystoneARuleChange }) : null,
       h('p', { class: 'ed-perkdesc', text: (info.keystone && info.body) || info.text || 'No description yet.' }),
-      info.drawback ? h('p', { class: 'ed-bad ed-perkdesc', text: 'Price: ' + info.drawback }) : null,
-      info.licence ? h('p', { class: 'ed-perkdesc ed-gold', text: 'Licence: ' + (Array.isArray(info.licence) ? info.licence.join(', ') : String(info.licence)) }) : null,
-      h('div', { class: 'ed-kv' }, h('span', { text: 'Cost' }), h('b', { text: info.cost + (info.cost > 1 ? ' points or Marks' : ' point or Mark') })),
+      info.drawback ? h('p', { class: 'ed-bad ed-perkdesc', text: TX.inventory.price + info.drawback }) : null,
+      info.licence ? h('p', { class: 'ed-perkdesc ed-gold', text: TX.perks.licence + (Array.isArray(info.licence) ? info.licence.join(', ') : String(info.licence)) }) : null,
+      h('div', { class: 'ed-kv' }, h('span', { text: TX.perks.cost }), h('b', { text: info.cost + (info.cost > 1 ? ' points or Marks' : ' point or Mark') })),
     ];
     const acts = [];
     if (state === 'owned' || state === 'wager') {
       rows.push(h('div', { class: 'ed-gold', text: state === 'wager' ? 'On the line: lost if you die before reaching town.' : 'You have this perk.' }));
     } else if (state === 'open') {
-      const bp = ui._btn('Buy · ' + info.cost + ' pt' + (info.cost > 1 ? 's' : ''), function () { close(); buy(info.id, {}); }, 'gold');
+      const bp = ui._btn(TX.perks.buy + info.cost + ' pt' + (info.cost > 1 ? 's' : ''), function () { close(); buy(info.id, {}); }, 'gold');
       if (pt.points < info.cost) bp.disabled = true;
       acts.push(bp);
-      if (pt.marks > 0) { const bm = ui._btn('Spend a Mark', function () { close(); buy(info.id, { mark: true }); }, 'gold'); if (pt.marks < info.cost) bm.disabled = true; acts.push(bm); }
-      const bw = ui._btn('Wager', function () { close(); buy(info.id, { wager: true }); });
+      if (pt.marks > 0) { const bm = ui._btn(TX.perks.spendAMark, function () { close(); buy(info.id, { mark: true }); }, 'gold'); if (pt.marks < info.cost) bm.disabled = true; acts.push(bm); }
+      const bw = ui._btn(TX.perks.wager, function () { close(); buy(info.id, { wager: true }); });
       if (!pt.wagerAvailable || info.canWager === false) bw.disabled = true;
       acts.push(bw);
-      rows.push(h('div', { class: 'ed-wager' }, h('i', { class: 'candle' }), h('div', null, h('b', { text: 'Wager it' }),
+      rows.push(h('div', { class: 'ed-wager' }, h('i', { class: 'candle' }), h('div', null, h('b', { text: TX.perks.wagerIt }),
         h('span', { text: pt.wagerOpen ? 'A wager is already lit.' : (!pt.wagerAvailable ? 'You already wagered in this act.' : WAGER_TERMS) }))));
     } else rows.push(h('div', { class: 'ed-note', text: state === 'taken' ? 'You chose the other perk of this tier.' : (info.lockedReason || 'Choose a perk in the tier below first.') }));
-    acts.push(ui._btn('Close', function () { close(); }));
+    acts.push(ui._btn(TX.common.close, function () { close(); }));
     close = ui._modal(ui._dialog(rows, acts, 'ed-perkdlg'));
   }
 
@@ -118,7 +119,7 @@
       if (picked) chosen++;
       const open = prevChosen;                                    // a tier opens once the one below has a perk
       tiersEl.push(h('div', { class: 'ed-ptier' + (open ? '' : ' shut') },
-        h('div', { class: 'ed-ptlabel' }, h('span', { text: 'Tier ' + (t.index + 1) }), h('em', { text: open ? (picked ? 'chosen' : 'choose one') : '🔒 needs tier ' + t.index })),
+        h('div', { class: 'ed-ptlabel' }, h('span', { text: TX.perks.tier + (t.index + 1) }), h('em', { text: open ? (picked ? 'chosen' : 'choose one') : TX.perks.needsTier + t.index })),
         h('div', { class: 'ed-ppair' }, infos.map(function (info) {
           let state = 'open';
           if (info.owned) state = (info.how === 'wager' || (S.player && S.player.wager === info.id)) ? 'wager' : 'owned';
@@ -135,7 +136,7 @@
 
   function counters(pt) {
     return h('div', { class: 'ed-pcount' },
-      h('span', { class: pt.points > 0 ? 'ed-gold' : 'ed-dim', text: pt.points + ' point' + (pt.points === 1 ? '' : 's') }),
+      h('span', { class: pt.points > 0 ? 'ed-gold' : 'ed-dim', text: pt.points + TX.perks.point + (pt.points === 1 ? '' : 's') }),
       h('span', { class: 'marks' + (pt.marks > 0 ? ' lit' : ''), 'aria-label': pt.marks + ' Marks' }, h('i', { class: 'mark' }), pt.marks + ' Mark' + (pt.marks === 1 ? '' : 's')),
       pt.wagerOpen ? h('span', { class: 'ed-gold' }, h('i', { class: 'candle' }), ' wager lit') : null);
   }
@@ -144,26 +145,26 @@
     let cost = 40 * (p.level || 1), free = false;
     if (has('getPerkRespecCost')) { try { cost = G.game.getPerkRespecCost() | 0; free = cost === 0; } catch (err) { /* keep ours */ } }
     let close = null;
-    close = ui._modal(ui._dialog([h('div', { class: 'ed-h', text: 'Respec perks' }),
-      h('p', { class: 'ed-perkdesc', text: 'Points and Marks come back. ' + (free ? 'This one is free (once per act).' : 'It costs ' + cost + ' gold now (free once per act).') + ' A lit wager cannot be respecced.' }),
-      h('p', { class: 'ed-bad ed-perkdesc', text: 'Off-class weapon licences are taken back too: using that gear again brings the damage penalty back.' })],
+    close = ui._modal(ui._dialog([h('div', { class: 'ed-h', text: TX.perks.respecPerks }),
+      h('p', { class: 'ed-perkdesc', text: TX.perks.pointsAndMarksCome + (free ? 'This one is free (once per act).' : TX.perks.itCosts + cost + TX.perks.goldNowFreeOnce) + TX.perks.aLitWagerCannot }),
+      h('p', { class: 'ed-bad ed-perkdesc', text: TX.perks.offClassWeaponLicences })],
     [ui._btn('Respec' + (free ? '' : ' · ' + cost + 'g'), function () {
       close();
       let r = null;
       try { r = has('respecPerks') ? G.game.respecPerks() : false; } catch (err) { console.error('[ui respecPerks]', err); }
       ui._sfx(r === false ? 'error' : 'shrine');
       ui._refreshNow();
-    }, 'danger'), ui._btn('Cancel', function () { close(); })]));
+    }, 'danger'), ui._btn(TX.common.cancel, function () { close(); })]));
   }
 
   ui._register('perks', {
     render: function (view) {
       const p = S.player;
-      const tabs = [{ id: 'skills', label: 'Skills' }, { id: 'perks', label: 'Perks', badge: points().marks > 0 ? '★' : null }];
+      const tabs = [{ id: 'skills', label: TX.common.skills }, { id: 'perks', label: TX.perks.perks, badge: points().marks > 0 ? '★' : null }];
       const head = { compact: true, tabs: tabs, tab: 'perks', onTab: function (id) { if (id === 'skills') ui.open('skills'); } };
-      if (!p) return ui._frame('Perks', head, h('div', { class: 'ed-body' }));
+      if (!p) return ui._frame(TX.perks.perks, head, h('div', { class: 'ed-body' }));
       const tree = readTree(p.classId);
-      if (!tree || !tree.length) return ui._frame('Perks', head, h('div', { class: 'ed-body' }, h('div', { class: 'ed-box ed-note', text: 'Perks are not available yet.' })));
+      if (!tree || !tree.length) return ui._frame(TX.perks.perks, head, h('div', { class: 'ed-body' }, h('div', { class: 'ed-box ed-note', text: TX.perks.perksAreNotAvailable })));
       if (!view.branch || !tree.some(function (b) { return b.id === view.branch; })) view.branch = tree[0].id;
       if (!view.tipped) { view.tipped = true; if (ui._tip) ui._tip('perks'); }
       const pt = points();
@@ -171,16 +172,16 @@
         return h('button', { type: 'button', class: 'ed-tab' + (b.id === view.branch ? ' on' : ''), onclick: function () { ui._sfx('click'); view.branch = b.id; ui._refreshNow(); } }, b.name);
       }));
       const cols = h('div', { class: 'ed-pcols' }, tree.map(function (b) { const el = branchEl(b); if (b.id !== view.branch) el.classList.add('off'); return el; }));
-      head.right = [ui._btn('Respec', function () { respec(p); })];
+      head.right = [ui._btn(TX.common.respec, function () { respec(p); })];
       head.sub = h('div', { class: 'ed-psub' }, counters(pt), sel);
-      return ui._frame('Perks', head, h('div', { class: 'ed-body' }, cols, h('div', { class: 'ed-note', style: 'margin-top:8px', text: 'Tap a perk for the details. Marks come from skilled play: they buy perks the same as points.' })));
+      return ui._frame(TX.perks.perks, head, h('div', { class: 'ed-body' }, cols, h('div', { class: 'ed-note', style: 'margin-top:8px', text: TX.perks.tapAPerkFor })));
     },
   });
 
   // the Skills screen gets the same tab row
   ui._perkTabs = function () {
     if (!has('getPerkTree')) return null;
-    return [{ id: 'skills', label: 'Skills' }, { id: 'perks', label: 'Perks', badge: points().marks > 0 ? '★' : null }];
+    return [{ id: 'skills', label: TX.common.skills }, { id: 'perks', label: TX.perks.perks, badge: points().marks > 0 ? '★' : null }];
   };
 
   // ---------- events ----------
@@ -198,10 +199,10 @@
     ui._refresh();
   });
   G.on('perk:lost', function (e) {
-    ui._banner('Wager lost: ' + perkInfo(e && e.id).name, 'You died before reaching town. The perk is gone.', '#ff5a50', 5);
+    ui._banner(TX.perks.wagerLost + perkInfo(e && e.id).name, 'You died before reaching town. The perk is gone.', '#ff5a50', 5);
     ui._refresh();
   });
-  G.on('perk:won', function (e) { ui._banner('Wager won: ' + perkInfo(e && e.id).name, 'You reached town alive. It is yours for good.', '#ffd94a', 4); ui._refresh(); });
+  G.on('perk:won', function (e) { ui._banner(TX.perks.wagerWon + perkInfo(e && e.id).name, 'You reached town alive. It is yours for good.', '#ffd94a', 4); ui._refresh(); });
   G.on('perk:respec', function () { ui._refresh(); });
 
   // ---------- HUD candle while a wager is lit ----------
@@ -221,15 +222,15 @@
       if (key === last) return;
       last = key;
       candle.style.display = key ? 'block' : 'none';
-      if (key) candle.lastChild.textContent = ' Wager: ' + perkInfo(key).name;
+      if (key) candle.lastChild.textContent = TX.perks.wager2 + perkInfo(key).name;
       if (ui._setTrkTop) ui._setTrkTop();
     };
   })());
 
   // ---------- first-time tips (pause-style cards, tips.js) ----------
   if (ui._TIPS) {
-    ui._TIPS.marks = ['Marks', 'A Mark is earned by skilled play: a top-grade floor, a long Flow chain, a boss beaten without a potion. A Mark buys any perk just like a point. When one is unspent, the Perks tab glows.', { shape: 'star', color: '#ffe45b' }];
-    ui._TIPS.wager = ['Wagers', 'A wagered perk costs nothing now, but if you die before you next reach town it is lost. Reach town alive and it is yours for good. One wager per act.', { shape: 'rune', color: '#ffb347' }];
-    ui._TIPS.perks = ['Perks', 'Perks change how you play. Each tier is a choice between two: pick one and the other closes. A tier opens once you have a perk in the tier below.', { shape: 'star', color: '#9cc2ff' }];
+    ui._TIPS.marks = [TX.tipcards.marksTitle, TX.tipcards.marksText, { shape: 'star', color: '#ffe45b' }];
+    ui._TIPS.wager = [TX.tipcards.wagerTitle, TX.tipcards.wagerText, { shape: 'rune', color: '#ffb347' }];
+    ui._TIPS.perks = [TX.tipcards.perksTitle, TX.tipcards.perksText, { shape: 'star', color: '#9cc2ff' }];
   }
 })();

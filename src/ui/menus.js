@@ -3,6 +3,7 @@
   'use strict';
   const G = window.G, S = G.state, C = G.C;
   const ui = G.ui;
+  const TX = ui.S;
   const h = ui._h;
 
   const THEME_COLOR = { crypt: '#b8b8c8', caves: '#7fd4ff', inferno: '#ff8a2b', abyss: '#b65bff' };
@@ -13,12 +14,12 @@
       const way = (S.flags.waypoints || [1]).slice().sort(function (a, b) { return a - b; });
       if (way.indexOf(1) < 0) way.unshift(1);
       const list = h('div', { class: 'ed-list' },
-        h('div', { class: 'ed-note', text: 'Deepest reached: depth ' + (S.flags.maxDepth | 0) + '. Slaying a boss opens a waypoint to the floor below it.' }));
+        h('div', { class: 'ed-note', text: TX.menus.deepestReachedDepth + (S.flags.maxDepth | 0) + '. Slaying a boss opens a waypoint to the floor below it.' }));
       const corpse = S.flags.corpse;
       if (corpse) {
         const near = way.filter(function (d) { return d <= corpse.depth; }).pop() || 1;
         list.appendChild(h('div', { class: 'ed-box', style: 'color:#ff6a5a' }, '☠ Your corpse lies on depth ' + corpse.depth + '.',
-          h('div', { class: 'ed-note', text: (corpse.gold | 0) + ' gold and ' + corpse.items.length + ' item' + (corpse.items.length === 1 ? '' : 's') + ' wait there. ' +
+          h('div', { class: 'ed-note', text: (corpse.gold | 0) + TX.menus.goldAnd + corpse.items.length + TX.chute.item + (corpse.items.length === 1 ? '' : 's') + TX.menus.waitThere +
             (near === corpse.depth ? '' : 'Nearest waypoint: depth ' + near + '. ') + (ui._echoText ? ui._echoText('corpseNote') : 'Die again first and they are lost.') })));
       }
       way.forEach(function (d) {
@@ -26,14 +27,14 @@
         const here = S.scene === 'dungeon' && S.depth === d;
         const mine = corpse && corpse.depth === d;
         const b = h('button', { type: 'button', class: 'ed-btn', onclick: function () { ui._sfx('stairs'); G.scenes.enterDungeon(d); } },
-          h('span', null, 'Depth ' + d + (d % C.BOSS_EVERY === 0 ? '  (boss)' : ''), mine ? h('span', { style: 'color:#ff6a5a', text: '  ☠ corpse' }) : null),
+          h('span', null, TX.deeper.depth + d + (d % C.BOSS_EVERY === 0 ? '  (boss)' : ''), mine ? h('span', { style: 'color:#ff6a5a', text: TX.menus.corpse }) : null),
           h('span', { style: 'color:' + (THEME_COLOR[theme] || '#d8c9a3'), text: here ? 'You are here' : ui._themeName(d) }));
         if (here) b.disabled = true;
         list.appendChild(b);
       });
       if (S.scene === 'dungeon') {
         list.appendChild(h('button', { type: 'button', class: 'ed-btn', onclick: function () { ui._sfx('stairs'); G.scenes.enterTown(); } },
-          h('span', null, ui._townName()), h('span', { class: 'ed-gold', text: 'Town' })));
+          h('span', null, ui._townName()), h('span', { class: 'ed-gold', text: TX.menus.town })));
       }
       return ui._frame(arg && arg.type === 'waypoint' ? 'Waypoint' : 'Descend', null, h('div', { class: 'ed-body' }, list));
     },
@@ -63,12 +64,12 @@
           'Your ghost will guard it: slay it or slip past to reach the corpse. Die again first and it is all lost.' + (lost > 0 ? ' You also lose ' + lost + ' gold.' : ' Your equipped gear, potions and materials are safe.');
       } else msg = lost > 0 ? 'You lose ' + lost + ' gold.' : 'You lose nothing but time.';
       return [
-        h('h1', { text: 'You have died' }),
-        h('div', { class: 'ed-dim', text: S.depth > 0 ? 'Slain on depth ' + S.depth + ' of ' + ui._themeName(S.depth) + '.' : 'Slain.' }),
+        h('h1', { text: TX.menus.youHaveDied }),
+        h('div', { class: 'ed-dim', text: S.depth > 0 ? TX.menus.slainOnDepth + S.depth + TX.menus.of + ui._themeName(S.depth) + '.' : 'Slain.' }),
         h('div', { style: 'max-width:300px;line-height:18px', class: pen.retrievable ? null : 'ed-gold', text: msg }),
         // R6.2: any death while a corpse exists abandons it, and the abandoned remains rise as the Echo
-        old && old.depth ? h('div', { style: 'max-width:300px;color:#bfe6ff', text: ui._echoText && !S.flags.echo ? ui._echoText('deathScreen', old.depth) : 'What you left on depth ' + old.depth + ' is gone for good.' }) : null,
-        ui._btn('Rise in ' + ui._townName(), function () {
+        old && old.depth ? h('div', { style: 'max-width:300px;color:#bfe6ff', text: ui._echoText && !S.flags.echo ? ui._echoText('deathScreen', old.depth) : TX.menus.whatYouLeftOn + old.depth + TX.menus.isGoneForGood }) : null,
+        ui._btn(TX.menus.riseIn + ui._townName(), function () {
           try { G.scenes.respawn(); } catch (err) { console.error('[ui respawn]', err); ui.close(); }
         }, 'big gold'),
       ];
@@ -145,23 +146,23 @@
     if (off.state === 'ready') { text = 'Offline ready'; cls = 'ed-good'; }
     else if (off.state === 'partial') {
       text = 'Offline: ' + st.missing.length + ' file' + (st.missing.length === 1 ? '' : 's') + ' missing'; cls = 'ed-bad';
-      extra = ui._btn('Download again', function () { ui._offlineRepair(); ui.toast('Fetching the missing files...', '#a89f8f'); });
+      extra = ui._btn(TX.menus.downloadAgain, function () { ui._offlineRepair(); ui.toast(TX.menus.fetchingTheMissingFiles, '#a89f8f'); });
     } else if (off.state === 'unsupported') { text = 'Not available here'; cls = 'ed-dim'; }
     else { text = 'Preparing...'; cls = 'ed-dim'; }
     const note = off.state === 'ready' ? 'The whole game is stored on this device (' + st.cached + ' files). Your save never leaves it.'
       : off.state === 'unsupported' ? 'Offline play needs the game opened from a web address (https), ideally added to the Home Screen.'
         : off.state === 'partial' ? 'Go online once and tap Download again.' : 'Stay online for a moment while the game is stored on this device.';
     return [
-      h('div', { class: 'ed-box' }, h('div', { class: 'ed-kv' }, h('span', { text: 'Status' }), h('b', { class: cls, text: text })),
+      h('div', { class: 'ed-box' }, h('div', { class: 'ed-kv' }, h('span', { text: TX.menus.status }), h('b', { class: cls, text: text })),
         h('div', { class: 'ed-note', text: note }),
         // R7: can the browser throw the save away? (iOS may clear storage of a site that is not kept persistent)
-        h('div', { class: 'ed-kv', style: 'margin-top:6px' }, h('span', { text: 'Storage' }),
+        h('div', { class: 'ed-kv', style: 'margin-top:6px' }, h('span', { text: TX.menus.storage }),
           h('b', { class: off.persisted === true ? 'ed-good' : (off.persisted === false ? 'ed-bad' : 'ed-dim'),
             text: off.persisted === true ? 'persistent' : (off.persisted === false ? 'may be cleared by iOS' : 'unknown') })),
-        off.persisted === false ? h('div', { class: 'ed-note', text: 'Use Copy save code now and then to keep a copy outside the game. Adding the game to the Home Screen helps.' }) : null),
+        off.persisted === false ? h('div', { class: 'ed-note', text: TX.menus.useCopySaveCode }) : null),
       extra,
-      off.waiting ? ui._btn('Update now (saves and restarts)', function () { ui._applyUpdate(); }, 'gold') : null,
-      h('div', { class: 'ed-note', style: 'text-align:center', text: ui.GAME_NAME + ' ' + (ui._VERSION || '') + (st && st.version ? '  ·  data ' + String(st.version).replace(/^[a-z]+-/, '') : '') }),
+      off.waiting ? ui._btn(TX.menus.updateNowSavesAnd, function () { ui._applyUpdate(); }, 'gold') : null,
+      h('div', { class: 'ed-note', style: 'text-align:center', text: ui.GAME_NAME + ' ' + (ui._VERSION || '') + (st && st.version ? TX.menus.data + String(st.version).replace(/^[a-z]+-/, '') : '') }),
     ];
   }
 
@@ -176,8 +177,8 @@
       const filterLabel = ui._tierName(cur) + (cur === FILTERS[0] ? ' (all)' : (cur === FILTERS[FILTERS.length - 1] ? '' : '+'));
       const mins = Math.floor((S.time || 0) / 60);
       const list = h('div', { class: 'ed-list' },
-        ui._btn('Resume', function () { ui.close(); }, 'big gold'),
-        h('div', { class: 'ed-h', text: 'Settings' }),
+        ui._btn(TX.menus.resume, function () { ui.close(); }, 'big gold'),
+        h('div', { class: 'ed-h', text: TX.menus.settings }),
         toggleRow('Sound', null, !!st.sfx, function () { st.sfx = !st.sfx; G.emit('settings:changed', { key: 'sfx' }); }),
         volRows(),
         toggleRow('Loot labels', 'Hide ground loot below this quality', h('span', { style: 'color:' + rar.color, text: filterLabel }),
@@ -188,9 +189,9 @@
         toggleRow('Tips', 'Short hints the first time you meet something new', st.tips !== false, function () { st.tips = st.tips === false; }),
         toggleRow('Low effects', 'Fewer particles and lighter lighting, for older phones', !!st.lowFx, function () { st.lowFx = !st.lowFx; G.emit('settings:changed', { key: 'lowFx' }); }),
         toggleRow('FPS counter', 'Show frames per second in a corner', !!st.showFps, function () { st.showFps = !st.showFps; G.emit('settings:changed', { key: 'showFps' }); }),
-        ui._resetTips ?ui._btn('Reset tips', function () { ui._resetTips(); ui.toast('Tips will show again.', '#a89f8f'); }) : null,
+        ui._resetTips ?ui._btn(TX.menus.resetTips, function () { ui._resetTips(); ui.toast(TX.menus.tipsWillShowAgain, '#a89f8f'); }) : null,
         toggleRow('Damage numbers', null, !!st.showDamage, function () { st.showDamage = !st.showDamage; }),
-        h('div', { class: 'ed-h', text: 'Controls' }),
+        h('div', { class: 'ed-h', text: TX.menus.controls }),
         ui._hudSettings ? (function () {
           const hs = ui._hudSettings();
           return [
@@ -200,27 +201,27 @@
             toggleRow('Edit HUD layout', 'Move buttons, size, fade', h('span', { class: 'ed-gold', text: '>' }), function () { ui._editHud(); }),
           ];
         })() : null,
-        h('div', { class: 'ed-h', text: 'Junk rules' }),
+        h('div', { class: 'ed-h', text: TX.common.junkRules }),
         ui._junkBlock ? ui._junkBlock() : null,
         ui._junkButton ? ui._junkButton() : null,
-        h('div', { class: 'ed-h', text: 'Game' }),
-        ui._btn('Quest log', function () { ui.open('quests'); }),
-        ui._btn('Journal', function () { ui.open('journal'); }),
-        ui._btn('Save & quit to title', function () { quitToTitle(true); }),
-        ui._exportDialog ? ui._btn('Copy save code', ui._exportDialog) : null,
-        ui._importDialog ? ui._btn('Import save code', ui._importDialog) : null,
-        ui._btn('Delete save', function () {
-          ui._confirm('Delete this hero forever? This cannot be undone.', 'Delete', function () {
+        h('div', { class: 'ed-h', text: TX.menus.game }),
+        ui._btn(TX.menus.questLog, function () { ui.open('quests'); }),
+        ui._btn(TX.common.journal, function () { ui.open('journal'); }),
+        ui._btn(TX.menus.saveQuitToTitle, function () { quitToTitle(true); }),
+        ui._exportDialog ? ui._btn(TX.menus.copySaveCode, ui._exportDialog) : null,
+        ui._importDialog ? ui._btn(TX.common.importSaveCode, ui._importDialog) : null,
+        ui._btn(TX.menus.deleteSave, function () {
+          ui._confirm(TX.menus.deleteThisHeroForever, 'Delete', function () {
             quitToTitle(false);        // core.quitToMenu saves on the way out, so delete afterwards
             if (G.meta && G.meta.deleteSave) G.meta.deleteSave();
             if (ui._showTitle) ui._showTitle();
-            ui.toast('Save deleted.', '#ff5b5b');
+            ui.toast(TX.menus.saveDeleted, '#ff5b5b');
           }, { danger: true });
         }, 'danger'),
-        h('div', { class: 'ed-h', text: 'Offline play' }),
+        h('div', { class: 'ed-h', text: TX.menus.offlinePlay }),
         offlineRows(),
-        h('div', { class: 'ed-note', style: 'text-align:center', text: 'Played ' + mins + ' min  ·  ' + (S.flags.kills | 0) + ' kills  ·  ' + (S.flags.deaths | 0) + ' deaths' }));
-      return ui._frame('Paused', null, h('div', { class: 'ed-body' }, list));
+        h('div', { class: 'ed-note', style: 'text-align:center', text: TX.menus.played + mins + TX.menus.min + (S.flags.kills | 0) + TX.menus.kills + (S.flags.deaths | 0) + TX.menus.deaths }));
+      return ui._frame(TX.menus.paused, null, h('div', { class: 'ed-body' }, list));
     },
   });
   ui._register('settings', { alias: 'menu' });
@@ -233,8 +234,8 @@
       if (ctx && G.engine && G.engine.drawMinimap && S.map) {
         try { G.engine.drawMinimap(ctx, 240, 240); } catch (err) { console.error('[ui map]', err); }
       }
-      return ui._frame('Map', null, h('div', { class: 'ed-body' },
-        h('div', { class: 'ed-center', style: 'margin-bottom:6px', text: ui._themeName(S.depth) + (S.depth > 0 ? ' - depth ' + S.depth : '') }), cv));
+      return ui._frame(TX.common.map, null, h('div', { class: 'ed-body' },
+        h('div', { class: 'ed-center', style: 'margin-bottom:6px', text: ui._themeName(S.depth) + (S.depth > 0 ? TX.menus.depth + S.depth : '') }), cv));
     },
   });
 })();

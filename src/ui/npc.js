@@ -3,25 +3,26 @@
   'use strict';
   const G = window.G, S = G.state, C = G.C;
   const ui = G.ui;
+  const TX = ui.S;
   const h = ui._h, fmt = ui._fmt;
 
   // R12: every townsperson may give quests of their own; the tab shows only while they have some (story_data SIDE / VENDOR_QUESTS with a `role`)
   const hasQuests = function (role) { return !!(G.meta && G.meta.getQuests && G.meta.getQuests().some(function (q) { return q.giverRole === role && q.status !== 'done'; })); };
-  const QT = ['quests', 'Quests', hasQuests];
+  const QT = ['quests', TX.common.quests, hasQuests];
   const NPC = {
     // Buyback lives at the top of every Sell tab (R3 navigation pass: one tab fewer, one tap per item back).
-    merchant:    { title: 'Merchant',     line: 'Coin first, questions after. What do you need?',          tabs: [['buy', 'Buy'], ['sell', 'Sell'], QT] },
-    blacksmith:  { title: 'Blacksmith',   line: 'Steel does not lie. Show me what you carry.',             tabs: [['buy', 'Buy'], ['forge', 'Forge'], ['sell', 'Sell'], QT] },
-    mystic:      { title: 'Mystic',       line: 'The veil is thin tonight. Will you wager against it?',    tabs: [['gamble', 'Gamble'], ['enchant', 'Reroll'], ['buy', 'Buy'], ['sell', 'Sell'], QT] },
-    healer:      { title: 'Healer',       line: 'Sit. Bleed quietly. This will only take a moment.',       tabs: [['heal', 'Heal'], QT] },
+    merchant:    { title: TX.npc.merchant,     line: TX.npc.coinFirstQuestionsAfter,          tabs: [['buy', TX.npc.buy], ['sell', TX.common.sell], QT] },
+    blacksmith:  { title: TX.npc.blacksmith,   line: TX.npc.steelDoesNotLie,             tabs: [['buy', TX.npc.buy], ['forge', TX.npc.forge], ['sell', TX.common.sell], QT] },
+    mystic:      { title: TX.npc.mystic,       line: TX.npc.theVeilIsThin,    tabs: [['gamble', TX.npc.gamble], ['enchant', TX.npc.reroll], ['buy', TX.npc.buy], ['sell', TX.common.sell], QT] },
+    healer:      { title: TX.npc.healer,       line: TX.npc.sitBleedQuietlyThis,       tabs: [['heal', TX.npc.heal], QT] },
     // R7.10: the Relics tab appears once the player holds a relic (and stays after the combine)
-    elder:       { title: 'Elder',        line: 'The deep remembers every name. Make it remember yours.',  tabs: [['quests', 'Quests'], ['relics', 'Relics', function () { return ui._relicsCount && ui._relicsCount() > 0; }]] },
-    stashkeeper: { title: 'Stash Keeper', line: 'What you leave with me, the dark cannot take.',           tabs: [['stash', 'Stash'], QT] },
+    elder:       { title: TX.npc.elder,        line: TX.npc.theDeepRemembersEvery,  tabs: [['quests', TX.common.quests], ['relics', TX.common.relics, function () { return ui._relicsCount && ui._relicsCount() > 0; }]] },
+    stashkeeper: { title: TX.npc.stashKeeper, line: TX.npc.whatYouLeaveWith,           tabs: [['stash', TX.common.stash], QT] },
     // R7.11: the Curator keeps the Collection Book (curator.js)
     // R7.7 friendly floors: world places refugees and a camp merchant on cleansed floors (story_data.js CAMP supplies the people)
-    refugee:     { title: 'Refugee',      line: 'You came down here? For us?',                            tabs: [['talk', 'Talk'], QT] },
-    camp_merchant: { title: 'Camp Merchant', line: 'Found it on a dead man. Buy it anyway.',              tabs: [['buy', 'Buy'], ['sell', 'Sell'], QT] },
-    curator:     { title: 'Curator',      line: 'Every piece in its place. Show me what you carry.',       tabs: [['hand', 'Hand in'], ['book', 'Book'], QT] },
+    refugee:     { title: TX.npc.refugee,      line: TX.npc.youCameDownHere,                            tabs: [['talk', TX.npc.talk], QT] },
+    camp_merchant: { title: TX.npc.campMerchant, line: TX.npc.foundItOnA,              tabs: [['buy', TX.npc.buy], ['sell', TX.common.sell], QT] },
+    curator:     { title: TX.common.curator,      line: TX.npc.everyPieceInIts,       tabs: [['hand', TX.common.handIn], ['book', TX.common.book], QT] },
   };
   const NPC_SPRITE = {
     merchant: { body: 'humanoid', color: '#8a6a3a', accent: '#d8c9a3', scale: 1 },
@@ -53,8 +54,8 @@
     const nm = (G.meta._fillNames || String);
     return { id: who.id || null, name: who.name, look: who.look, line: nm(who.lines[(n - 1) % who.lines.length]), camp: camp.name };
   }
-  const GAMBLE_SLOTS = [['weapon', 'Weapon', 'sword'], ['offhand', 'Offhand', 'shield'], ['helm', 'Helm', 'helm'], ['chest', 'Armor', 'armor'],
-    ['gloves', 'Gloves', 'gloves'], ['boots', 'Boots', 'boots'], ['belt', 'Belt', 'belt'], ['amulet', 'Amulet', 'amulet'], ['ring', 'Ring', 'ring']];
+  const GAMBLE_SLOTS = [['weapon', TX.common.weapon, 'sword'], ['offhand', TX.npc.offhand, 'shield'], ['helm', TX.common.helm, 'helm'], ['chest', TX.common.armor, 'armor'],
+    ['gloves', TX.common.gloves, 'gloves'], ['boots', TX.common.boots, 'boots'], ['belt', TX.common.belt, 'belt'], ['amulet', TX.common.amulet, 'amulet'], ['ring', TX.common.ring, 'ring']];
   const STATUS = { available: ['New', '#ff8a2b'], active: ['Active', '#d8c9a3'], ready: ['Complete', '#ffd94a'], done: ['Done', '#8f8470'] };
 
   const call = ui._itemsCall;
@@ -66,7 +67,7 @@
 
   function potionRows(p) {
     if (!G.items || !G.items.buyPotion) return null;
-    return [['hp', 'Health Potion', '#d0202c'], ['mp', 'Mana Potion', '#2a56c6']].map(function (k) {
+    return [['hp', TX.npc.healthPotion, '#d0202c'], ['mp', TX.npc.manaPotion, '#2a56c6']].map(function (k) {
       let price = null;
       if (G.items.potionPrice) { try { price = G.items.potionPrice(k[0]); } catch (err) { price = null; } }
       return h('button', { type: 'button', class: 'ed-row', onclick: function () {
@@ -74,7 +75,7 @@
         ui._sfx(done ? 'buy' : 'error');
         ui._refreshNow();
       } }, ui._icon({ shape: 'potion', color: k[2] }, 32),
-        h('span', { class: 'n' }, k[1], h('small', { text: 'You carry ' + ((p.potions && p.potions[k[0]]) | 0) })),
+        h('span', { class: 'n' }, k[1], h('small', { text: TX.npc.youCarry + ((p.potions && p.potions[k[0]]) | 0) })),
         price != null ? h('span', { class: p.gold >= price ? 'ed-gold' : 'ed-bad', text: fmt(price) + ' g' }) : null);
     });
   }
@@ -91,7 +92,7 @@
       const v = ui._verdict(it);
       body.appendChild(h('button', { type: 'button', class: 'ed-row', onclick: function () {
         ui._sfx('click');
-        const b = { label: 'Buy ' + fmt(entry.price) + 'g', cls: 'gold', fn: function () {
+        const b = { label: TX.npc.buy2 + fmt(entry.price) + 'g', cls: 'gold', fn: function () {
           const done = call('buy', role, i);
           ui._sfx(done ? 'buy' : 'error');
         } };
@@ -101,7 +102,7 @@
           v === 'up' ? h('span', { class: 'ed-good', text: ' ▲' }) : (v === 'down' ? h('span', { class: 'ed-bad', text: ' ▼' }) : null)),
         h('span', { class: afford ? 'ed-gold' : 'ed-bad', text: fmt(entry.price) + ' g' })));
     });
-    if (!body.childNodes.length) body.appendChild(h('div', { class: 'ed-note', text: 'Nothing for sale right now.' }));
+    if (!body.childNodes.length) body.appendChild(h('div', { class: 'ed-note', text: TX.npc.nothingForSaleRight }));
     return body;
   }
 
@@ -109,11 +110,11 @@
   // and equip without leaving the shop.
   function gearToggle(view, stockFn, vrole, p, camp) {
     const body = view.gear ? h('div', { class: 'ed-body' },
-      h('div', { class: 'ed-note', style: 'margin-bottom:6px', text: 'Tap worn gear to unequip it, or a bag item to compare and equip.' }),
+      h('div', { class: 'ed-note', style: 'margin-bottom:6px', text: TX.npc.tapWornGearTo }),
       h('div', { class: 'ed-inv' }, h('div', { class: 'ed-dollwrap' }, ui._doll(p), ui._summary(p)), ui._invGrid(p, 'inv'))) : stockFn(vrole, p, vrole === 'merchant', camp ? 8 : 0);
     const sw = h('div', { class: 'ed-gearsw' },
-      ui._btn('For sale', function () { view.gear = false; ui._refreshNow(); }, view.gear ? '' : 'gold on'),
-      ui._btn('Your gear', function () { view.gear = true; ui._refreshNow(); }, view.gear ? 'gold on' : ''));
+      ui._btn(TX.npc.forSale, function () { view.gear = false; ui._refreshNow(); }, view.gear ? '' : 'gold on'),
+      ui._btn(TX.npc.yourGear, function () { view.gear = true; ui._refreshNow(); }, view.gear ? 'gold on' : ''));
     body.insertBefore(sw, body.firstChild);
     return body;
   }
@@ -135,7 +136,7 @@
     let list = [];
     if (G.items && G.items.getBuyback) { try { list = G.items.getBuyback() || []; } catch (err) { console.error('[ui buyback]', err); list = []; } }
     if (!list.length) return null;
-    const box = h('div', { class: 'ed-box', style: 'margin-bottom:8px' }, h('div', { class: 'ed-h', text: 'Sold — tap to buy back' }));
+    const box = h('div', { class: 'ed-box', style: 'margin-bottom:8px' }, h('div', { class: 'ed-h', text: TX.npc.soldTapToBuy }));
     list.forEach(function (entry, i) {
       if (max && i >= max) return;
       if (!entry || !entry.item) return;
@@ -161,21 +162,21 @@
   function massSell(r) {
     const name = (C.RARITY[r] && C.RARITY[r].name) || r;
     const pv = massPreview(r);
-    if (pv && !(pv.count > 0)) { ui._sfx('error'); ui.toast('Nothing ' + name + ' or below to sell.', '#a89f8f'); return; }
+    if (pv && !(pv.count > 0)) { ui._sfx('error'); ui.toast(TX.npc.nothing + name + TX.npc.orBelowToSell, '#a89f8f'); return; }
     const go = function () {
       let res = null;
       try { res = G.items.sellAtOrBelow(r); } catch (err) { console.error('[ui sellAtOrBelow]', err); }
-      if (res && res.count > 0) { ui._sfx('sell'); ui.toast('Sold ' + res.count + ' item' + (res.count === 1 ? '' : 's') + ' for ' + fmt(res.gold || 0) + ' gold.', '#dfc06a'); }
+      if (res && res.count > 0) { ui._sfx('sell'); ui.toast(TX.npc.sold + res.count + TX.chute.item + (res.count === 1 ? '' : 's') + TX.filter.for + fmt(res.gold || 0) + TX.filter.gold, '#dfc06a'); }
       else ui._sfx('error');
       ui._refreshNow();
     };
     const what = pv ? pv.count + ' item' + (pv.count === 1 ? '' : 's') + ' for ' + fmt(pv.gold || 0) + ' gold' : 'everything ' + name + ' or below';
-    ui._confirm('Sell ' + what + '?', 'Sell', go,
-      { note: (pv && pv.gems > 0 ? pv.gems + ' socketed gems will be ground to dust. ' : '') + 'Locked items, set pieces, Legendary items and Collection Book pieces are kept. You can buy items back until you next go down.' });
+    ui._confirm(TX.filter.sell + what + '?', 'Sell', go,
+      { note: (pv && pv.gems > 0 ? pv.gems + TX.npc.socketedGemsWillBe : '') + TX.npc.lockedItemsSetPieces });
   }
   function massRow() {
     if (!G.items || !G.items.sellAtOrBelow) return null;
-    return h('div', { class: 'ed-mass' }, h('span', { class: 'ed-note', text: 'Sell all' }), MASS.map(function (r) {
+    return h('div', { class: 'ed-mass' }, h('span', { class: 'ed-note', text: TX.npc.sellAll }), MASS.map(function (r) {
       const rar = C.RARITY[r];
       const pv = massPreview(r);
       const b = ui._btn([h('span', { text: '≤ ' + ((rar && rar.name) || r) }), pv ? h('small', { text: (pv.count | 0) + ' · ' + fmt(pv.gold || 0) + 'g' }) : null], function () { massSell(r); });
@@ -187,7 +188,7 @@
 
   function sellTab(role, p) {
     return h('div', { class: 'ed-body' }, buybackRows(p), ui._filterBox ? ui._filterBox('bag') : massRow(),
-      h('div', { class: 'ed-note', style: 'margin-bottom:6px', text: 'Tap an item to sell it. Lock an item in its tooltip to keep it safe.' }),
+      h('div', { class: 'ed-note', style: 'margin-bottom:6px', text: TX.npc.tapAnItemTo }),
       ui._invGrid(p, 'sell', role));
   }
 
@@ -195,11 +196,11 @@
   function forgeTab(p) {
     const mats = matsLine(p);
     return h('div', { class: 'ed-body' },
-      h('div', { class: 'ed-note', style: 'margin-bottom:6px', text: 'Tap gear to upgrade or break it down, a cut gem to improve it.' + (mats ? ' You have ' + mats + '.' : '') }),
+      h('div', { class: 'ed-note', style: 'margin-bottom:6px', text: TX.npc.tapGearToUpgrade + (mats ? TX.npc.youHave + mats + '.' : '') }),
       h('div', { class: 'ed-inv' },
         h('div', { class: 'ed-dollwrap' }, ui._doll(p, function (slot, item) {
           const u = ui._upgradeInfo(item);
-          const acts = [{ label: 'Upgrade', cls: 'gold', disabled: u.blocked, fn: function () { if (call('upgrade', slot) === false) ui._sfx('error'); } }];
+          const acts = [{ label: TX.common.upgrade, cls: 'gold', disabled: u.blocked, fn: function () { if (call('upgrade', slot) === false) ui._sfx('error'); } }];
           const cl = ui._cleanseAction(item, slot), info = u.line ? [u.line] : [];
           if (cl) { acts.push(cl); info.push({ text: cl.info, bad: cl.bad }); }
           return { acts: acts.concat(ui._unsocketActions(item, slot)), info: info };
@@ -210,7 +211,7 @@
   // Mystic: reroll one affix of a rare-or-better item for gem dust + gold (R3.2). Pick the item, then the line to change.
   function enchantTab(p) {
     if (!G.items || !G.items.rerollAffix || !G.items.rerollCost) {
-      return h('div', { class: 'ed-body' }, h('div', { class: 'ed-note', text: 'The Mystic cannot do this yet.' }));
+      return h('div', { class: 'ed-body' }, h('div', { class: 'ed-note', text: TX.npc.theMysticCannotDo }));
     }
     const rows = [];
     const add = function (item, target, where) {
@@ -223,8 +224,8 @@
     (p.inventory || []).forEach(function (it, i) { add(it, i, 'In your pack'); });
     const mats = matsLine(p);
     return h('div', { class: 'ed-body' },
-      h('div', { class: 'ed-note', style: 'margin-bottom:6px', text: 'Change one property of a Rare or better item.' + (mats ? ' You have ' + mats + '.' : '') }),
-      rows.length ? rows : h('div', { class: 'ed-note', text: 'You carry nothing the Mystic can work on.' }));
+      h('div', { class: 'ed-note', style: 'margin-bottom:6px', text: TX.npc.changeOnePropertyOf + (mats ? TX.npc.youHave + mats + '.' : '') }),
+      rows.length ? rows : h('div', { class: 'ed-note', text: TX.npc.youCarryNothingThe }));
   }
   function rerollPick(p, item, target) {
     let close = null;
@@ -237,17 +238,17 @@
         const done = call('rerollAffix', target, mi);
         ui._sfx(done ? 'shrine' : 'error');
         ui._refreshNow();
-      } }, h('span', { class: 'n' }, label, h('small', { text: cost ? 'Reroll: ' + ui._matsText(cost) : 'Cannot be changed' })));
+      } }, h('span', { class: 'n' }, label, h('small', { text: cost ? TX.npc.reroll2 + ui._matsText(cost) : 'Cannot be changed' })));
       if (!cost || !costOk(p, cost)) b.disabled = true;
       return b;
     });
-    close = ui._modal(ui._dialog([h('div', { class: 'ed-h', text: 'Reroll which line of ' + item.name + '?' }), list],
-      [ui._btn('Cancel', function () { close(); })]));
+    close = ui._modal(ui._dialog([h('div', { class: 'ed-h', text: TX.npc.rerollWhichLineOf + item.name + '?' }), list],
+      [ui._btn(TX.common.cancel, function () { close(); })]));
   }
 
   function gambleTab(p) {
     return h('div', { class: 'ed-body' },
-      h('div', { class: 'ed-note', style: 'margin-bottom:6px', text: 'Pay gold, pick a slot, pray. The Mystic does not give refunds.' }),
+      h('div', { class: 'ed-note', style: 'margin-bottom:6px', text: TX.npc.payGoldPickA }),
       h('div', { class: 'ed-gamble' }, GAMBLE_SLOTS.map(function (g) {
         let price = null;
         try {
@@ -262,7 +263,7 @@
             const inv = p.inventory || [];
             const idx = inv.indexOf(item);
             ui._showItem(item, idx >= 0 ? ui._invActions(item, idx, 'sell', 'mystic') : []);
-            ui.toast('The veil parts: ' + item.name, ui._rarityColor(item.rarity));
+            ui.toast(TX.npc.theVeilParts + item.name, ui._rarityColor(item.rarity));
           } else ui._sfx('error');
         } }, ui._icon({ shape: g[2], color: '#b65bff', accent: '#ffd94a' }, 32),
           h('span', null, g[1], price != null ? h('div', { class: price > (p.gold || 0) ? 'ed-bad' : 'ed-gold', style: 'font-size:10px', text: fmt(price) + ' g' }) : null));
@@ -276,29 +277,29 @@
       if (G.game && G.game.healPlayer) G.game.healPlayer(true);
       G.emit('fx:spawn', { type: 'heal', x: p.x, y: p.y });
       ui._sfx('potion');
-      ui.toast('Your wounds close.', '#5fd35f');
+      ui.toast(TX.npc.yourWoundsClose, '#5fd35f');
       ui._refreshNow();
     }, 'big gold');
     b.style.width = '100%';
     if (!hurt) b.disabled = true;
     const body = h('div', { class: 'ed-body' }, h('div', { class: 'ed-list' },
-      h('div', { class: 'ed-kv' }, h('span', { text: 'Life' }), h('b', { text: fmt(Math.ceil(p.hp)) + ' / ' + fmt(st.hpMax || 0) })),
-      h('div', { class: 'ed-kv' }, h('span', { text: 'Mana' }), h('b', { text: fmt(Math.floor(p.mp)) + ' / ' + fmt(st.mpMax || 0) })),
-      b, h('div', { class: 'ed-h', text: 'Potions' }), potionRows(p)));
+      h('div', { class: 'ed-kv' }, h('span', { text: TX.npc.life }), h('b', { text: fmt(Math.ceil(p.hp)) + ' / ' + fmt(st.hpMax || 0) })),
+      h('div', { class: 'ed-kv' }, h('span', { text: TX.npc.mana }), h('b', { text: fmt(Math.floor(p.mp)) + ' / ' + fmt(st.mpMax || 0) })),
+      b, h('div', { class: 'ed-h', text: TX.common.potions }), potionRows(p)));
     return body;
   }
 
   // ---------- quests (elder + log) ----------
   function rewardText(r) {
     const parts = [];
-    if (r && r.gold) parts.push(fmt(r.gold) + ' gold');
+    if (r && r.gold) parts.push(fmt(r.gold) + TX.filter.gold2);
     if (r && r.xp) parts.push(fmt(r.xp) + ' XP');
     const it = r && r.item && G.meta._rarityPick ? G.meta._rarityPick(r.item) : r && r.item;
-    if (it) parts.push(((C.RARITY[it] && C.RARITY[it].name) || it) + ' item');
+    if (it) parts.push(((C.RARITY[it] && C.RARITY[it].name) || it) + TX.chute.item);
     if (r && r.mats) parts.push(ui._matsText ? ui._matsText(r.mats) : 'materials');
-    if (r && r.mark) parts.push(r.mark + ' Mark' + (r.mark > 1 ? 's' : ''));
-    if (r && r.tome) parts.push(r.tome + ' skill point' + (r.tome > 1 ? 's' : ''));
-    if (r && r.loyalty) parts.push('+' + Math.round((r.loyalty.amount || 0.1) * 100) + '% crate ' + (r.loyalty.kind === 'salvage' ? 'salvage' : 'sell') + ' rate');
+    if (r && r.mark) parts.push(r.mark + TX.npc.mark + (r.mark > 1 ? 's' : ''));
+    if (r && r.tome) parts.push(r.tome + TX.npc.skillPoint + (r.tome > 1 ? 's' : ''));
+    if (r && r.loyalty) parts.push('+' + Math.round((r.loyalty.amount || 0.1) * 100) + TX.npc.crate + (r.loyalty.kind === 'salvage' ? 'salvage' : 'sell') + TX.npc.rate);
     return parts.join(', ');
   }
 
@@ -317,16 +318,16 @@
         const box = h('div', { class: 'ed-box ed-quest', style: q.status === 'done' ? 'opacity:.55' : null },
           h('div', { class: 't' }, h('b', { text: q.name }), h('span', { class: 'ed-st', style: 'color:' + st[1], text: st[0] })));
         if (q.status !== 'done') {
-          if (q.giverName) box.appendChild(h('div', { class: 'ed-note', text: 'For ' + q.giverName }));
+          if (q.giverName) box.appendChild(h('div', { class: 'ed-note', text: TX.npc.for + q.giverName }));
           box.appendChild(h('p', { text: q.desc }));
           if (q.status !== 'available') {
             box.appendChild(h('div', { class: 'ed-bar' }, h('i', { style: 'width:' + Math.round(Math.min(1, q.progress / (q.goal || 1)) * 100) + '%' })));
             box.appendChild(h('div', { class: 'ed-note', text: q.progress + ' / ' + q.goal }));
           }
-          box.appendChild(h('div', { class: 'ed-note', text: 'Reward: ' + rewardText(q.rewards) }));
-          if (actions && q.status === 'available') box.appendChild(ui._btn('Accept', function () { G.meta.acceptQuest(q.id); ui._refreshNow(); }));
-          if (actions && q.status === 'ready') box.appendChild(ui._btn('Claim reward', function () { G.meta.turnInQuest(q.id); ui._refreshNow(); }, 'gold'));
-          if (!actions && q.status === 'ready') box.appendChild(h('div', { class: 'ed-gold', text: q.giverRole ? 'Return to ' + q.giverName + '.' : 'Return to the Elder in ' + ui._townName() + '.' }));
+          box.appendChild(h('div', { class: 'ed-note', text: TX.npc.reward + rewardText(q.rewards) }));
+          if (actions && q.status === 'available') box.appendChild(ui._btn(TX.common.accept, function () { G.meta.acceptQuest(q.id); ui._refreshNow(); }));
+          if (actions && q.status === 'ready') box.appendChild(ui._btn(TX.npc.claimReward, function () { G.meta.turnInQuest(q.id); ui._refreshNow(); }, 'gold'));
+          if (!actions && q.status === 'ready') box.appendChild(h('div', { class: 'ed-gold', text: q.giverRole ? TX.npc.returnTo + q.giverName + '.' : TX.npc.returnToTheElder + ui._townName() + '.' }));
         }
         wrap.appendChild(box);
       });
@@ -334,14 +335,14 @@
     add('The Descent', list.filter(function (q) { return q.main; }));
     add(role && role !== 'elder' ? 'Requests' : 'Townsfolk', list.filter(function (q) { return q.side; }));
     add('Bounties', list.filter(function (q) { return !q.main && !q.side; }));
-    if (!list.length) wrap.appendChild(h('div', { class: 'ed-note', text: 'No quests yet. Speak with the Elder in ' + ui._townName() + '.' }));
-    else if (!actions) wrap.appendChild(h('div', { class: 'ed-note', text: 'The Elder in ' + ui._townName() + ' offers quests and pays their rewards. Bounties change each time you return to town.' }));
+    if (!list.length) wrap.appendChild(h('div', { class: 'ed-note', text: TX.npc.noQuestsYetSpeak + ui._townName() + '.' }));
+    else if (!actions) wrap.appendChild(h('div', { class: 'ed-note', text: TX.curator.theElderIn + ui._townName() + TX.npc.offersQuestsAndPays }));
     return wrap;
   }
 
   ui._register('quests', {
     render: function () {
-      return ui._frame('Quests', { right: [ui._btn('Journal', function () { ui.open('journal'); })] }, h('div', { class: 'ed-body' }, questList(false)));
+      return ui._frame(TX.common.quests, { right: [ui._btn(TX.common.journal, function () { ui.open('journal'); })] }, h('div', { class: 'ed-body' }, questList(false)));
     },
   });
 
@@ -354,15 +355,15 @@
       const it = stash[i] || null;
       if (it) used++;
       grid.appendChild(ui._cell(it, { arrow: true, onTap: function (item) {
-        const acts = [{ label: 'Withdraw', cls: 'gold', fn: function () { if (call('stashWithdraw', i) === false) ui._sfx('error'); } }];
+        const acts = [{ label: TX.npc.withdraw, cls: 'gold', fn: function () { if (call('stashWithdraw', i) === false) ui._sfx('error'); } }];
         const cur = ui._curatorAction(item, i, 'stash');          // R7.11 hand a stashed piece in without withdrawing it
         if (cur) acts.unshift(cur);
         ui._showItem(item, acts);
       } }));
     }
     return h('div', { class: 'ed-body' },
-      h('div', { class: 'ed-h', text: 'Stash  ' + used + '/' + C.STASH_SIZE }), grid,
-      h('div', { class: 'ed-h', text: 'Your pack' }), ui._invGrid(p, 'stash'));
+      h('div', { class: 'ed-h', text: TX.npc.stash + used + '/' + C.STASH_SIZE }), grid,
+      h('div', { class: 'ed-h', text: TX.npc.yourPack }), ui._invGrid(p, 'stash'));
   }
 
   function stashSort() { return [ui._sortButton('both')]; }
@@ -370,7 +371,7 @@
   ui._register('stash', {
     render: function () {
       const p = S.player;
-      return ui._frame('Stash', { right: p ? stashSort() : null }, p ? stashBody(p) : h('div', { class: 'ed-body' }));
+      return ui._frame(TX.common.stash, { right: p ? stashSort() : null }, p ? stashBody(p) : h('div', { class: 'ed-body' }));
     },
   });
 
@@ -395,7 +396,7 @@
       let body;
       if (view.tab === 'talk') body = h('div', { class: 'ed-body' }, h('div', { class: 'ed-box' }, h('div', { class: 'ed-h', text: (view.person && view.person.camp) || 'The camp' }),
         h('p', { style: 'font-weight:normal;line-height:18px', text: view.person ? view.person.look : 'Someone who made it up from the dark.' }),
-        h('div', { class: 'ed-note', text: 'Floors you have cleansed are safe to rest on.' })));
+        h('div', { class: 'ed-note', text: TX.npc.floorsYouHaveCleansed })));
       else if (view.tab === 'buy') body = gearToggle(view, buyTab, vrole, p, camp);
       else if (view.tab === 'sell') body = sellTab(vrole, p);
       else if (view.tab === 'forge') body = forgeTab(p);
@@ -408,14 +409,14 @@
       else if (view.tab === 'book') body = ui._bookBody(view);
       else body = stashBody(p);
       const right = view.tab === 'stash' ? stashSort()
-        : view.tab === 'book' && view.page ? [ui._btn('◀ Pages', function () { view.page = null; ui._refreshNow(); })] : null;
+        : view.tab === 'book' && view.page ? [ui._btn(TX.common.pages, function () { view.page = null; ui._refreshNow(); })] : null;
       const sub = h('div', { class: 'ed-npc' }, ui._portrait((ent && ent.sprite) || NPC_SPRITE[role], 48),
         h('div', { style: 'flex:1;min-width:0' }, h('b', { class: 'ed-ember', text: (view.person && view.person.name) || (ent && ent.name) || def.title }),
           h('p', { text: '"' + ((view.person && view.person.line) || (!camp && ui._townLine && ui._townLine(role)) || def.line) + '"' }), ui._loyaltyEl ? ui._loyaltyEl(role) : null),
         ui._goldEl(p.gold || 0));
       const foot = view.tab === 'sell' ? [
         ui._junkButton(),
-        ui._btn('Junk rules', ui._junkPopup),
+        ui._btn(TX.common.junkRules, ui._junkPopup),
         ui._sortButton('inv'),
       ] : null;
       return ui._frame(def.title, {

@@ -3,6 +3,7 @@
   'use strict';
   const G = window.G, S = G.state, C = G.C;
   const ui = G.ui;
+  const TX = ui.S;
   const h = ui._h;
 
   const THEME_NAMES = { town: 'Emberdeep', crypt: 'The Crypt', caves: 'Drowned Caves', inferno: 'The Inferno', abyss: 'The Abyss' };
@@ -18,13 +19,13 @@
   // Monster tiers the target bar shows (R3.6). Fixed colours: the R7.1 loot ladder reused blue / yellow / orange for items.
   const rc = function (k, fb) { return function () { return (C.RARITY[k] && C.RARITY[k].color) || fb; }; };
   const TIER = {
-    champion: { label: 'Champion', color: function () { return '#5b8cff'; }, mods: true },
-    rare: { label: 'Rare', color: function () { return '#ffe45b'; }, mods: true },
-    legendary: { label: 'Legendary', color: function () { return '#ff8a2b'; }, mods: true },
-    boss: { label: 'Boss', color: function () { return '#ff6a5a'; }, mods: true },
+    champion: { label: TX.hud.champion, color: function () { return '#5b8cff'; }, mods: true },
+    rare: { label: TX.hud.rare, color: function () { return '#ffe45b'; }, mods: true },
+    legendary: { label: TX.hud.legendary, color: function () { return '#ff8a2b'; }, mods: true },
+    boss: { label: TX.hud.boss, color: function () { return '#ff6a5a'; }, mods: true },
   };
   // R6.2 the Echo: a boss-style bar whatever rarity the game gives it
-  const ECHO_TIER = { label: 'Your Echo', color: function () { return '#bfe6ff'; }, mods: false };
+  const ECHO_TIER = { label: TX.hud.yourEcho, color: function () { return '#bfe6ff'; }, mods: false };
   const isEcho = function (e) { return !!(ui._isEcho && ui._isEcho(e)); };
   const tierOf = function (e) { return isEcho(e) ? ECHO_TIER : TIER[e.rarity]; };
 
@@ -82,9 +83,9 @@
     el.bQst = topBtn('Quest', { shape: 'scroll', color: '#d8c9a3', accent: '#8f8470' }, function () { ui.open('quests'); });
     el.bTp = topBtn('Town', { shape: 'rune', color: '#7fd4ff', accent: '#2a56c6' }, function () {
       if (S.scene !== 'dungeon') return;
-      if (S.flags.sealed) { ui._sfx('error'); ui.toast('The seal holds. No portal will open here.', '#ff5a50'); return; }
-      ui._confirm('Open a portal to ' + ui._townName() + '?', 'Open Portal', function () { G.scenes.townPortal(); },
-        { pause: true, note: 'The portal in town leads back to depth ' + S.depth + ' once.' });
+      if (S.flags.sealed) { ui._sfx('error'); ui.toast(TX.hud.theSealHoldsNo, '#ff5a50'); return; }
+      ui._confirm(TX.hud.openAPortalTo + ui._townName() + '?', 'Open Portal', function () { G.scenes.townPortal(); },
+        { pause: true, note: TX.hud.thePortalInTown + S.depth + TX.hud.once });
     });
     el.bMenu = topBtn('Menu', { shape: 'key', color: '#c8c8c8', accent: '#6b6278' }, function () { ui.open('menu'); });
 
@@ -154,7 +155,7 @@
       if (g.pileId != null && typeof G.items.pickupPile === 'function') { try { r = G.items.pickupPile(g.pileId); } catch (err) { console.error('[ui pickupPile]', err); } }
       else { try { r = { taken: G.items.pickup(g.id) ? 1 : 0, left: 0 }; } catch (err) { r = { taken: 0, left: 0 }; } }
       if (r && r.taken > 0) ui._sfx('loot'); else ui._sfx('error');
-      if (r && r.left > 0) ui.toast(r.taken > 0 ? 'Your bag is full. ' + r.left + ' left on the ground.' : 'Your bag is full.', '#a89f8f');
+      if (r && r.left > 0) ui.toast(r.taken > 0 ? TX.chute.yourBagIsFull + r.left + TX.hud.leftOnTheGround : 'Your bag is full.', '#a89f8f');
       if (ui._closePile) ui._closePile();
     };
     el.atk.addEventListener('pointerdown', function (e) {
@@ -190,7 +191,7 @@
     // just left of the action cluster (landscape) — never in the joystick zone.
     el.dashIco = h('i', { class: 'ed-ico' });
     el.dashCd = h('div', { class: 'ed-cd' });
-    el.dashName = h('span', { text: 'Dash' });
+    el.dashName = h('span', { text: TX.hud.dash });
     el.dashPips = h('div', { class: 'ed-pips' });
     el.dash = h('button', { type: 'button', class: 'ed-dash ed-mv', 'aria-label': 'Dash' }, el.dashCd, el.dashPips, el.dashIco, el.dashName);
     press(el.dash, function () { G.emit('input:classaction', {}); dash.poll = 0; });
@@ -206,9 +207,9 @@
     ui._hudEl = hud;
     // movable pieces for the HUD editor, in the order they are listed there
     ui._hudMovables = {
-      atk: { el: el.atk, label: 'Attack' }, skills: { el: el.skillBox, label: 'Skills' }, vitals: { el: el.vitals, label: 'Potions' },
-      dash: { el: el.dash, label: 'Dash' }, portal: { el: el.bTp, label: 'Portal' }, mm: { el: el.mmBtn, label: 'Map' },
-      tracker: { el: el.tracker, label: 'Quests' },
+      atk: { el: el.atk, label: TX.hud.attack }, skills: { el: el.skillBox, label: TX.common.skills }, vitals: { el: el.vitals, label: TX.common.potions },
+      dash: { el: el.dash, label: TX.hud.dash }, portal: { el: el.bTp, label: TX.hud.portal }, mm: { el: el.mmBtn, label: TX.common.map },
+      tracker: { el: el.tracker, label: TX.common.quests },
     };
   }
 
@@ -339,7 +340,7 @@
     if (n === heatN) return;
     heatN = n;
     el.heat.style.display = n > 0 ? 'inline-block' : 'none';
-    if (n > 0) el.heatTxt.nodeValue = 'Heat ' + '▮'.repeat(Math.min(n, 10)) + (n > 10 ? ' +' + (n - 10) : '') + '  x' + n;
+    if (n > 0) el.heatTxt.nodeValue = TX.hud.heat + '▮'.repeat(Math.min(n, 10)) + (n > 10 ? ' +' + (n - 10) : '') + '  x' + n;
     ui._setTrkTop();
   }
 
@@ -379,14 +380,14 @@
         ? '☠ Your corpse is on this floor' : '☠ Your corpse: depth ' + corpse.depth }));
     }
     for (const q of list) {
-      if (q.status === 'ready') rows.push(h('div', { style: 'color:#ffd94a', text: '* ' + q.name + ' - see the Elder' }));
+      if (q.status === 'ready') rows.push(h('div', { style: 'color:#ffd94a', text: '* ' + q.name + TX.hud.seeTheElder }));
       else if (q.status === 'active') rows.push(h('div', { text: '- ' + q.name + ' ' + q.progress + '/' + q.goal }));
       else if (q.status === 'available' && q.main) mainOffer = true;
     }
     // R6.2: an abandoned corpse waits as an Echo (game state; the field name is guarded)
     const echo = S.flags.echo, ed = echo && typeof echo === 'object' ? echo.depth | 0 : 0;
     if (ed > 0 && ui._echoText) rows.push(h('div', { style: 'color:#bfe6ff', text: S.scene === 'dungeon' && S.depth === ed ? ui._echoText('trackerHere') : ui._echoText('tracker', ed) }));
-    if (mainOffer && !rows.length) rows.push(h('div', { style: 'color:#ff8a2b', text: '! The Elder has work for you' }));
+    if (mainOffer && !rows.length) rows.push(h('div', { style: 'color:#ff8a2b', text: TX.hud.theElderHasWork }));
     el.tracker.replaceChildren.apply(el.tracker, rows.slice(0, 4));
   }
 
@@ -418,7 +419,7 @@
       explChanged = (ex < 0) !== (last.expl < 0);
       last.expl = ex; last.explL = exLabel;
       if (explChanged) el.expl.style.display = ex < 0 ? 'none' : 'inline-block';
-      if (ex >= 0) { el.explTxt.nodeValue = 'Explored ' + (exLabel || ex + '%'); el.explBar.style.width = ex + '%'; el.expl.title = exHint; }
+      if (ex >= 0) { el.explTxt.nodeValue = TX.hud.explored + (exLabel || ex + '%'); el.explBar.style.width = ex + '%'; el.expl.title = exHint; }
     }
     if (fname !== last.floor || palKey !== last.pal || explChanged) {
       if ((fname !== '') !== (last.floor !== '')) el.floor.style.display = fname ? 'block' : 'none';
@@ -426,7 +427,7 @@
       if ((palKey !== '') !== (last.pal !== '')) el.pallor.style.display = pal ? 'flex' : 'none';
       if (pal) {
         el.palFill.style.width = pal.value + '%';
-        el.palTxt.textContent = 'Pallor ' + pal.value + (pal.tier > 0 ? ' ' + ROMAN[Math.min(pal.tier, 4)] : '');
+        el.palTxt.textContent = TX.deeper.pallor + pal.value + (pal.tier > 0 ? ' ' + ROMAN[Math.min(pal.tier, 4)] : '');
         el.pallor.className = 'ed-pallor t' + Math.min(pal.tier, 4);
       }
       last.floor = fname; last.pal = palKey;
@@ -689,11 +690,11 @@
     if (!e || !(e.delta > 0) || !visible || ui.isOpen()) return;
     goldFeedSum += e.delta;
     if (!goldFeed || !goldFeed.parentNode) goldFeed = feed('', '#ffd94a');
-    if (goldFeed) { goldFeed.textContent = '+ ' + goldFeedSum + ' gold'; goldFeedT = 3; }
+    if (goldFeed) { goldFeed.textContent = '+ ' + goldFeedSum + TX.filter.gold2; goldFeedT = 3; }
   });
   G.on('player:levelup', function (e) {
     skDirty = true;
-    ui.toast('Level ' + ((e && e.level) || (S.player && S.player.level) || '') + '!', '#ffd94a');
+    ui.toast(TX.hud.level + ((e && e.level) || (S.player && S.player.level) || '') + '!', '#ffd94a');
   });
   ['skills:changed', 'player:stats', 'equipment:changed'].forEach(function (n) { G.on(n, function () { skDirty = true; }); });
   ['quest:updated', 'quest:completed'].forEach(function (n) { G.on(n, function () { questDirty = true; }); });
@@ -740,7 +741,7 @@
       if (!n || S.scene !== 'dungeon' || !S.player) return;
       const pal = S.map && S.map.variant && S.map.variant.palette;
       const col = pal && typeof pal === 'object' && /^#[0-9a-f]{3,6}$/i.test(pal.accent || pal.light || '') ? (pal.accent || pal.light) : '#d8c9a3';
-      ui._banner(n, 'Depth ' + S.depth + ' · ' + ui._themeName(S.depth), col, 3.5);
+      ui._banner(n, TX.deeper.depth + S.depth + ' · ' + ui._themeName(S.depth), col, 3.5);
     }, 700);
   });
 
@@ -755,24 +756,24 @@
     if (!g) return;
     const parts = [];
     const t = e.time != null ? e.time : e.seconds;
-    if (t != null) parts.push(clock(t) + (e.par != null ? ' (par ' + clock(e.par) + ')' : ''));
+    if (t != null) parts.push(clock(t) + (e.par != null ? TX.hud.par + clock(e.par) + ')' : ''));
     // explored is a number (old) or { value, low, high, label } (R8.4: fuzzy with depth)
     const eo = e.explored != null ? e.explored : e.pct;
-    if (eo && typeof eo === 'object') { const lb = typeof eo.label === 'string' ? eo.label : (eo.value != null ? pctOf(eo.value) + '%' : ''); if (lb) parts.push(lb + ' explored'); }
-    else { const ex = pctOf(eo); if (ex != null) parts.push(ex + '% explored'); }
+    if (eo && typeof eo === 'object') { const lb = typeof eo.label === 'string' ? eo.label : (eo.value != null ? pctOf(eo.value) + '%' : ''); if (lb) parts.push(lb + TX.hud.explored2); }
+    else { const ex = pctOf(eo); if (ex != null) parts.push(ex + TX.hud.explored3); }
     const b = e.text || e.bonus || e.reward;
     if (b && typeof b === 'string') parts.push(b);
     else if (b && typeof b === 'object') {
       const bp = [];
       if (b.xp) bp.push('+' + b.xp + ' XP');
-      if (b.gold) bp.push('+' + b.gold + ' gold');
+      if (b.gold) bp.push('+' + b.gold + TX.filter.gold2);
       if (b.materials || b.mats) bp.push('materials');
       if (b.chest) bp.push('a chest by the stairs');
       if (bp.length) parts.push(bp.join(', '));
     }
     // R8.8: the game fires this on ARRIVAL at the next floor; wait for the floor-name banner so the grade shows on top of it
     setTimeout(function () {
-      ui._banner('Floor cleared: grade ' + g, parts.join('  ·  '), GRADE_COL[g.charAt(0)] || '#d8c9a3', 5);
+      ui._banner(TX.hud.floorClearedGrade + g, parts.join('  ·  '), GRADE_COL[g.charAt(0)] || '#d8c9a3', 5);
       ui._sfx(g.charAt(0) === 'S' || g.charAt(0) === 'A' ? 'quest' : 'click');
     }, 900);
   });
