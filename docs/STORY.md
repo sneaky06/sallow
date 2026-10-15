@@ -109,3 +109,21 @@ greeting (`TOWN`); the mystic's Reroll opens in Act 2.
 - **Core / world:**
   - a `curator` NPC role and its spot in town;
   - camp NPCs on cleansed floors from `CAMP` (roles reuse existing vendor panels; `waypoint` is the rope-lift).
+
+## Townsfolk quests (R12.2) and milestones (R12.8)
+`VENDOR_QUESTS` in story_data.js has 22 one-step quests: 2–3 per town vendor and 1 per camp NPC. Each fits the giver's
+trade and is tracked by existing events (kills by body or tier, depth, rarity found, chests, cleansing, Curator pieces and
+pages, chute sends, gold spent, Fallen relics, events, S grades, Close Calls, Flow chains, lockdowns). Rewards are gold,
+XP, an item rarity, materials, a Tome or (rarely) a Mark. A giver's quests chain through `requires`.
+- **Orlen the Peddler:** Stock From Below · A Spending Town · Freight (chute)
+- **Brakka Ironhand:** Bones for the Bellows · Clean Steel (cleanse) · Demon Iron
+- **Seer Ysolde:** The Cards Want Blood (events) · Near Things (Close Calls) · The Unbroken Thread (Flow 5)
+- **Sister Maren:** Bandages (chests) · Quiet the Wards (elites) · Do No Harm (S grade)
+- **Old Wick:** Things Worth Keeping · The Dead Do Not Pay Rent (Fallen); he finds only grey paper in their chests
+- **Isra Vell:** Returns (register 10) · Three Shrouds (3 pages)
+- **Camps:** Gammer Wick (spiders for the pot) · Jory Tallow (his company's fire on 14) · Pell (counterweight: chute) ·
+  Ama and Odo (3 legendaries) · Sister Ada (lockdowns) · Tam (bosses; reward a Tome)
+
+`MILESTONES` gives each lifetime counter a name, a one-line flavour and five tier titles. Examples: kills are the
+*Butcher's Tally* (Bloodied → The Rift's Undertaker), deaths are *Returned* (Fallen Once → The Rift Spits You Out), and
+Close Calls are *Hair's Breadth*.

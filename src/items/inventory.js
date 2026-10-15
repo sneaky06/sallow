@@ -310,6 +310,8 @@
     upgrades: function (it) { const v = I.verdict ? I.verdict(it) : null; return v in VERDICT_ORDER ? VERDICT_ORDER[v] : 3; },
     newest: function (it) { return -(typeof it.foundAt === 'number' ? it.foundAt : -1); },
   };
+  D.sortItems = function (arr, size, mode) { return sortItems(arr, size, mode); };
+  D.sortMode = function (mode) { return sortMode(mode); };
   function sortItems(arr, size, mode) {
     const key = SORT_KEY[mode] || SORT_KEY.slot;
     const rows = [];

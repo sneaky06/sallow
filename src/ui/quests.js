@@ -128,8 +128,8 @@
     return null;
   }
 
-  function becameReady(id, name) {
-    G.emit('ui:toast', { text: name + ' — return to the Elder', color: '#ffd94a' });
+  function becameReady(id, name, who) {
+    G.emit('ui:toast', { text: name + ' — return to ' + (who || 'the Elder'), color: '#ffd94a' });
     G.emit('sfx', { name: 'quest' });
     G.emit('quest:updated', { quest: viewOf(id) });
   }
@@ -159,7 +159,9 @@
   // ---------- side quest lines (R7.7, story_data.js SIDE) ----------
   // state.quests.side = { [lineId]: { step, status, progress } }. A line opens once state.flags.act reaches line.act; the
   // Elder hands it over. The view's id is the line id; story.js plays the giver's lines from (lineId, step).
-  function sideLines() { return (meta.STORY && meta.STORY.SIDE) || []; }
+  // R12: lines with a `role` (merchant, blacksmith, mystic, healer, stashkeeper, curator, camp_merchant, refugee ...) are given by that
+  // townsperson instead of the Elder; the story writes them into SIDE or VENDOR_QUESTS (same shape).
+  function sideLines() { const S0 = meta.STORY || {}; return (S0.SIDE || []).concat(Array.isArray(S0.VENDOR_QUESTS) ? S0.VENDOR_QUESTS : []); }
   function sideState(q, line) {
     if (!q.side || typeof q.side !== 'object') q.side = {};
     return q.side[line.id] || (q.side[line.id] = { step: 0, status: 'available', progress: 0 });
@@ -168,7 +170,7 @@
     const s = line.steps[Math.min(st.step, line.steps.length - 1)];
     const lastStep = st.step >= line.steps.length - 1;
     const fillN = meta._fillNames || String;
-    return { id: line.id, lineId: line.id, side: true, step: st.step, giver: 'elder', giverName: line.giver,
+    return { id: line.id, lineId: line.id, side: true, step: st.step, giver: line.role || 'elder', giverRole: line.role || null, giverName: line.giver,
       name: fillN(line.name) + (line.steps.length > 1 ? ' (' + (Math.min(st.step, line.steps.length - 1) + 1) + '/' + line.steps.length + ')' : ''),
       desc: fillN(s.desc), status: st.status, progress: Math.min(st.progress, s.goal), goal: s.goal, main: false,
       rewards: lastStep ? Object.assign({}, line.rewards) : { xp: Math.round((line.rewards.xp || 0) / 4) } };
@@ -194,7 +196,7 @@
       if (!s || (s.minDepth && s.kind !== 'depth' && (S.depth | 0) < s.minDepth)) continue;
       const before = st.progress;
       st.progress = Math.min(s.goal, fn(s.kind, st.progress, s) | 0);
-      if (st.progress >= s.goal) { st.status = 'ready'; becameReady(line.id, (meta._fillNames || String)(line.name)); }
+      if (st.progress >= s.goal) { st.status = 'ready'; becameReady(line.id, (meta._fillNames || String)(line.name), line.role ? line.giver : null); }
       else if (st.progress !== before) G.emit('quest:updated', { quest: sideView(line, st) });
     }
   }
@@ -242,6 +244,20 @@
     for (const b of q.bounties) out.push(bountyView(b));
     for (const v of sideViews()) out.push(v);
     return out;
+  };
+
+  // R12: what marker should float over this townsperson? null | 'available' | 'active' | 'ready' (who = role string or an npc entity / { role })
+  meta.npcQuestState = function (who) {
+    const role = typeof who === 'string' ? who : (who && who.role) || null;
+    if (!role || !Q()) return null;
+    let best = null;
+    const rank = { active: 1, available: 2, ready: 3 };
+    for (const v of meta.getQuests()) {
+      if (role === 'elder' ? v.giverRole : v.giverRole !== role) continue;
+      if (!rank[v.status]) continue;
+      if (!best || rank[v.status] > rank[best]) best = v.status;
+    }
+    return best;
   };
 
   meta.acceptQuest = function (id) {

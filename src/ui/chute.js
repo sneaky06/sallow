@@ -108,6 +108,7 @@
     return !!it && !!it.slot && !it.locked && !it.setId && !(it.bleached && !it.revealed) && !ui._wanted(it) &&
       ui._rarityOrder(it.rarity) < ui._rarityOrder('legendary');
   }
+  const bulkRate = function () { const r = G.items && +G.items.BULK_RATE; return r > 0 && r <= 1 ? r : 0.6; };
   const goldOf = function (it) { return Math.round((it.value || 0) * (it.qty || 1)); };
   const MASS = ['common', 'uncommon', 'rare'];
 
@@ -129,11 +130,11 @@
     const a = [];
     const run = function (fn) { return function () { const i = idx(); if (i >= 0) fn(i); }; };
     if (ui._wanted(it) && item('surfaceRegister')) a.push({ label: 'Curator', cls: 'gold', fn: run(function (i) { const r = G.items.surfaceRegister(i); if (r && r.ok) { ui._sfx('quest'); } else ui._sfx('error'); }) });
-    if (it.slot && item('surfaceSell')) a.push({ label: 'Sell' + (it.value ? ' ' + fmt(goldOf(it)) + 'g' : ''), cls: ui._wanted(it) ? '' : 'gold', fn: run(function (i) {
-      const g = G.items.surfaceSell(i); ui._sfx(g > 0 ? 'sell' : 'error');
+    if (it.slot && item('surfaceSell')) a.push({ label: 'Sell' + (it.value ? ' ' + fmt(Math.round(goldOf(it) * bulkRate())) + 'g' : ''), cls: ui._wanted(it) ? '' : 'gold', fn: run(function (i) {
+      const g = G.items.surfaceSell(i, { bulk: true }); ui._sfx(g > 0 ? 'sell' : 'error');
     }) });
     if (it.slot && item('surfaceSalvage')) a.push({ label: 'Salvage', fn: run(function (i) {
-      const sal = function () { ui._sfx(G.items.surfaceSalvage(i) ? 'click' : 'error'); };
+      const sal = function () { ui._sfx(G.items.surfaceSalvage(i, { bulk: true }) ? 'click' : 'error'); };
       const gems = (it.sockets || []).filter(Boolean).length;
       if (gems) ui._confirm(gems + ' socketed gem' + (gems === 1 ? '' : 's') + ' will be ground to dust.', 'Salvage anyway', sal, { danger: true }); else sal();
     }) });
@@ -185,23 +186,10 @@
     }
     view.head.replaceChildren(h('span', { text: 'Surface crate' }), h('b', { class: list.length >= size ? 'ed-bad' : (list.length > size * 0.9 ? 'ed-gold' : null), text: list.length + ' / ' + size }));
     view.note.textContent = list.length ? 'Tap an item to sell, salvage, hand in or stash it. Lock it in its tooltip to keep it safe.' : 'Nothing has come up yet. Items you send down a chute in the rift arrive here, instantly.';
-    // Sell all <= Common / Uncommon / Rare: one tap, one confirm that names the count and the gold
-    view.mass.replaceChildren.apply(view.mass, [h('span', { class: 'ed-note', text: 'Sell all' })].concat(MASS.map(function (k, t) {
-      const rar = C.RARITY[k];
-      const b = ui._btn([h('span', { text: '≤ ' + ((rar && rar.name) || k) }), h('small', { text: tier[t].n + ' · ' + fmt(tier[t].g) + 'g' })], function () {
-        ui._confirm('Sell ' + tier[t].n + ' item' + (tier[t].n === 1 ? '' : 's') + ' for about ' + fmt(tier[t].g) + ' gold?', 'Sell', function () {
-          let sold = 0, gold = 0;
-          for (let i = surface().length - 1; i >= 0; i--) {
-            const it = surface()[i];
-            if (sellable(it) && ui._rarityOrder(it.rarity) <= lim[t]) { const g = item('surfaceSell') ? G.items.surfaceSell(i) : 0; if (g > 0) { sold++; gold += g; } }
-          }
-          ui._sfx(sold ? 'sell' : 'error');
-          if (sold) ui.toast('Sold ' + sold + ' item' + (sold === 1 ? '' : 's') + ' for ' + fmt(gold) + ' gold.', '#dfc06a');
-        }, { note: 'Locked items, set pieces, Legendary items and Collection Book pieces are kept.' });
-      });
-      if (!tier[t].n || !item('surfaceSell')) b.disabled = true; else b.style.color = (rar && rar.color) || '';
-      return b;
-    })));
+    // R12: the custom sell / salvage filter replaces the three fixed buttons
+    view.mass.className = '';
+    view.mass.replaceChildren(ui._filterBox ? ui._filterBox('surface') : '');
+    if (!view.tipped) { view.tipped = true; if (ui._tip) ui._tip('crateRate'); }
     const rule = junkRule();
     const cur = ui._btn('Curator' + (wantedN ? ' (' + wantedN + ')' : ''), function () {
       let n = 0;
@@ -217,12 +205,20 @@
       for (let i = surface().length - 1; i >= 0; i--) {
         const it = surface()[i];
         if (!sellable(it) || !ui._isJunk(it)) continue;
-        if (rule === 'salvage' ? (item('surfaceSalvage') && G.items.surfaceSalvage(i)) : (item('surfaceSell') && G.items.surfaceSell(i) > 0)) n++;
+        if (rule === 'salvage' ? (item('surfaceSalvage') && G.items.surfaceSalvage(i, { bulk: true })) : (item('surfaceSell') && G.items.surfaceSell(i, { bulk: true }) > 0)) n++;
       }
       ui._sfx(n ? (rule === 'salvage' ? 'click' : 'sell') : 'error');
     }, junkN ? 'gold' : '');
     if (!junkN) jb.disabled = true;
-    return { body: view.body, foot: [cur, jb, ui._sortButton('surface')] };
+    const takeAll = ui._btn('Take all', function () {
+      let n = 0;
+      while (surface().length && n < 400 && item('surfaceTake') && G.items.surfaceTake(0) !== false) n++;
+      ui._sfx(n ? 'loot' : 'error');
+      if (surface().length && n) ui.toast('Your bag is full. ' + surface().length + ' left up here.', '#a89f8f');
+      ui._refreshNow();
+    });
+    if (!list.length) takeAll.disabled = true;
+    return { body: view.body, foot: [cur, jb, takeAll, ui._sortButton('surface')] };
   }
   ui._register('surface', {
     render: function (view) {

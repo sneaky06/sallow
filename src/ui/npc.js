@@ -5,20 +5,23 @@
   const ui = G.ui;
   const h = ui._h, fmt = ui._fmt;
 
+  // R12: every townsperson may give quests of their own; the tab shows only while they have some (story_data SIDE / VENDOR_QUESTS with a `role`)
+  const hasQuests = function (role) { return !!(G.meta && G.meta.getQuests && G.meta.getQuests().some(function (q) { return q.giverRole === role && q.status !== 'done'; })); };
+  const QT = ['quests', 'Quests', hasQuests];
   const NPC = {
     // Buyback lives at the top of every Sell tab (R3 navigation pass: one tab fewer, one tap per item back).
-    merchant:    { title: 'Merchant',     line: 'Coin first, questions after. What do you need?',          tabs: [['buy', 'Buy'], ['sell', 'Sell']] },
-    blacksmith:  { title: 'Blacksmith',   line: 'Steel does not lie. Show me what you carry.',             tabs: [['buy', 'Buy'], ['forge', 'Forge'], ['sell', 'Sell']] },
-    mystic:      { title: 'Mystic',       line: 'The veil is thin tonight. Will you wager against it?',    tabs: [['gamble', 'Gamble'], ['enchant', 'Reroll'], ['buy', 'Buy'], ['sell', 'Sell']] },
-    healer:      { title: 'Healer',       line: 'Sit. Bleed quietly. This will only take a moment.',       tabs: [['heal', 'Heal']] },
+    merchant:    { title: 'Merchant',     line: 'Coin first, questions after. What do you need?',          tabs: [['buy', 'Buy'], ['sell', 'Sell'], QT] },
+    blacksmith:  { title: 'Blacksmith',   line: 'Steel does not lie. Show me what you carry.',             tabs: [['buy', 'Buy'], ['forge', 'Forge'], ['sell', 'Sell'], QT] },
+    mystic:      { title: 'Mystic',       line: 'The veil is thin tonight. Will you wager against it?',    tabs: [['gamble', 'Gamble'], ['enchant', 'Reroll'], ['buy', 'Buy'], ['sell', 'Sell'], QT] },
+    healer:      { title: 'Healer',       line: 'Sit. Bleed quietly. This will only take a moment.',       tabs: [['heal', 'Heal'], QT] },
     // R7.10: the Relics tab appears once the player holds a relic (and stays after the combine)
     elder:       { title: 'Elder',        line: 'The deep remembers every name. Make it remember yours.',  tabs: [['quests', 'Quests'], ['relics', 'Relics', function () { return ui._relicsCount && ui._relicsCount() > 0; }]] },
-    stashkeeper: { title: 'Stash Keeper', line: 'What you leave with me, the dark cannot take.',           tabs: [['stash', 'Stash']] },
+    stashkeeper: { title: 'Stash Keeper', line: 'What you leave with me, the dark cannot take.',           tabs: [['stash', 'Stash'], QT] },
     // R7.11: the Curator keeps the Collection Book (curator.js)
     // R7.7 friendly floors: world places refugees and a camp merchant on cleansed floors (story_data.js CAMP supplies the people)
-    refugee:     { title: 'Refugee',      line: 'You came down here? For us?',                            tabs: [['talk', 'Talk']] },
-    camp_merchant: { title: 'Camp Merchant', line: 'Found it on a dead man. Buy it anyway.',              tabs: [['buy', 'Buy'], ['sell', 'Sell']] },
-    curator:     { title: 'Curator',      line: 'Every piece in its place. Show me what you carry.',       tabs: [['hand', 'Hand in'], ['book', 'Book']] },
+    refugee:     { title: 'Refugee',      line: 'You came down here? For us?',                            tabs: [['talk', 'Talk'], QT] },
+    camp_merchant: { title: 'Camp Merchant', line: 'Found it on a dead man. Buy it anyway.',              tabs: [['buy', 'Buy'], ['sell', 'Sell'], QT] },
+    curator:     { title: 'Curator',      line: 'Every piece in its place. Show me what you carry.',       tabs: [['hand', 'Hand in'], ['book', 'Book'], QT] },
   };
   const NPC_SPRITE = {
     merchant: { body: 'humanoid', color: '#8a6a3a', accent: '#d8c9a3', scale: 1 },
@@ -102,6 +105,19 @@
     return body;
   }
 
+  // R12: a switch at the top of every shop between the vendor's stock and your own gear (paper doll + bag), so you can compare
+  // and equip without leaving the shop.
+  function gearToggle(view, stockFn, vrole, p, camp) {
+    const body = view.gear ? h('div', { class: 'ed-body' },
+      h('div', { class: 'ed-note', style: 'margin-bottom:6px', text: 'Tap worn gear to unequip it, or a bag item to compare and equip.' }),
+      h('div', { class: 'ed-inv' }, h('div', { class: 'ed-dollwrap' }, ui._doll(p), ui._summary(p)), ui._invGrid(p, 'inv'))) : stockFn(vrole, p, vrole === 'merchant', camp ? 8 : 0);
+    const sw = h('div', { class: 'ed-gearsw' },
+      ui._btn('For sale', function () { view.gear = false; ui._refreshNow(); }, view.gear ? '' : 'gold on'),
+      ui._btn('Your gear', function () { view.gear = true; ui._refreshNow(); }, view.gear ? 'gold on' : ''));
+    body.insertBefore(sw, body.firstChild);
+    return body;
+  }
+
   function matsLine(p) {
     const m = p.materials && typeof p.materials === 'object' ? p.materials : {};
     return Object.keys(m).filter(function (k) { return typeof m[k] === 'number'; }).map(function (k) { return m[k] + ' ' + ui._matName(k); }).join(', ');
@@ -170,7 +186,7 @@
   }
 
   function sellTab(role, p) {
-    return h('div', { class: 'ed-body' }, buybackRows(p), massRow(),
+    return h('div', { class: 'ed-body' }, buybackRows(p), ui._filterBox ? ui._filterBox('bag') : massRow(),
       h('div', { class: 'ed-note', style: 'margin-bottom:6px', text: 'Tap an item to sell it. Lock an item in its tooltip to keep it safe.' }),
       ui._invGrid(p, 'sell', role));
   }
@@ -282,8 +298,9 @@
     return parts.join(', ');
   }
 
-  function questList(actions) {
-    const list = (G.meta && G.meta.getQuests) ? G.meta.getQuests() : [];
+  function questList(actions, role) {
+    let list = (G.meta && G.meta.getQuests) ? G.meta.getQuests() : [];
+    if (role) list = list.filter(function (q) { return role === 'elder' ? !q.giverRole : q.giverRole === role; });
     const wrap = h('div', { class: 'ed-list' });
     const order = { ready: 0, active: 1, available: 2, done: 3 };
     const add = function (title, items) {
@@ -303,13 +320,13 @@
           box.appendChild(h('div', { class: 'ed-note', text: 'Reward: ' + rewardText(q.rewards) }));
           if (actions && q.status === 'available') box.appendChild(ui._btn('Accept', function () { G.meta.acceptQuest(q.id); ui._refreshNow(); }));
           if (actions && q.status === 'ready') box.appendChild(ui._btn('Claim reward', function () { G.meta.turnInQuest(q.id); ui._refreshNow(); }, 'gold'));
-          if (!actions && q.status === 'ready') box.appendChild(h('div', { class: 'ed-gold', text: 'Return to the Elder in ' + ui._townName() + '.' }));
+          if (!actions && q.status === 'ready') box.appendChild(h('div', { class: 'ed-gold', text: q.giverRole ? 'Return to ' + q.giverName + '.' : 'Return to the Elder in ' + ui._townName() + '.' }));
         }
         wrap.appendChild(box);
       });
     };
     add('The Descent', list.filter(function (q) { return q.main; }));
-    add('Townsfolk', list.filter(function (q) { return q.side; }));
+    add(role && role !== 'elder' ? 'Requests' : 'Townsfolk', list.filter(function (q) { return q.side; }));
     add('Bounties', list.filter(function (q) { return !q.main && !q.side; }));
     if (!list.length) wrap.appendChild(h('div', { class: 'ed-note', text: 'No quests yet. Speak with the Elder in ' + ui._townName() + '.' }));
     else if (!actions) wrap.appendChild(h('div', { class: 'ed-note', text: 'The Elder in ' + ui._townName() + ' offers quests and pays their rewards. Bounties change each time you return to town.' }));
@@ -365,7 +382,7 @@
       if (!p) return ui._frame(def.title, null, h('div', { class: 'ed-body' }));
       // reopen on the tab used last time at this vendor (session only) — most visits repeat the last errand
       // R7.7 town revival: some services open with later acts (story_data.js TOWN)
-      const tabs = def.tabs.filter(function (t) { return (!ui._serviceOpen || ui._serviceOpen(role, t[0])) && (!t[2] || t[2]()); });
+      const tabs = def.tabs.filter(function (t) { return (!ui._serviceOpen || ui._serviceOpen(role, t[0])) && (!t[2] || t[2](role)); });
       if (view.tab && !tabs.some(function (t) { return t[0] === view.tab; })) view.tab = null;
       if (!view.tab) view.tab = lastTab[role] && tabs.some(function (t) { return t[0] === lastTab[role]; }) ? lastTab[role] : tabs[0][0];
       lastTab[role] = view.tab;
@@ -373,13 +390,13 @@
       if (view.tab === 'talk') body = h('div', { class: 'ed-body' }, h('div', { class: 'ed-box' }, h('div', { class: 'ed-h', text: (view.person && view.person.camp) || 'The camp' }),
         h('p', { style: 'font-weight:normal;line-height:18px', text: view.person ? view.person.look : 'Someone who made it up from the dark.' }),
         h('div', { class: 'ed-note', text: 'Floors you have cleansed are safe to rest on.' })));
-      else if (view.tab === 'buy') body = buyTab(vrole, p, vrole === 'merchant', camp ? 8 : 0);
+      else if (view.tab === 'buy') body = gearToggle(view, buyTab, vrole, p, camp);
       else if (view.tab === 'sell') body = sellTab(vrole, p);
       else if (view.tab === 'forge') body = forgeTab(p);
       else if (view.tab === 'gamble') body = gambleTab(p);
       else if (view.tab === 'heal') body = healTab(p);
       else if (view.tab === 'enchant') body = enchantTab(p);
-      else if (view.tab === 'quests') body = h('div', { class: 'ed-body' }, questList(true));
+      else if (view.tab === 'quests') body = h('div', { class: 'ed-body' }, questList(true, role));
       else if (view.tab === 'relics') body = ui._relicsBody();
       else if (view.tab === 'hand') body = ui._handInBody(view);
       else if (view.tab === 'book') body = ui._bookBody(view);
@@ -396,7 +413,7 @@
         ui._sortButton('inv'),
       ] : null;
       return ui._frame(def.title, {
-        tabs: tabs.length > 1 ? tabs.map(function (t) { return { id: t[0], label: t[1] }; }) : null,
+        tabs: tabs.length > 1 ? tabs.map(function (t) { const m = t[0] === 'quests' && role !== 'elder' && G.meta.npcQuestState ? G.meta.npcQuestState(role) : null; return { id: t[0], label: t[1], badge: m === 'ready' ? '?' : (m === 'available' ? '!' : null) }; }) : null,
         tab: view.tab, onTab: function (id) { view.tab = id; ui._refreshNow(); },
         sub: sub, foot: foot, right: right, compact: true,
       }, body);

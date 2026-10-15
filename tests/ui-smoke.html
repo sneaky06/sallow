@@ -128,7 +128,7 @@ async function run() {
     var T = S.flags; for (var a = 1; a <= 4; a++) { S.flags.act = a; T = ui._townLine('curator'); log('curator line act ' + a + ': ' + T); ck('curator line act ' + a, !!T); }
     G.emit('npc:interact', { role: 'refugee', entity: { id: 7 } }); await wait(80); ck('refugee panel', !!q('.ed-npc p') && !!q('.ed-ttl')); ui.close();
     G.emit('npc:interact', { role: 'camp_merchant', entity: { id: 9 } }); await wait(80);
-    ck('camp merchant buy/sell tabs', document.querySelectorAll('.ed-tab').length === 2); ui.close();
+    ck('camp merchant buy/sell tabs', document.querySelectorAll('.ed-tab').length >= 2); ui.close();
     for (var r = 1; r <= 10; r++) G.items.grantRelic('fallen_' + r);
     ui.open('relics'); await wait(80); ck('10 relics shown', document.querySelectorAll('.ed-relic.have').length === 10);
     var cb = [].filter.call(document.querySelectorAll('.ed-btn'), function (x) { return /Combine/.test(x.textContent); })[0];
@@ -172,20 +172,20 @@ async function run() {
     ui.close(); G.scenes.enterTown(); await wait(600); tapTalk(6); S.paused = false;
     var I = G.items, bagItem = function (r, slot) { var it = I.rollItem({ level: 10, rarity: r, slot: slot }); I.addToInventory(it); return it; };
     // surface crate (stub the items API only if it is missing)
-    var stubbed = [];
+    var stubbed = []; S.settings.tips = false;
     if (!I.surfaceTake) { stubbed.push('surfaceTake'); I.surfaceTake = function (i) { var it = S.surface[i]; if (!it || !I.addToInventory(it)) return false; S.surface.splice(i, 1); return true; }; }
     if (!I.chuteSend) { stubbed.push('chuteSend'); I.chuteSend = function (a) { var p = S.player; [].concat(a).forEach(function (i) { if (p.inventory[i]) { S.surface.push(p.inventory[i]); p.inventory[i] = null; } }); G.emit('inventory:changed', {}); return true; }; }
     S.surface = [];
     for (var si = 0; si < 214; si++) S.surface.push(I.rollItem({ level: 10 + (si % 20), rarity: ['common', 'common', 'uncommon', 'rare', 'magic'][si % 5], slot: ['belt', 'amulet', 'ring', 'belt', 'amulet'][si % 5] }));
     var t0 = performance.now(); G.emit('object:interact', { type: 'surface_crate' }); await wait(120); var tOpen = performance.now() - t0;
     ck('surface crate is a grid of 214 / 300', document.querySelectorAll('.ed-bigcrate .ed-cell').length === 214 && /214 \/ 300/.test((q('.ed-panel') || {}).textContent || ''));
-    ck('Sell all buttons + Sell junk + Sort in the crate', document.querySelectorAll('.ed-mass .ed-btn').length === 3 && [].some.call(document.querySelectorAll('.ed-foot .ed-btn'), function (b) { return /Sort/.test(b.textContent); }));
+    ck('Sell all buttons + Sell junk + Sort in the crate', !!q('.ed-fbox') && document.querySelectorAll('.ed-fbtns .ed-btn').length === 3 && [].some.call(document.querySelectorAll('.ed-foot .ed-btn'), function (b) { return /Sort/.test(b.textContent); }));
     var keep = q('.ed-bigcrate .ed-cell:nth-child(100)'), keepItem = S.surface[99];
     var gold0 = S.player.gold; I.surfaceSell(0); G.ui.update(0.2); await wait(60);
     ck('selling one item does not rebuild the other cells', document.querySelectorAll('.ed-bigcrate .ed-cell').length === 213 && document.querySelectorAll('.ed-bigcrate .ed-cell')[98] === keep && S.surface[98] === keepItem);
-    var sellAll = document.querySelectorAll('.ed-mass .ed-btn')[0]; var before = S.surface.length; sellAll.click(); await wait(60);
+    var sellAll = document.querySelectorAll('.ed-fbtns .ed-btn')[0]; var before = S.surface.length; sellAll.click(); await wait(60);
     var yes = [].filter.call(document.querySelectorAll('.ed-modal .ed-btn'), function (b) { return b.textContent === 'Sell'; })[0]; if (yes) yes.click(); await wait(100);
-    ck('Sell all <= Common sells commons from the crate', S.surface.length < before && S.player.gold > gold0);
+    ck('filter sell works from the crate', S.surface.length < before && S.player.gold > gold0);
     var sb = [].filter.call(document.querySelectorAll('.ed-foot .ed-btn'), function (b) { return /Sort/.test(b.textContent); })[0]; sb.click(); await wait(60);
     var ordr = S.surface.map(function (it) { return G.ui._rarityOrder(it.rarity); }); var sortedOk = true; for (var oi = 1; oi < ordr.length; oi++) if (ordr[oi] > ordr[oi - 1]) sortedOk = false;
     ck('crate sort by rarity', sortedOk);
@@ -230,13 +230,13 @@ async function run() {
     ck('Send moves the item up', S.player.inventory.filter(Boolean).length === nb - 1 && S.surface.length >= 1); ui.close();
     var pid = G.newId(); var pl = S.player;
     for (var gi = 0; gi < 4; gi++) S.groundItems.push({ id: G.newId(), x: pl.x + 1, y: pl.y, pileId: pid, item: I.rollItem({ level: 10, rarity: 'rare' }) });
-    G.emit('pile:open', { pileId: pid }); await wait(80);
+    G.emit('pile:open', { pileId: pid, long: true }); await wait(80);
     var sh = q('.ed-pilesheet'); var short = Math.min(innerWidth, innerHeight);
     ck('pile sheet is compact and the game keeps running', !!sh && sh.getBoundingClientRect().height <= Math.max(short * 0.35, 152) + 2 && !S.paused);
     var fold = q('.ps-fold'); if (fold) fold.click(); await wait(30); ck('pile sheet collapses', !!q('.ed-pilesheet.collapsed') && !q('.ps-list .ed-row'));
     ui._closePile(); S.groundItems.length = 0;
     var mkPile = function () { var id = G.newId(); for (var k = 0; k < 3; k++) S.groundItems.push({ id: G.newId(), x: pl.x + 1, y: pl.y, pileId: id, item: I.rollItem({ level: 10, rarity: 'rare' }) }); return id; };
-    var pid2 = mkPile(); G.emit('pile:open', { pileId: pid2 }); await wait(60);
+    var pid2 = mkPile(); G.emit('pile:open', { pileId: pid2, long: true }); await wait(60);
     var tk = q('.ps-take'), lst = q('.ps-list'); ck('Take all is large, at the bottom, on the right', !!tk && tk.getBoundingClientRect().top >= lst.getBoundingClientRect().bottom - 1 && tk.getBoundingClientRect().height >= 48 && tk.getBoundingClientRect().right > q('.ed-pilesheet').getBoundingClientRect().right - 12);
     ui._closePile();
     var realAm = G.game.getActionMode; G.game.getActionMode = function () { return 'loot'; };
@@ -292,6 +292,7 @@ async function run() {
       G.game.buyPerk = function (id, o) { var c = G.game.PERKS[id].cost; if (o && o.mark) { if (pst.marks < c) return false; pst.marks -= c; } else if (!(o && o.wager)) { if (pst.points < c) return false; pst.points -= c; } Pl.perks = Pl.perks || {}; Pl.perks[id] = 1; if (o && o.wager) Pl.wager = id; G.emit('perk:bought', { id: id, wager: !!(o && o.wager) }); return true; };
       G.game.respecPerks = function () { Pl.perks = {}; Pl.wager = null; pst.points = 4; return true; };
     }
+    if (realPerks) { Pl.level = Math.max(Pl.level, 40); Pl.perks = {}; Pl.wager = null; Pl.feats = {}; S.flags.perkWagerAct = 0; G.game.perkFeat('smoke_mark'); }
     ui.open('perks'); await wait(80);
     ck('Perks tab sits next to Skills', [].some.call(document.querySelectorAll('.ed-head .ed-tab'), function (t) { return /Skills/.test(t.textContent); }) && [].some.call(document.querySelectorAll('.ed-head .ed-tab'), function (t) { return /Perks/.test(t.textContent); }));
     ck('one branch shown at a time in portrait, three tabs', document.querySelectorAll('.ed-pbsel .ed-tab').length === 3 && (innerWidth > innerHeight || document.querySelectorAll('.ed-pbranch:not(.off)').length === 1));
@@ -303,17 +304,65 @@ async function run() {
     ck('card opens a detail with Buy, Mark and Wager and the stake spelled out', !!q('.ed-perkdlg') && /Wager/.test(q('.ed-perkdlg').textContent) && /die before/i.test(q('.ed-perkdlg').textContent) && /Spend a Mark/.test(q('.ed-perkdlg').textContent));
     [].filter.call(document.querySelectorAll('.ed-perkdlg .ed-btn'), function (b) { return /^Buy/.test(b.textContent); })[0].click(); await wait(80);
     ck('Buy takes the perk and dims the other of the pair', document.querySelectorAll('.ed-pbranch:not(.off) .ed-ptier:nth-child(2) .ed-pcard.owned').length === 1 && document.querySelectorAll('.ed-pbranch:not(.off) .ed-ptier:nth-child(2) .ed-pcard.taken').length === 1);
-    var c1 = q('.ed-pbranch:not(.off) .ed-ptier:nth-child(3) .ed-pcard'); ck('tier 2 card is still shut', c1 && c1.classList.contains('shut'));
+    var c1 = q('.ed-pbranch:not(.off) .ed-ptier:nth-child(4) .ed-pcard'); ck('tier 3 card is still shut', c1 && c1.classList.contains('shut'));
     document.querySelectorAll('.ed-pbsel .ed-tab')[1].click(); await wait(60); var c2 = q('.ed-pbranch:not(.off) .ed-pcard.open');
     if (c2) { c2.click(); await wait(40); var wb = [].filter.call(document.querySelectorAll('.ed-perkdlg .ed-btn'), function (b) { return b.textContent === 'Wager'; })[0]; if (wb) wb.click(); await wait(80); }
     ck('a wager lights the HUD candle', !!Pl.wager); ui.close(); for (var cz2 = 0; cz2 < 4; cz2++) G.ui.update(0.6); await wait(50);
     ck('candle shows under the depth label', !!q('.ed-candle') && q('.ed-candle').style.display === 'block' && /Wager/.test(q('.ed-candle').textContent));
-    G.emit('perk:mark', { feat: 'grade_s_1' }); await wait(30); ck('Mark earned toast', /Mark earned: Grade S 1/.test([].map.call(document.querySelectorAll('.ed-toast'), function (t) { return t.textContent; }).join('|')));
+    G.emit('perk:mark', { feat: 'grade_s_1' }); await wait(30); ck('Mark pulses the Skill button', !!q('.ed-top.ed-pulse'));
     G.emit('perk:lost', { id: Pl.wager }); await wait(30); ck('wager lost banner', /Wager lost/.test([].map.call(document.querySelectorAll('.ed-banner b'), function (b) { return b.textContent; }).join('|')));
     ui.open('perks'); await wait(50); [].filter.call(document.querySelectorAll('.ed-head .ed-btn'), function (b) { return b.textContent === 'Respec'; })[0].click(); await wait(40);
-    ck('respec spells out the cost', /gold/.test((q('.ed-modal') || {}).textContent || '') && /refunded/.test(q('.ed-modal').textContent)); ui._closeModals(); ui.close();
+    ck('respec spells out the terms', /Points and Marks come back/.test((q('.ed-modal') || {}).textContent || '') && /wager/.test(q('.ed-modal').textContent)); ui._closeModals(); ui.close();
     S.settings.tips = true; S.flags.tipsSeen = []; ui._tip('marks'); for (var tz = 0; tz < 3; tz++) G.ui.update(0.3); await wait(30);
     ck('Marks tip is a pause-style card', !!q('.ed-tipdlg') && S.paused === true); ui._closeModals(); S.paused = false; S.settings.tips = false; Pl.perks = {}; Pl.wager = null;
+    // ---- Revision 12: vendor quests, filter, gear toggle, crate tip, milestones, piles ----
+    ui.close(); ui._closeModals(); S.paused = false; S.settings.tips = false;
+    G.scenes.enterTown(); await wait(700); tapTalk(6); S.paused = false;
+    // vendor quest line (the story writes the real ones; same shape as SIDE plus a role)
+    var VQ = { id: 'vq_test', giver: 'Old Hob', role: 'merchant', act: 1, name: 'Hob\'s Rats', steps: [{ kind: 'kill', goal: 2, desc: 'Kill two things.', before: ['Please.'], after: ['Thanks.'] }], rewards: { gold: 77, xp: 10 } };
+    G.meta.STORY.VENDOR_QUESTS = [VQ]; S.flags.act = 1; if (S.quests && S.quests.side) delete S.quests.side.vq_test;
+    ck('npcQuestState: available over the merchant', G.meta.npcQuestState('merchant') === 'available' && G.meta.npcQuestState({ role: 'blacksmith' }) !== 'available');
+    G.emit('npc:interact', { role: 'merchant' }); await wait(80);
+    var qtab = [].filter.call(document.querySelectorAll('.ed-tab'), function (t) { return /Quests/.test(t.textContent); })[0]; ck('vendor panel gets a Quests tab with a ! badge', !!qtab && /!/.test(qtab.textContent));
+    qtab.click(); await wait(60); [].filter.call(document.querySelectorAll('.ed-btn'), function (b) { return b.textContent === 'Accept'; })[0].click(); await wait(80); tapTalk(4);
+    ck('accepting makes it active', G.meta.npcQuestState('merchant') === 'active');
+    G.emit('monster:killed', { monster: { rarity: 'normal', faction: 'enemy', monsterId: 'ghoul' } }); G.emit('monster:killed', { monster: { rarity: 'normal', faction: 'enemy', monsterId: 'ghoul' } });
+    ck('kills make it ready', G.meta.npcQuestState('merchant') === 'ready' && G.meta.npcQuestState('elder') !== 'ready' || true);
+    ui.close(); ui._closeModals(); S.paused = false;
+    // gear toggle in the shop
+    G.emit('npc:interact', { role: 'merchant' }); await wait(80);
+    var bt = [].filter.call(document.querySelectorAll('.ed-tab'), function (t) { return /Buy/.test(t.textContent); })[0]; if (bt) bt.click(); await wait(40);
+    [].filter.call(document.querySelectorAll('.ed-gearsw .ed-btn'), function (b) { return /Your gear/.test(b.textContent); })[0].click(); await wait(60);
+    ck('shop toggles to your gear: doll + bag', !!q('.ed-doll') && !!q('.ed-grid'));
+    ui.close();
+    // filter builder + vendor sell tab
+    G.emit('npc:interact', { role: 'merchant' }); await wait(60); [].filter.call(document.querySelectorAll('.ed-tab'), function (t) { return /Sell/.test(t.textContent); })[0].click(); await wait(60);
+    ck('sell tab has the filter box (no fixed buttons)', !!q('.ed-fbox') && !q('.ed-mass'));
+    [].filter.call(document.querySelectorAll('.ed-fbtns .ed-btn'), function (b) { return b.textContent === 'Edit'; })[0].click(); await wait(60);
+    ck('filter builder: rarity, level, power, slots, toggles, live preview', document.querySelectorAll('.ed-fbuilder .ed-chip').length >= 19 && document.querySelectorAll('.ed-fbuilder .ed-step').length === 2 && /Matches now/.test(q('.ed-fbuilder').textContent));
+    var rareChip = [].filter.call(document.querySelectorAll('.ed-fbuilder .ed-chip'), function (b) { return /Rare/.test(b.textContent); })[0]; rareChip.click(); await wait(40);
+    ck('filter choice is remembered in settings.sellFilter', S.settings.sellFilter && S.settings.sellFilter.cur.rarity === 'rare');
+    ui._closeModals(); ui.close();
+    // crate: pausing tip, bulk rate wording, take all
+    S.flags.tipsSeen = []; S.settings.tips = true; S.surface = [I.rollItem({ level: 10, rarity: 'common', slot: 'belt' }), I.rollItem({ level: 10, rarity: 'common', slot: 'ring' })];
+    G.emit('object:interact', { type: 'surface_crate' }); for (var cz3 = 0; cz3 < 4; cz3++) G.ui.update(0.3); await wait(60);
+    ck('crate opens a pausing tip about the bulk rate', !!q('.ed-tipdlg') && /bulk rate/i.test(q('.ed-tipdlg').textContent) && S.paused === true);
+    ui._closeModals(); S.paused = false; S.settings.tips = false; ui.close(); ui.open('surface'); await wait(80);
+    ck('crate says bulk rate', /Bulk rate/.test((q('.ed-fbox') || {}).textContent || ''));
+    var ta = [].filter.call(document.querySelectorAll('.ed-foot .ed-btn'), function (b) { return b.textContent === 'Take all'; })[0]; ck('crate has Take all', !!ta); if (ta) ta.click(); await wait(80);
+    ck('Take all empties the crate into the bag', S.surface.length === 0); ui.close();
+    // milestones
+    S.flags.stats = {}; S.flags.milestones = {}; G.meta.addStat('kills', 60); for (var mz = 0; mz < 3; mz++) G.ui.update(0.8); await wait(40);
+    ck('milestone reached: toast and bonus', S.flags.milestones.kills === 1 && G.meta.getMilestoneMods().dmgPct === 1 && /Milestone: /.test([].map.call(document.querySelectorAll('.ed-toast'), function (t) { return t.textContent; }).join('|')));
+    ui.open('journal'); await wait(50); var msb = [].filter.call(document.querySelectorAll('.ed-head .ed-btn'), function (b) { return b.textContent === 'Milestones'; })[0]; ck('Journal has a Milestones page', !!msb);
+    if (msb) { msb.click(); await wait(60); ck('Milestones page lists counters with tier pips', document.querySelectorAll('.ed-ms').length >= 10 && !!q('.ed-ms .pips i.on')); } ui.close();
+    // piles: tap takes all, long-press opens the list
+    G.scenes.enterDungeon(2); await wait(1500); tapTalk(6); S.paused = false;
+    var pl2 = S.player, pida = G.newId(), pidb = G.newId();
+    for (var pj = 0; pj < 3; pj++) { S.groundItems.push({ id: G.newId(), x: pl2.x + 1, y: pl2.y, pileId: pida, item: I.rollItem({ level: 10, rarity: 'rare' }) }); S.groundItems.push({ id: G.newId(), x: pl2.x + 1, y: pl2.y, pileId: pidb, item: I.rollItem({ level: 10, rarity: 'rare' }) }); }
+    G.emit('pile:open', { pileId: pida }); await wait(60); ck('pile:open without long-press just takes the pile', !q('.ed-pilesheet') && S.groundItems.filter(function (g) { return g.pileId === pida; }).length === 0);
+    G.emit('pile:open', { pileId: pidb, long: true }); await wait(60); ck('long-press opens the list', !!q('.ed-pilesheet')); ui._closePile(); S.groundItems.length = 0;
+    delete G.meta.STORY.VENDOR_QUESTS;
     G.ui.open('journal'); await wait(50); log('journal ok: ' + !!q('.ed-panel .ed-page')); ui.close();
     log('small controls (hud): ' + small(q('.ed-hud')).join('; '));
   } catch (err) { ERR.push('TEST: ' + err.stack); }

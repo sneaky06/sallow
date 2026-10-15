@@ -99,7 +99,16 @@
     fill();
   }
   ui._openPile = openPile;
-  G.on('pile:open', function (e) { if (e && e.pileId != null) openPile(e.pileId); });
+  // R12: a tap on a pile (or the LOOT button) takes everything that fits, best first; the list opens only on a long-press, which the game
+  // marks with pile:open { long: true } (or popup / list). Without the flag the pile is simply taken.
+  G.on('pile:open', function (e) {
+    if (!e || e.pileId == null) return;
+    if (e.long || e.popup || e.list) { openPile(e.pileId); return; }
+    let r = null;
+    if (G.items && G.items.pickupPile) { try { r = G.items.pickupPile(e.pileId); } catch (err) { console.error('[ui pickupPile]', err); } }
+    if (r && r.taken > 0) ui._sfx('loot'); else ui._sfx('error');
+    if (r && r.left > 0) ui.toast(r.taken > 0 ? 'Your bag is full. ' + r.left + ' left on the ground.' : 'Your bag is full.', '#a89f8f');
+  });
 
   // ---------- review new finds (pitch) ----------
   // Items gain foundAt (state.time) when picked up (R5.7, items team); stamp it here too if a pickup arrives without one.

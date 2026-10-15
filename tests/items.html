@@ -1929,6 +1929,94 @@ function harness() {
     S.surface = []; S.settings = {};
   });
 
+  section('R12 bulk rate, filters, take-all, bloodstone icon', function () {
+    const p = mkPlayer('warrior', 40);
+    eq(I.BULK_RATE, 0.6, 'BULK_RATE is 0.6');
+    const it = I.rollItem({ level: 30, rarity: 'rare', slot: 'boots' }); it.value = 100;
+    S.surface = [it]; p.gold = 0;
+    eq(I.surfaceSell(0), 60, 'selling from the crate pays 60% of the trader price');
+    const full = give({ level: 30, rarity: 'rare', slot: 'boots' }); full.value = 100;
+    eq(I.sell(idx(full)), 100, 'the trader pays full price for the same item');
+    const a = I.rollItem({ level: 40, rarity: 'magic', slot: 'helm' });
+    const y = I.salvageYield(a); S.surface = [a]; p.materials = { dust: 0, shard: 0, essence: 0, gemdust: 0 };
+    I.surfaceSalvage(0);
+    ok(p.materials.dust === Math.round(y.dust * 0.6) && p.materials.shard === Math.round(y.shard * 0.6), 'crate salvage yields 60% of the materials', JSON.stringify(y) + ' -> ' + JSON.stringify(p.materials));
+
+    // filters
+    S.surface = []; p.gold = 0; p.inventory.fill(null);
+    const mk = function (o) { const x = I.rollItem(o); delete x.sockets; return x; };
+    const low = mk({ level: 5, rarity: 'common', slot: 'helm' }), blue = mk({ level: 20, rarity: 'rare', slot: 'boots' }), lowIlvl = mk({ level: 8, rarity: 'rare', slot: 'ring' });
+    const locked = mk({ level: 5, rarity: 'common', slot: 'belt' }); locked.locked = true;
+    const sock = mk({ level: 5, rarity: 'common', slot: 'gloves' }); sock.sockets = [I.rollItem({ baseId: 'gem_ruby_1' })];
+    const set = mk({ level: 30, rarity: 'set' }), elite = mk({ level: 30, rarity: 'legendary' }), uniq = mk({ level: 30, rarity: 'rare', slot: 'chest' }); uniq.rarity = 'unique';
+    const corr = mk({ level: 20, rarity: 'rare', slot: 'amulet' }); D.corrupt(corr); if (corr.rarity === 'unique') corr.rarity = 'rare';
+    [low, blue, lowIlvl, locked, sock, set, elite, uniq, corr].forEach(function (x) { I.addToInventory(x); });
+    const all = { maxRarity: 'rare' };
+    ok(I.matchFilter(low, all) && I.matchFilter(blue, all) && !I.matchFilter(locked, all) && !I.matchFilter(set, all) && !I.matchFilter(elite, all) && !I.matchFilter(uniq, { maxRarity: 'rift' }), 'never matches locked, set, Legendary or Unique items, whatever the filter');
+    ok(!I.matchFilter(I.rollItem({ baseId: 'gem_ruby_1' }), {}) && !I.matchFilter(null, {}), 'only equipment matches');
+    ok(!I.matchFilter(blue, { maxRarity: 'uncommon' }) && I.matchFilter(blue, { maxItemLevel: 20 }) && !I.matchFilter(blue, { maxItemLevel: 19 }), 'rarity and item level limits');
+    ok(I.matchFilter(blue, { slots: ['boots'] }) && !I.matchFilter(blue, { slots: ['helm', 'ring'] }) && I.matchFilter(lowIlvl, { slots: ['ring'] }), 'slot list');
+    ok(!I.matchFilter(sock, { excludeSocketed: true }) && I.matchFilter(sock, {}), 'excludeSocketed');
+    ok(!I.matchFilter(corr, { excludeCorrupted: true }) && I.matchFilter(corr, {}), 'excludeCorrupted');
+    ok(I.matchFilter(blue, { maxPower: I.power(blue) }) && !I.matchFilter(blue, { maxPower: I.power(blue) - 1 }), 'maxPower');
+    D.COLLECTION.protect = false;
+    ok(I.matchFilter(low, { excludeWanted: true }) === !D.isWanted(low), 'excludeWanted follows the Curator');
+    const f = { maxRarity: 'rare', excludeCorrupted: true, excludeSocketed: true };
+    const pv = I.previewSellFilter(f), expectGold = [low, blue, lowIlvl].reduce(function (s, x) { return s + x.value; }, 0);
+    ok(pv.count === 3 && pv.gold === expectGold, 'previewSellFilter counts and prices the bag at the full rate', JSON.stringify(pv) + ' ' + expectGold);
+    eq(I.previewSellFilter(f, { bulk: true }).gold, [low, blue, lowIlvl].reduce(function (s, x) { return s + Math.round(x.value * 0.6); }, 0), 'preview with bulk uses 60%');
+    const ps = I.previewSalvageFilter(f);
+    ok(ps.count === 3 && ps.materials.dust > 0, 'previewSalvageFilter', JSON.stringify(ps));
+    S.scene = 'dungeon';
+    ok(I.sellFilter(f).count === 0 && idx(low) >= 0, 'sellFilter refuses outside town');
+    S.scene = 'town';
+    const sold = I.sellFilter(f);
+    ok(sold.count === 3 && sold.gold === expectGold && p.gold === expectGold && idx(low) < 0 && idx(blue) < 0 && idx(locked) >= 0 && idx(set) >= 0 && idx(elite) >= 0 && idx(corr) >= 0, 'sellFilter sells exactly the preview and keeps the rest');
+    ok(I.getBuyback().some(function (e) { return e.item === low; }), 'filter sales go to buyback');
+    const m0 = p.materials.dust;
+    const sv = I.salvageFilter({ maxRarity: 'rare' });
+    ok(sv.count >= 1 && p.materials.dust >= m0 && idx(sock) < 0 && idx(locked) >= 0, 'salvageFilter salvages and keeps protected items', JSON.stringify(sv));
+
+    // from the crate
+    p.inventory.fill(null); S.surface = [mk({ level: 10, rarity: 'common', slot: 'helm' }), mk({ level: 10, rarity: 'common', slot: 'boots' }), mk({ level: 50, rarity: 'rare', slot: 'chest' })];
+    const sp = I.previewSellFilter({ maxRarity: 'common' }, { from: 'surface' });
+    p.gold = 0;
+    const ss = I.sellFilter({ maxRarity: 'common' }, { from: 'surface' });
+    ok(sp.count === 2 && ss.count === 2 && ss.gold === sp.gold && p.gold === sp.gold && S.surface.length === 1, 'crate filter sells at the bulk rate and removes the items', JSON.stringify(sp));
+    const sc = I.salvageFilter({ maxRarity: 'rare' }, { from: 'surface' });
+    ok(sc.count === 1 && S.surface.length === 0, 'crate salvage by filter');
+
+    // presets
+    S.settings = {};
+    ok(I.getSellFilter().maxRarity && I.setSellFilter({ maxRarity: 'rare', slots: ['ring'] }).slots[0] === 'ring' && S.settings.sellFilter.current.maxRarity === 'rare', 'the filter is remembered in settings.sellFilter');
+    ok(I.saveFilterPreset('Rings', I.getSellFilter()) && I.getFilterPresets().Rings.slots[0] === 'ring' && I.deleteFilterPreset('Rings') && !I.getFilterPresets().Rings, 'named presets');
+    ['a', 'b', 'c', 'd', 'e'].forEach(function (n) { I.saveFilterPreset(n, {}); });
+    ok(I.saveFilterPreset('f', {}) === false, 'at most five presets');
+    S.settings = {};
+
+    // take all
+    p.inventory.fill(null);
+    S.surface = [mk({ level: 5, rarity: 'common', slot: 'helm' }), mk({ level: 45, rarity: 'rare', slot: 'boots' }), mk({ level: 25, rarity: 'rare', slot: 'belt' })];
+    S.settings = { sort: 'level' };
+    const ta = I.surfaceTakeAll();
+    ok(ta.taken === 3 && ta.left === 0 && S.surface.length === 0 && inv()[0].ilvl >= inv()[1].ilvl, 'surfaceTakeAll fills the bag in sort order', JSON.stringify(ta));
+    p.inventory.fill(null); for (let i = 0; i < C.INV_SIZE - 2; i++) p.inventory[i] = mk({ level: 5, rarity: 'common', slot: 'helm' });
+    S.surface = [mk({ level: 5, rarity: 'common', slot: 'boots' }), mk({ level: 45, rarity: 'rare', slot: 'boots' }), mk({ level: 25, rarity: 'rare', slot: 'belt' })];
+    const tb = I.surfaceTakeAll();
+    ok(tb.taken === 2 && tb.left === 1 && S.surface.length === 1, 'what does not fit stays in the crate', JSON.stringify(tb));
+    S.surface = []; S.settings = {};
+
+    // bloodstone icon
+    const bs = I.rollItem({ baseId: 'blood_fury_1' }), cut = I.rollItem({ baseId: 'gem_ruby_2' });
+    ok(bs.icon.shape === 'bloodstone' && cut.icon.shape === 'gem', 'bloodstones use the bloodstone icon shape, cut gems keep gem');
+    const old = JSON.parse(JSON.stringify(bs)); old.icon.shape = 'gem';
+    const host = mk({ level: 30, rarity: 'rare', slot: 'chest' }); host.sockets = [JSON.parse(JSON.stringify(old))];
+    p.inventory[0] = old; p.inventory[1] = host; S.surface = [JSON.parse(JSON.stringify(old))];
+    I.migrateState();
+    ok(old.icon.shape === 'bloodstone' && host.sockets[0].icon.shape === 'bloodstone' && S.surface[0].icon.shape === 'bloodstone', 'old bloodstones (bag, socketed, crate) migrate');
+    S.surface = [];
+  });
+
   section('Starter gear', function () {
     const want = { warrior: ['sword', 'axe', 'mace'], ranger: ['bow'], sorcerer: ['staff', 'wand'], necromancer: ['wand', 'dagger'] };
     Object.keys(want).forEach(function (c) {

@@ -11,7 +11,17 @@
   D.OLD_RARITY = { magic: 'uncommon', epic: 'magic', set: 'legendary' };
 
   // Migrate one item in place (no-op for current items). -> the item
+  // R12: bloodstones (also socketed ones) take the bloodstone icon shape. Cheap and idempotent: runs on every item.
+  function fixIcon(it) {
+    if (!it || typeof it !== 'object') return;
+    const g = it.type === 'gem' && D.GEMS[it.baseId];
+    if (g && g.family === 'blood' && it.icon && it.icon.shape !== D.ICON_BLOOD) it.icon.shape = D.ICON_BLOOD;
+    if (it.sockets) for (const s of it.sockets) fixIcon(s);
+  }
+  D.fixIcon = fixIcon;
+
   D.migrateItem = function (it) {
+    fixIcon(it);
     if (!it || typeof it !== 'object' || it.rv === D.RARITY_VERSION) return it;
     if (it.type === 'gold') return it;
     if (it.rarity && D.OLD_RARITY[it.rarity]) it.rarity = D.OLD_RARITY[it.rarity];
@@ -29,6 +39,7 @@
       for (const k in (p.equipment || {})) D.migrateItem(p.equipment[k]);
     }
     (S.stash || []).forEach(D.migrateItem);
+    (S.surface || []).forEach(D.migrateItem);
     (S.groundItems || []).forEach(function (g) { if (g) D.migrateItem(g.item); });
     const c = S.flags && S.flags.corpse;
     if (c && c.items) c.items.forEach(D.migrateItem);

@@ -671,7 +671,7 @@
     const r = surfacePull(index, 'Selling');
     if (!r) return 0;
     if (r.item.locked) { D.fail('Unlock it first'); return 0; }
-    const gold = sellValue(r.item);
+    const gold = sellFor(r.item, I.BULK_RATE);
     if (D.isEquip(r.item)) grindGems(r.p, r.item);
     surface().splice(index, 1);
     remember(r.item, gold);
@@ -684,7 +684,7 @@
     if (!r) return false;
     if (!D.isEquip(r.item)) return D.fail('Cannot salvage that');
     if (r.item.locked) return D.fail('Unlock it first');
-    const m = salvageItem(r.p, r.item).materials;
+    const m = salvageWithRate(r.p, r.item, I.BULK_RATE);
     surface().splice(index, 1);
     const parts = [];
     for (const k in m) if (m[k]) parts.push('+' + m[k] + ' ' + (k === 'gemdust' ? 'gem dust' : k));
@@ -707,5 +707,151 @@
     if (!D.putIntoStash(item)) { surface().splice(index, 0, item); return D.fail('Stash full'); }
     surfaceDone();
     return true;
+  };
+
+  // ---- R12: bulk rate, filters, take-all ----
+  // Selling or salvaging straight from the surface crate pays BULK_RATE of the trader price / of the salvage yield (rounded);
+  // carry the item into the bag (surfaceTake) and sell it to a trader for the full price.
+  I.BULK_RATE = 0.6;
+  function rateOf(bulk) { return bulk ? I.BULK_RATE : 1; }
+  function scaled(n, rate) { return rate === 1 ? n : Math.round(n * rate); }
+  function sellFor(item, rate) { return scaled(sellValue(item), rate); }
+  function salvageFor(item, rate) {
+    const y = I.salvageYield(item), out = { dust: 0, shard: 0, essence: 0, gemdust: 0 };
+    for (const k in y) out[k] = scaled(y[k], rate);
+    let gd = 0;
+    for (const g of item.sockets || []) if (g) gd += gemDustOf(g);
+    out.gemdust = scaled(gd, rate);
+    return out;
+  }
+  // Apply a salvage with a rate (gems are ground at the same rate).
+  function salvageWithRate(p, item, rate) {
+    const m = salvageFor(item, rate);
+    for (const k in m) if (m[k]) p.materials[k] = (p.materials[k] || 0) + m[k];
+    for (let i = 0; item.sockets && i < item.sockets.length; i++) item.sockets[i] = null;
+    return m;
+  }
+
+  // Filter: { maxRarity, maxItemLevel, maxPower, slots: [], excludeUpgrades, excludeLocked, excludeSocketed, excludeSets,
+  // excludeWanted, excludeCorrupted }. Only equipment ever matches. Whatever the filter says, Legendary Elite / Mythic / Unique / Rift
+  // items, set pieces, locked items and unrevealed bleached items never match (so excludeLocked / excludeSets are always on).
+  I.matchFilter = function (item, f) {
+    f = f || {};
+    if (!item || !D.isEquip(item)) return false;
+    if (item.locked || item.setId || (item.bleached && item.hidden)) return false;
+    if (rord(item.rarity) >= rord('legendary')) return false;
+    if (f.maxRarity && C.RARITY[f.maxRarity] && rord(item.rarity) > rord(f.maxRarity)) return false;
+    if (typeof f.maxItemLevel === 'number' && item.ilvl > f.maxItemLevel) return false;
+    if (Array.isArray(f.slots) && f.slots.length && f.slots.indexOf(item.slot === 'ring1' || item.slot === 'ring2' ? 'ring' : item.slot) < 0) return false;
+    if (f.excludeSocketed && socketedCount(item) > 0) return false;
+    if (f.excludeWanted && D.isWanted && D.isWanted(item)) return false;
+    if (f.excludeCorrupted && item.corrupted) return false;
+    if (typeof f.maxPower === 'number' && I.power(item) > f.maxPower) return false;
+    if (f.excludeUpgrades && I.verdict(item) === 'up') return false;
+    return true;
+  };
+
+  // opts: { from: 'bag' (default) | 'surface', bulk } — bulk defaults to true for the crate, false for the bag.
+  function source(opts) {
+    opts = opts || {};
+    const p = G.state.player;
+    const from = opts.from === 'surface' ? 'surface' : 'bag';
+    const list = from === 'surface' ? surface() : (p && p.inventory) || [];
+    return { from: from, list: list, rate: rateOf(opts.bulk !== undefined ? opts.bulk : from === 'surface') };
+  }
+  function matching(f, src) {
+    const out = [];
+    for (let i = 0; i < src.list.length; i++) if (I.matchFilter(src.list[i], f)) out.push(i);
+    return out;
+  }
+
+  // -> { count, gold, gems } (gems = socketed gems that would be ground to dust)
+  I.previewSellFilter = function (f, opts) {
+    const src = source(opts), out = { count: 0, gold: 0, gems: 0 };
+    for (const i of matching(f, src)) { const it = src.list[i]; out.count++; out.gold += sellFor(it, src.rate); out.gems += socketedCount(it); }
+    return out;
+  };
+  // -> { count, gold }
+  I.sellFilter = function (f, opts) {
+    const p = P(), out = { count: 0, gold: 0 };
+    if (!p || !inTown('Selling')) return out;
+    const src = source(opts);
+    const idx = matching(f, src);
+    for (let k = idx.length - 1; k >= 0; k--) {
+      const it = src.list[idx[k]];
+      const gold = sellFor(it, src.rate);
+      grindGems(p, it);
+      remember(it, gold);
+      out.gold += gold; out.count++;
+      if (src.from === 'surface') src.list.splice(idx[k], 1); else src.list[idx[k]] = null;
+    }
+    if (out.count) {
+      D.addGold(p, out.gold, 'sell');
+      D.toast('Sold ' + out.count + ' item' + (out.count > 1 ? 's' : '') + ' for ' + out.gold + ' gold', '#ffd94a');
+      if (src.from === 'surface') G.emit('surface:changed', { count: src.list.length });
+      invChanged();
+    }
+    return out;
+  };
+  // -> { count, materials: { dust, shard, essence, gemdust } }
+  I.previewSalvageFilter = function (f, opts) {
+    const src = source(opts), out = { count: 0, materials: emptyMats() };
+    for (const i of matching(f, src)) { out.count++; const m = salvageFor(src.list[i], src.rate); for (const k in m) out.materials[k] += m[k]; }
+    return out;
+  };
+  I.salvageFilter = function (f, opts) {
+    const p = P(), out = { count: 0, materials: emptyMats() };
+    if (!p || !inTown('Salvaging')) return out;
+    const src = source(opts);
+    const idx = matching(f, src);
+    for (let k = idx.length - 1; k >= 0; k--) {
+      const m = salvageWithRate(p, src.list[idx[k]], src.rate);
+      for (const key in m) out.materials[key] += m[key];
+      out.count++;
+      if (src.from === 'surface') src.list.splice(idx[k], 1); else src.list[idx[k]] = null;
+    }
+    if (out.count) {
+      const parts = [];
+      for (const k in out.materials) if (out.materials[k]) parts.push('+' + out.materials[k] + ' ' + (k === 'gemdust' ? 'gem dust' : k));
+      D.toast('Salvaged ' + out.count + ': ' + parts.join(', '), '#8fb4ff');
+      if (src.from === 'surface') G.emit('surface:changed', { count: src.list.length });
+      invChanged();
+    }
+    return out;
+  };
+
+  // Saved filter and a few named presets (at most five) in state.settings.sellFilter = { current, presets: { name: filter } }
+  function sfStore() {
+    const s = G.state.settings || (G.state.settings = {});
+    if (!s.sellFilter) s.sellFilter = { current: { maxRarity: 'uncommon', excludeUpgrades: true, excludeSocketed: true, excludeWanted: true, excludeCorrupted: false }, presets: {} };
+    return s.sellFilter;
+  }
+  I.getSellFilter = function () { return sfStore().current; };
+  I.setSellFilter = function (f) { sfStore().current = JSON.parse(JSON.stringify(f || {})); return sfStore().current; };
+  I.getFilterPresets = function () { return sfStore().presets; };
+  I.saveFilterPreset = function (name, f) {
+    const st = sfStore();
+    if (!name || (!st.presets[name] && Object.keys(st.presets).length >= 5)) return false;
+    st.presets[name] = JSON.parse(JSON.stringify(f || st.current));
+    return true;
+  };
+  I.deleteFilterPreset = function (name) { const st = sfStore(); if (!st.presets[name]) return false; delete st.presets[name]; return true; };
+
+  // Take everything that fits from the crate into the bag, in the current sort order (what does not fit stays). -> { taken, left }
+  I.surfaceTakeAll = function () {
+    const p = P(), sf = surface();
+    if (!p) return { taken: 0, left: sf.length };
+    const tmp = sf.slice();
+    D.sortItems(tmp, tmp.length, D.sortMode(null) || 'slot');
+    const order = tmp.filter(Boolean);
+    let taken = 0;
+    for (const it of order) {
+      const at = sf.indexOf(it);
+      if (!I.addToInventory(it)) continue;
+      if (at >= 0) sf.splice(at, 1);
+      taken++;
+    }
+    if (taken) G.emit('surface:changed', { count: sf.length });
+    return { taken: taken, left: sf.length };
   };
 })();

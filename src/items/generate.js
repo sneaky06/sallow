@@ -283,7 +283,7 @@
     if (g && g.family === 'blood') {
       const k = D.BLOOD_KINDS[g.kind];
       return { id: G.newId(), baseId: baseId, name: (D.BLOOD_TIERS[g.tier] + ' ' + k.name).trim(), type: 'gem', slot: null,
-        rarity: D.BLOOD_RARITY[g.tier], ilvl: D.BLOOD_ILVL[g.tier], reqLevel: 1, icon: { shape: 'gem', color: k.color, accent: '#ff3b4e' },
+        rarity: D.BLOOD_RARITY[g.tier], ilvl: D.BLOOD_ILVL[g.tier], reqLevel: 1, icon: { shape: D.ICON_BLOOD, color: k.color, accent: '#ff3b4e' },
         base: {}, mods: [], value: D.BLOOD_VALUE[g.tier], qty: qty, permanent: true };
     }
     if (g) {

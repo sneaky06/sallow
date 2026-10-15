@@ -2,6 +2,9 @@
 // and items without touching logic. story.js plays it, quests.js tracks it. Read docs/STORY.md for the outline.
 // Tokens filled at display time: {town} {rift} {Rift} {rot} {figure} {Figure} {king} {ember} (from NAMES), {boss} (the
 // step's boss name from G.game.getMonsterInfo), {name} (the hero), {depth}.
+// Tables in meta.STORY: NAMES OPENING ACTS STEPS FINALE PALLOR_INTRO BOSSES/BOSS_LINES ECHO ADVENTURERS (the Fallen)
+// FALLEN_COMBINED CURATOR CAMP (camp NPC ids 'camp:<x>') SIDE (Elder side lines) VENDOR_QUESTS (R12.2, shape documented at the
+// table) MILESTONES (R12.8 names, flavour and tier titles per counter) TOWN (revival stages) LORE.
 (function () {
   'use strict';
   const G = window.G;
@@ -281,19 +284,19 @@
   // `role` reuses a vendor panel. Lines rotate per visit.
   const CAMP = [
     { act: 1, band: [3, 9], name: 'Lamp Camp', npcs: [
-      { name: 'Gammer Wick', role: 'healer', look: 'Tiny old woman in three shawls, stirring a pot over a rift-vent.',
+      { id: 'camp:gammer', name: 'Gammer Wick', role: 'healer', look: 'Tiny old woman in three shawls, stirring a pot over a rift-vent.',
         lines: ['Broth. It is mostly rat. The rat was warm, so it is good broth.', 'You cleaned these floors. My grandson walked down to me today. Walked!'] },
-      { name: 'Jory Tallow', role: 'merchant', look: 'A former adventurer with one sleeve pinned up; sells what his party left behind.',
+      { id: 'camp:jory', name: 'Jory Tallow', role: 'merchant', look: 'A former adventurer with one sleeve pinned up; sells what his party left behind.',
         lines: ['I came back up. The others did not. I sell their things. Do not look at me like that.', 'Further down it is worse. Buy the potions.'] },
-      { name: 'Pell the Ferryman', role: 'waypoint', look: 'Gaunt man working a rope-lift of chain and crate.',
+      { id: 'camp:pell', name: 'Pell the Ferryman', role: 'waypoint', look: 'Gaunt man working a rope-lift of chain and crate.',
         lines: ['Up or down. I do not ask which. I only ask you hold on.'] },
     ] },
     { act: 2, band: [12, 19], name: 'Fever Camp', npcs: [
-      { name: 'Ama and Odo', role: 'merchant', look: 'Scavenger twins in salvaged armour, finishing each other\'s haggling.',
+      { id: 'camp:twins', name: 'Ama and Odo', role: 'merchant', look: 'Scavenger twins in salvaged armour, finishing each other\'s haggling.',
         lines: ['Found it on a dead man.', '"Found" is a strong word.', 'Buy it anyway.'] },
-      { name: 'Sister Ada', role: 'healer', look: 'The town healer, come down with bandages and a psalter.',
+      { id: 'camp:ada', name: 'Sister Ada', role: 'healer', look: 'The town healer, come down with bandages and a psalter.',
         lines: ['They come up out of the fever floors and I patch them. Some of them were adventurers once. Some still are.'] },
-      { name: 'Tam', role: 'stashkeeper', look: 'The lamplighter boy, guarding a chest bigger than he is.',
+      { id: 'camp:tam', name: 'Tam', role: 'stashkeeper', look: 'The lamplighter boy, guarding a chest bigger than he is.',
         lines: ['He was here last night, the grey man. He looked at the chest. He did not touch it. I did not let him.'] },
     ] },
   ];
@@ -359,6 +362,187 @@
       ], rewards: { gold: 2000, xp: 7000, item: 'magic' } },
   ];
 
+
+  // ---------- R12.2 vendor quests: every townsperson gives 1–3 ----------
+  // Authoring shape (converted below to the SIDE line shape quests.js reads; a giver's quests unlock in list order):
+  // { id, giver, giverName, act?, name, desc, goal, before: [lines], after: [lines], rewards }
+  //   giver:     NPC role ('merchant' 'blacksmith' 'mystic' 'healer' 'stashkeeper' 'curator') or a camp NPC id from CAMP
+  //              ('camp:gammer', 'camp:jory', 'camp:pell', 'camp:twins', 'camp:ada', 'camp:tam'). giverName is display only.
+  //   act:       offered once state.flags.act >= act (default 1). Camp quests also need their camp to exist.
+  //   goal:      { kind, n, ...filters }. Kinds and the event that counts one:
+  //     kill        monster:killed (filters: tier 'elite'|'boss'|'champion'|'rare'|'legendary', body e.g. 'skeleton'|'spider'|
+  //                 'demon'|'wraith' read from monster.sprite.body, minDepth)
+  //     depth       reach depth n (scene:changed; counts flags.maxDepth at accept)
+  //     found       item:picked with rarity at or above `rarity` (C.RARITY key; prefer lists like the rewards)
+  //     chests      object:interact type 'chest' (minDepth)
+  //     cleanse     item:cleansed
+  //     collect     collection:registered          collectPage   collection:page
+  //     chute       items sent up the chute (surface:changed count rising while in the dungeon)
+  //     goldSpent   gold:changed with delta < 0 while in town (sum of -delta)
+  //     fallen      relic:granted                  events        event:end with success
+  //     grade       floor:graded with grade at or above `grade` ('S' 'A' 'B' 'C')
+  //     closeCall   one Close Call (game.onCloseCall)   flow   flow:chain with count >= `chain`
+  //     lockdown    room:cleared
+  //   rewards:   { gold?, xp?, item?: [rarity keys, first that exists wins], mats?: { dust|shard|essence|gemdust|riftshard: n },
+  //                mark?: n (a Mark, R12.8 currency/token), tome?: n (Tome of Insight) }
+  const VENDOR_RAW = [
+    // Orlen the Peddler — merchant; cheerful about death, because death is stock.
+    { id: 'vq_orlen_1', giver: 'merchant', giverName: 'Orlen the Peddler', name: 'Stock From Below',
+      desc: 'Orlen wants goods with a story. Find 5 items of Rare quality or better.', goal: { kind: 'found', n: 5, rarity: ['rare'] },
+      before: ['People pay more for a dead man\'s sword than a new one. Nobody knows why. I do not ask.', 'Five good pieces. Blue or better.'],
+      after: ['Lovely. Still warm, some of them.', 'Here. A cut of what I will make on them. A small cut.'],
+      rewards: { gold: 300, xp: 600 } },
+    { id: 'vq_orlen_2', giver: 'merchant', giverName: 'Orlen the Peddler', name: 'A Spending Town',
+      desc: 'Spend 5,000 gold in town. Orlen says a town that buys things is a town that means to live.', goal: { kind: 'goldSpent', n: 5000 },
+      before: ['Nobody spends when they think they will die by winter. Spend. Show them.'],
+      after: ['The baker bought a second oven. A second oven! That is faith, that is.'],
+      rewards: { gold: 1000, xp: 2000, item: ['rare'] } },
+    { id: 'vq_orlen_3', giver: 'merchant', giverName: 'Orlen the Peddler', act: 2, name: 'Freight',
+      desc: 'Send 30 items up the chute. Orlen has buyers waiting at the crate.', goal: { kind: 'chute', n: 30 },
+      before: ['That chute is the best thing that ever happened to commerce. Fill it.'],
+      after: ['Thirty crates of the dead\'s belongings. I could weep. I am weeping. It is greed.'],
+      rewards: { gold: 2500, xp: 6000, mats: { dust: 40 }, mark: 1 } },
+
+    // Brakka Ironhand — blacksmith; few words, all of them about metal.
+    { id: 'vq_brakka_1', giver: 'blacksmith', giverName: 'Brakka Ironhand', name: 'Bones for the Bellows',
+      desc: 'Kill 30 skeletons. Brakka grinds their bones into flux.', goal: { kind: 'kill', n: 30, body: 'skeleton' },
+      before: ['Bone ash makes good flux. The crypt is full of it, walking about.', 'Thirty.'],
+      after: ['Good ash. Fine and white. They were well fed once.'],
+      rewards: { gold: 250, xp: 700, mats: { dust: 15 } } },
+    { id: 'vq_brakka_2', giver: 'blacksmith', giverName: 'Brakka Ironhand', act: 2, name: 'Clean Steel',
+      desc: 'Cleanse 2 corrupted items. Brakka wants to watch the rot burn out of the metal.', goal: { kind: 'cleanse', n: 2 },
+      before: ['Rot in steel sings when it burns. I want to hear it twice. Then I know I am not mad.'],
+      after: ['It sings. A thin, high note, like a child. I am going to stop listening now.'],
+      rewards: { gold: 1500, xp: 5000, mats: { riftshard: 2, gemdust: 30 } } },
+    { id: 'vq_brakka_3', giver: 'blacksmith', giverName: 'Brakka Ironhand', act: 3, name: 'Demon Iron',
+      desc: 'Kill 20 demons below depth 20. Their horns forge like nothing else.', goal: { kind: 'kill', n: 20, body: 'demon', minDepth: 21 },
+      before: ['Horn from the Hellscape. Hard as a promise. Twenty pairs.'],
+      after: ['I made a hammer. It is too heavy for me. It is not too heavy for you.'],
+      rewards: { gold: 4000, xp: 15000, item: ['mythic', 'legendary'], mark: 1 } },
+
+    // Seer Ysolde — mystic; speaks to the cards more than to you.
+    { id: 'vq_ysolde_1', giver: 'mystic', giverName: 'Seer Ysolde', name: 'The Cards Want Blood',
+      desc: 'Clear 3 timed events in the rift. The cards will not turn until something has been dared.', goal: { kind: 'events', n: 3 },
+      before: ['The deck is stuck. It wants to see someone run out of time and live.', 'Three times.'],
+      after: ['There. The Tower turned over by itself. That is either very good or very bad.'],
+      rewards: { gold: 400, xp: 1200, item: ['uncommon', 'magic'] } },
+    { id: 'vq_ysolde_2', giver: 'mystic', giverName: 'Seer Ysolde', act: 2, name: 'Near Things',
+      desc: 'Survive 15 Close Calls. Ysolde reads fortunes in how near the blade came.', goal: { kind: 'closeCall', n: 15 },
+      before: ['Every blade that misses you leaves a little of your future on the floor. Bring me fifteen of them.'],
+      after: ['Your future is very long and very strange. I have stopped reading it.'],
+      rewards: { gold: 1200, xp: 4500, mats: { essence: 6 } } },
+    { id: 'vq_ysolde_3', giver: 'mystic', giverName: 'Seer Ysolde', act: 3, name: 'The Unbroken Thread',
+      desc: 'Reach a Flow chain of 5. Ysolde wants to see the thread pulled tight.', goal: { kind: 'flow', n: 1, chain: 5 },
+      before: ['Five misses in a row, each one closer. The thread pulls tight and time holds its breath.', 'Show me.'],
+      after: ['Time stopped for you. Did you feel it? It noticed you. Be careful what notices you.'],
+      rewards: { gold: 3000, xp: 12000, mark: 1 } },
+
+    // Sister Maren — healer; tired, kind, unshockable.
+    { id: 'vq_maren_1', giver: 'healer', giverName: 'Sister Maren', name: 'Bandages',
+      desc: 'Open 6 chests. Maren needs linen, and the dead were buried with plenty.', goal: { kind: 'chests', n: 6 },
+      before: ['I have torn up every sheet in town. The dead were buried in good linen. They will not mind.'],
+      after: ['Grave linen. It smells of cedar. I will boil it twice.'],
+      rewards: { gold: 200, xp: 500 } },
+    { id: 'vq_maren_2', giver: 'healer', giverName: 'Sister Maren', name: 'Quiet the Wards',
+      desc: 'Kill 10 champions, rares or legendaries. The strong ones keep the weak ones walking.', goal: { kind: 'kill', n: 10, tier: 'elite' },
+      before: ['The sick dream of the strong ones down there. Kill those and the dreams thin out.'],
+      after: ['They slept through the night. Ten of them. Ten.'],
+      rewards: { gold: 900, xp: 3000, item: ['rare'] } },
+    { id: 'vq_maren_3', giver: 'healer', giverName: 'Sister Maren', act: 2, name: 'Do No Harm',
+      desc: 'Clear a floor with an S grade. Maren wants proof you can go in and out without bleeding everywhere.', goal: { kind: 'grade', n: 1, grade: 'S' },
+      before: ['You come back to me in pieces every time. Once — just once — come back clean and quick.'],
+      after: ['Not a scratch. I do not believe it. Sit down anyway. I am checking.'],
+      rewards: { gold: 1500, xp: 6000, mats: { essence: 4 } } },
+
+    // Old Wick — stashkeeper; hoards, distrusts, remembers everything.
+    { id: 'vq_wick_1', giver: 'stashkeeper', giverName: 'Old Wick', name: 'Things Worth Keeping',
+      desc: 'Find 2 items of Magic quality or better. Old Wick wants to see what is worth guarding.', goal: { kind: 'found', n: 2, rarity: ['magic'] },
+      before: ['People leave me rubbish and call it treasure. Show me real treasure. Then I know what I am guarding.'],
+      after: ['Hm. Yes. That one I would lock up twice.'],
+      rewards: { gold: 500, xp: 1500 } },
+    { id: 'vq_wick_2', giver: 'stashkeeper', giverName: 'Old Wick', act: 3, name: 'The Dead Do Not Pay Rent',
+      desc: 'Claim 3 relics of the Fallen. Old Wick kept their chests. He wants to know he can stop.', goal: { kind: 'fallen', n: 3 },
+      before: ['I kept chests for the ones who went before you. Paid a year ahead, all of them. The year ran out.', 'Find out which of them are not coming back. Three.'],
+      after: ['Then I can open their chests. There was nothing in them. Just notes. Grey paper.'],
+      rewards: { gold: 3000, xp: 10000, item: ['legendary'], mark: 1 } },
+
+    // Isra Vell — the Curator; a ledger read aloud.
+    { id: 'vq_isra_1', giver: 'curator', giverName: 'Isra Vell', name: 'Returns',
+      desc: 'Register 10 pieces with the Curator.', goal: { kind: 'collect', n: 10 },
+      before: ['Ten pieces. Any ten. Each one is a line I can strike from the ledger.'],
+      after: ['Ten lines struck. My hand is steadier than it was.'],
+      rewards: { gold: 600, xp: 2000, mats: { dust: 20 } } },
+    { id: 'vq_isra_2', giver: 'curator', giverName: 'Isra Vell', act: 2, name: 'Three Shrouds',
+      desc: 'Complete 3 Collection Book pages.', goal: { kind: 'collectPage', n: 3 },
+      before: ['Three sets, whole. Three shrouds to sew. I have the thread ready.'],
+      after: ['Three graves in the square, and nothing in them but armour. It is still a funeral. Thank you.'],
+      rewards: { gold: 2500, xp: 9000, item: ['magic'], mark: 1 } },
+
+    // Camp NPCs (CAMP ids). Offered at the camp.
+    { id: 'vq_gammer_1', giver: 'camp:gammer', giverName: 'Gammer Wick', name: 'Meat for the Pot',
+      desc: 'Kill 25 spiders. Gammer Wick says they boil up lovely.', goal: { kind: 'kill', n: 25, body: 'spider' },
+      before: ['Rat is running thin. Spider boils up lovely. Do not make that face.'],
+      after: ['Lovely. Eight legs each, that is two hundred legs. Stew for a week.'],
+      rewards: { gold: 300, xp: 1200, item: ['uncommon', 'magic'] } },
+    { id: 'vq_jory_1', giver: 'camp:jory', giverName: 'Jory Tallow', name: 'My Old Company',
+      desc: 'Reach depth 14. Jory\'s party camped there. He wants to know if the fire is still lit.', goal: { kind: 'depth', n: 14 },
+      before: ['We camped on fourteen. I left the fire burning when I ran. Is it still?'],
+      after: ['Still burning. Of course it is. They are still sitting round it, aren\'t they.', 'Do not tell me.'],
+      rewards: { gold: 1200, xp: 5000, mats: { shard: 6 } } },
+    { id: 'vq_pell_1', giver: 'camp:pell', giverName: 'Pell the Ferryman', name: 'Counterweight',
+      desc: 'Send 15 items up the chute. Pell uses the same chain, and the weight keeps it from slipping.', goal: { kind: 'chute', n: 15 },
+      before: ['My lift shares a chain with the chute. Weight going up keeps it honest coming down.'],
+      after: ['Smooth as anything. Nobody has fallen all week. Nobody new.'],
+      rewards: { gold: 700, xp: 2500 } },
+    { id: 'vq_twins_1', giver: 'camp:twins', giverName: 'Ama and Odo', act: 2, name: 'Finders',
+      desc: 'Find 3 items of Legendary quality or better. The twins want to see one before they die.', goal: { kind: 'found', n: 3, rarity: ['legendary'] },
+      before: ['We have found everything down here.', 'Except anything good.', 'Find us something good. Three somethings.'],
+      after: ['Ohh.', 'Ohhh.', 'We are not giving those back.', 'They are giving those back.'],
+      rewards: { gold: 3500, xp: 12000, mark: 1 } },
+    { id: 'vq_ada_1', giver: 'camp:ada', giverName: 'Sister Ada', act: 2, name: 'Sealed Rooms',
+      desc: 'Survive 3 lockdowns. Ada prays over every room that seals itself.', goal: { kind: 'lockdown', n: 3 },
+      before: ['A room that locks itself is a grave that has not been filled yet. Fill it with the right bodies.'],
+      after: ['Three rooms, three psalms. You are a better deacon than I ever was.'],
+      rewards: { gold: 1500, xp: 6000, item: ['rare'] } },
+    { id: 'vq_tam_1', giver: 'camp:tam', giverName: 'Tam', act: 2, name: 'Lights Out',
+      desc: 'Kill 3 bosses. Tam has been counting the lights that go out below.', goal: { kind: 'kill', n: 3, tier: 'boss' },
+      before: ['When a big one dies down there, a light goes out. I can see it from the camp. Make three go out.'],
+      after: ['Three. And the man in grey wrote a fourth on my wall. I scrubbed it off.'],
+      rewards: { gold: 2500, xp: 9000, tome: 1 } },
+  ];
+
+  // Converted to the SIDE line shape that quests.js reads: { id, role, npc, giver (display name), act, requires, name,
+  // steps: [{ kind, goal (number), desc, before, after, ...filters }], rewards }. `requires` = the giver's previous quest id.
+  const CAMP_ROLE = { 'camp:gammer': 'refugee', 'camp:jory': 'camp_merchant', 'camp:pell': 'refugee', 'camp:twins': 'camp_merchant', 'camp:ada': 'refugee', 'camp:tam': 'refugee' };
+  const lastOf = {};
+  const VENDOR_QUESTS = VENDOR_RAW.map(function (q) {
+    const g = q.goal, step = { kind: g.kind, goal: g.n, desc: q.desc, before: q.before, after: q.after };
+    ['rarity', 'body', 'tier', 'minDepth', 'grade', 'chain'].forEach(function (k) { if (g[k] != null) step[k] = g[k]; });
+    const line = { id: q.id, role: CAMP_ROLE[q.giver] || q.giver, npc: q.giver, giver: q.giverName, act: q.act || 1,
+      requires: lastOf[q.giver] || null, name: q.name, steps: [step], rewards: q.rewards };
+    lastOf[q.giver] = q.id;
+    return line;
+  });
+
+  // ---------- R12.8 milestones: names and one-line flavour per counter; tier titles low → high ----------
+  // The UI pairs tiers[i] with the i-th threshold from G.meta.getMilestones(); extra thresholds reuse the last title + numeral.
+  const MILESTONES = {
+    kills:      { name: 'Butcher\'s Tally', flavour: 'Every one of them was something once.', tiers: ['Bloodied', 'Culler', 'Butcher', 'Reaper', 'The Rift\'s Undertaker'] },
+    elites:     { name: 'Heads on Pikes', flavour: 'The strong ones take longer to stop moving.', tiers: ['Giant-Feller', 'Champion-Breaker', 'Headtaker', 'Crownbreaker', 'Nothing Down There Is Stronger'] },
+    bosses:     { name: 'Crowns in the Dust', flavour: 'Kings of nothing, all of them.', tiers: ['Kingkiller', 'Regicide', 'Usurper', 'Throne-Breaker', 'Last of the Crowns'] },
+    goldEarned: { name: 'Grave Wealth', flavour: 'The dead do not spend it. You might as well.', tiers: ['Pocketed', 'Purse-Heavy', 'Grave-Rich', 'Hoarder', 'Dragon\'s Bed'] },
+    goldSpent:  { name: 'Open Hand', flavour: 'Coin spent in Emberdeep is a hearth kept lit.', tiers: ['Customer', 'Patron', 'Benefactor', 'Pillar of the Town', 'The Town\'s Second Hearth'] },
+    sold:       { name: 'Trader in Relics', flavour: 'Orlen calls you his favourite. He calls everyone that.', tiers: ['Seller', 'Dealer', 'Merchant-Friend', 'Market Baron', 'The Whole Market'] },
+    salvaged:   { name: 'Scrapper', flavour: 'Melted down, it is just iron again. Almost.', tiers: ['Tinkerer', 'Breaker', 'Scrapper', 'Smelter', 'Unmaker'] },
+    chute:      { name: 'Up the Chute', flavour: 'Somewhere above, a crate fills with other people\'s lives.', tiers: ['Sender', 'Hauler', 'Freighter', 'Conveyor', 'The Rift\'s Postmaster'] },
+    chests:     { name: 'Lid-Lifter', flavour: 'Locks were for the living.', tiers: ['Prier', 'Looter', 'Grave-Robber', 'Vault-Breaker', 'Nothing Stays Shut'] },
+    floors:     { name: 'Stairs Taken', flavour: 'Every floor goes down. None of them go far enough.', tiers: ['Descender', 'Delver', 'Deepwalker', 'Abyss-Treader', 'Thousand Stairs'] },
+    sGrades:    { name: 'Clean Work', flavour: 'In and out, and nothing left alive behind you.', tiers: ['Swift', 'Thorough', 'Surgical', 'Immaculate', 'Ghost of the Rift'] },
+    closeCalls: { name: 'Hair\'s Breadth', flavour: 'Ysolde says each miss leaves a little of your future on the floor.', tiers: ['Lucky', 'Nimble', 'Untouchable', 'Blade-Dancer', 'Death Keeps Missing'] },
+    flowChains: { name: 'The Thread', flavour: 'For a heartbeat, time holds its breath for you.', tiers: ['In Rhythm', 'Flowing', 'Unbroken', 'Time-Bender', 'The Stillness'] },
+    deaths:     { name: 'Returned', flavour: 'You keep coming back. So does your Echo.', tiers: ['Fallen Once', 'Stubborn', 'Unburied', 'Gravedodger', 'The Rift Spits You Out'] },
+  };
+
   // ---------- town revival (R7.7) ----------
   // state.flags.act: 1..4 (4 = campaign done); state.flags.cleansed: [boss monsterIds killed for the main chain];
   // state.flags.warmth: 0..3 for world/engine to warm the town. Each stage adds NPC lines and opens services
@@ -419,5 +603,5 @@
   ];
 
   meta.STORY = { NAMES, TAGLINE, TITLE, OLD_TITLES, OPENING, ACTS, STEPS, FINALE, PALLOR_INTRO, BOSS_LINES, WORLD_BOSS_IDS,
-    BOSSES, ECHO, ADVENTURERS, FALLEN_COMBINED, CURATOR, CAMP, SIDE, TOWN, LORE };
+    BOSSES, ECHO, ADVENTURERS, FALLEN_COMBINED, CURATOR, CAMP, SIDE, VENDOR_QUESTS, MILESTONES, TOWN, LORE };
 })();

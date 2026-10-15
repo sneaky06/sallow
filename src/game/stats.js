@@ -74,6 +74,9 @@
       try { gear = G.items.getEquipmentMods(p); } catch (err) { gear = null; }
     }
     if (gear) for (const k in gear) if (st[k] !== undefined && typeof gear[k] === 'number') st[k] += gear[k];
+    let ms = null;          // R12: permanent milestone bonuses (UI/meta)
+    if (G.meta && G.meta.getMilestoneMods) { try { ms = G.meta.getMilestoneMods(); } catch (err) { ms = null; } }
+    if (ms) for (const k in ms) if (st[k] !== undefined && typeof ms[k] === 'number') st[k] += ms[k];
 
     const allSkills = st.allSkills | 0;
     for (const id in p.skills) {

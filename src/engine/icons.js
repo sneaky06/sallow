@@ -75,6 +75,15 @@
       g.r(6, 2, 4, 1, L); g.r(4, 3, 8, 1, L); g.r(3, 4, 10, 2, C); g.r(4, 6, 8, 2, C); g.r(5, 8, 6, 2, C); g.r(6, 10, 4, 2, C); g.r(7, 12, 2, 2, D);
       g.r(3, 4, 4, 2, L); g.r(9, 6, 3, 2, D); g.r(8, 8, 3, 2, D); g.r(8, 10, 2, 2, D); g.d(5, 4, WHITE); g.d(6, 3, WHITE);
     },
+    // R12: a jagged, dark-veined lump of stone (outlined red in base16) — clearly not a cut gem. C tints the veins.
+    bloodstone: function (g, C, D, L, A) {
+      const rows = [[2, 7, 8], [3, 6, 10], [4, 4, 11], [5, 3, 12], [6, 3, 13], [7, 2, 13], [8, 2, 12], [9, 3, 13], [10, 3, 12], [11, 4, 11], [12, 5, 10], [13, 6, 8]];
+      for (const r of rows) for (let x = r[1]; x <= r[2]; x++) g.d(x, r[0], (x + r[0] < 13) ? '#4a2228' : (x + r[0] < 18) ? '#33161c' : '#200c12');
+      g.d(5, 3, '#4a2228'); g.d(12, 4, '#33161c'); g.d(14, 7, '#200c12'); g.d(1, 8, '#4a2228'); g.d(13, 11, '#200c12'); g.d(9, 13, '#200c12');
+      g.l(3, 7, 6, 6, '#5e2c34'); g.l(6, 3, 9, 4, '#6a3038');                    // lit upper facets
+      g.l(4, 6, 8, 9, C); g.l(8, 9, 12, 7, C); g.l(8, 9, 9, 12, D); g.l(6, 11, 8, 9, D);   // veins
+      g.d(8, 9, L); g.d(9, 8, L); g.d(6, 4, WHITE); g.d(7, 4, '#c8a0a8');
+    },
     gold: function (g, C, D, L, A) {
       g.r(2, 11, 12, 3, D); g.r(3, 9, 10, 3, C); g.r(5, 7, 6, 3, C); g.r(6, 6, 4, 1, L); g.r(3, 9, 3, 1, L); g.r(9, 10, 3, 1, L);
       g.d(4, 12, C); g.d(8, 12, C); g.d(11, 12, C); g.d(6, 8, WHITE); g.d(10, 9, WHITE); g.d(4, 10, WHITE); g.d(13, 6, L); g.d(2, 7, L);
@@ -133,13 +142,13 @@
     const key = keyOf(d);
     let c = base.get(key);
     if (c) return c;
-    const C = U.safeColor(d.color, '#a8a8b4');
+    const C = U.safeColor(d.color, d.shape === 'bloodstone' ? '#d02030' : '#a8a8b4');
     const A = U.safeColor(d.accent, d.shape === 'sword' || d.shape === 'dagger' || d.shape === 'ring' ? '#e8c040' : U.tone(C, 1.5));
     c = U.makeCanvas(16, 16);
     const x = U.ctx2d(c, true), fn = DRAW[d.shape] || DRAW.fallback;
     try { fn(tools(x), C, U.tone(C, 0.6), U.tone(C, 1.4), A); } catch (err) { /* partial icon is fine */ }
     if (d.shape === 'whirl') { x.clearRect(9, 1, 3, 2); x.clearRect(4, 13, 3, 2); }
-    U.outlineCanvas(c, 0x0b0910, 255);
+    U.outlineCanvas(c, d.shape === 'bloodstone' ? 0xc8141e : 0x0b0910, 255);
     c = U.copyCanvas(c);
     if (base.size > 400) base.clear();
     base.set(key, c);

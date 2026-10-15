@@ -349,6 +349,7 @@
       // R7.10 / R7.11: the Relics and the Collection Book are one tap from the journal, wherever the player is
       const right = [];
       if (ui._relicsBody && G.items && G.items.RELICS) right.push(ui._btn('Relics', function () { ui.open('relics'); }));
+      if (ui._frame && G.meta && G.meta.getMilestones) right.push(ui._btn('Milestones', function () { ui.open('milestones'); }));
       if (ui._bookBody && G.items && G.items.collection) right.push(ui._btn('Book', function () { ui.open('collection'); }));
       return ui._frame('Journal', { right: right }, h('div', { class: 'ed-body' }, h('div', { class: 'ed-list' }, story, pages)));
     },

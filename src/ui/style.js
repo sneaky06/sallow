@@ -561,6 +561,16 @@
   .ed-ppair{grid-template-columns:1fr}
   .ed-pcard{min-height:64px}
 }
+/* ---------- Revision 12 ---------- */
+.ed-chip{flex:1 1 auto;min-width:64px;font-size:11px!important;padding:2px 6px!important}
+.ed-step{display:flex;align-items:center;gap:6px;margin:4px 0}.ed-step span{flex:1;font-weight:normal;font-size:11px;color:var(--ash)}.ed-step b{min-width:44px;text-align:center;font-size:12px}
+.ed-fbox{margin-bottom:8px}
+.ed-fbtns{display:grid;grid-template-columns:2fr 1fr 1fr;gap:4px;margin-top:6px}
+.ed-gearsw{display:flex;gap:2px;margin-bottom:8px}.ed-gearsw .ed-btn{flex:1}
+.ed-ms{display:block;width:100%;text-align:left;margin-bottom:4px;padding:6px 8px!important;background:var(--stone);border:1px solid #453e3a;min-height:56px}
+.ed-ms .t{display:flex;justify-content:space-between;gap:6px}
+.ed-ms small{display:block;font-size:10px;font-weight:normal;color:var(--ash)}
+.ed-ms .pips{display:flex;gap:3px;margin:4px 0}.ed-ms .pips i{flex:1;height:6px;background:#000;border:1px solid var(--iron-hi)}.ed-ms .pips i.on{background:var(--brass-hi)}
 @media (max-width:520px){.ed-ttl.opt{display:none}}
 @media (max-width:350px){.ed-topbtns{gap:1px}}
 `;

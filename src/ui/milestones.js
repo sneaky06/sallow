@@ -1,0 +1,161 @@
+// R12 milestones: lifetime counters (state.flags.stats), tiers per counter, a reward per tier (gold, materials, a Mark at the big tiers and
+// a small permanent bonus), a toast when one is reached, and a Milestones page in the Journal. The table below is data; the story team may
+// rename / re-describe entries through meta.STORY.MILESTONES (matched by id: name, desc, names[] per tier) without touching this file.
+// API: G.meta.getMilestones(), G.meta.getMilestoneMods() -> { stat: value } (combat adds it in recomputeStats), G.meta.addStat(key, n),
+// event 'milestone:reached' { id, tier, reward }.
+(function () {
+  'use strict';
+  const G = window.G, S = G.state;
+  const ui = G.ui, meta = G.meta = G.meta || {};
+  const h = ui._h, fmt = ui._fmt;
+
+  // id, name, description, counter, tier thresholds, permanent bonus per tier [stat, value]
+  const DEFS = [
+    { id: 'kills', name: 'Gravedigger', desc: 'Foes slain', stat: 'kills', tiers: [50, 250, 1000, 5000, 20000], mod: ['dmgPct', 1] },
+    { id: 'elites', name: 'Giant Killer', desc: 'Champions, rares and legendaries slain', stat: 'elites', tiers: [5, 25, 100, 400, 1500], mod: ['critDmg', 2] },
+    { id: 'bosses', name: 'Oathbreaker', desc: 'Bosses slain', stat: 'bosses', tiers: [1, 5, 15, 40], mod: ['hpMax', 20] },
+    { id: 'chests', name: 'Grave Robber', desc: 'Chests opened', stat: 'chests', tiers: [10, 50, 200, 800], mod: ['magicFind', 2] },
+    { id: 'goldEarned', name: 'Hoard', desc: 'Gold earned', stat: 'goldEarned', tiers: [1000, 10000, 100000, 1000000, 10000000], mod: ['goldFind', 1] },
+    { id: 'goldSpent', name: 'Big Spender', desc: 'Gold spent', stat: 'goldSpent', tiers: [1000, 10000, 100000, 1000000], mod: null },
+    { id: 'itemsSold', name: 'Peddler', desc: 'Items sold', stat: 'itemsSold', tiers: [10, 100, 500, 2000], mod: ['goldFind', 1] },
+    { id: 'itemsSalvaged', name: 'Scrapper', desc: 'Items salvaged', stat: 'itemsSalvaged', tiers: [10, 100, 500, 2000], mod: ['xpGain', 1] },
+    { id: 'itemsSent', name: 'Chute Runner', desc: 'Items sent up the chute', stat: 'itemsSent', tiers: [10, 100, 500, 2000], mod: null },
+    { id: 'floors', name: 'Delver', desc: 'Floors cleared', stat: 'floors', tiers: [3, 10, 30, 100, 300], mod: ['moveSpeed', 0.5] },
+    { id: 'sGrades', name: 'Perfectionist', desc: 'Floors cleared with grade S', stat: 'sGrades', tiers: [1, 5, 15, 40], mod: ['critChance', 0.5] },
+    { id: 'closeCalls', name: 'Hair\'s Breadth', desc: 'Close Calls', stat: 'closeCalls', tiers: [10, 50, 200, 1000, 5000], mod: ['dodge', 0.5] },
+    { id: 'flows', name: 'In the Flow', desc: 'Flow chains triggered', stat: 'flows', tiers: [1, 5, 20, 60], mod: ['critChance', 0.5] },
+    { id: 'deaths', name: 'Stubborn', desc: 'Times you have died', stat: 'deaths', tiers: [1, 5, 20, 50], mod: ['hpRegen', 0.5] },
+    { id: 'depth', name: 'Deep Diver', desc: 'Deepest floor reached', stat: 'depth', tiers: [5, 10, 20, 30, 50], mod: ['hpMax', 15], max: true },
+  ];
+  const ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI'];
+
+  function defs() {
+    const over = (meta.STORY && Array.isArray(meta.STORY.MILESTONES)) ? meta.STORY.MILESTONES : [];
+    const byId = {};
+    over.forEach(function (o) { if (o && o.id) byId[o.id] = o; });
+    const out = DEFS.map(function (d) { const o = byId[d.id]; delete byId[d.id]; return o ? Object.assign({}, d, { name: o.name || d.name, desc: o.desc || d.desc, names: o.names, tiers: Array.isArray(o.tiers) && o.tiers.length ? o.tiers : d.tiers }) : d; });
+    Object.keys(byId).forEach(function (k) { const o = byId[k]; if (o.stat && Array.isArray(o.tiers)) out.push(o); });     // entries the story adds on its own
+    return out;
+  }
+
+  // ---------- counters ----------
+  function stats() { const f = S.flags; if (!f.stats || typeof f.stats !== 'object') f.stats = {}; return f.stats; }
+  let dirty = false;
+  meta.addStat = function (key, n) { if (!S.player) return; const s = stats(); s[key] = (s[key] || 0) + (n == null ? 1 : n); dirty = true; };
+  ui._stat = meta.addStat;
+  const value = function (d) { return d.stat === 'depth' ? (S.flags.maxDepth | 0) : (d.stat === 'relics' ? (G.items && G.items.relicCount ? G.items.relicCount() : 0) : (stats()[d.stat] || 0)); };
+
+  G.on('monster:killed', function (e) {
+    const m = e && e.monster;
+    if (!m || (m.faction && m.faction !== 'enemy')) return;
+    meta.addStat('kills');
+    if (m.rarity === 'champion' || m.rarity === 'rare' || m.rarity === 'legendary' || m.rarity === 'boss') meta.addStat('elites');
+    if (m.rarity === 'boss') meta.addStat('bosses');
+  });
+  G.on('gold:changed', function (e) {
+    if (!e || !S.player || e.quiet || !isFinite(e.delta)) return;
+    if (e.delta > 0) meta.addStat('goldEarned', e.delta | 0); else if (e.delta < 0) meta.addStat('goldSpent', -e.delta | 0);
+  });
+  G.on('object:interact', function (e) { if (e && e.type === 'chest') meta.addStat('chests'); });
+  G.on('floor:graded', function (e) { meta.addStat('floors'); if (e && String(e.grade).toUpperCase().charAt(0) === 'S') meta.addStat('sGrades'); });
+  G.on('flow:trigger', function () { meta.addStat('flows'); });
+  G.on('player:died', function () { meta.addStat('deaths'); });
+  G.on('item:sold', function (e) { meta.addStat('itemsSold', (e && e.count) || 1); });
+  G.on('item:salvaged', function (e) { meta.addStat('itemsSalvaged', (e && e.count) || 1); });
+  // the items module has no sell / salvage events yet: count what its entry points report (a sale returns its gold, a salvage a bool)
+  (function wrap() {
+    const I = G.items;
+    if (!I) return;
+    const w = function (name, count) {
+      const fn = I[name];
+      if (typeof fn !== 'function' || fn._ms) return;
+      I[name] = function () { const r = fn.apply(this, arguments); try { count(r, arguments); } catch (err) { /* never break a sale */ } return r; };
+      I[name]._ms = true;
+    };
+    w('sell', function (r) { if (r > 0) meta.addStat('itemsSold'); });
+    w('surfaceSell', function (r) { if (r > 0) meta.addStat('itemsSold'); });
+    w('salvage', function (r) { if (r) meta.addStat('itemsSalvaged'); });
+    w('surfaceSalvage', function (r) { if (r) meta.addStat('itemsSalvaged'); });
+    w('chuteSend', function (r) { if (typeof r === 'number' && r > 0) meta.addStat('itemsSent', r); });
+  })();
+
+  // ---------- tiers + rewards ----------
+  function reward(d, t) {
+    const r = { gold: Math.round(100 * Math.pow(2.2, t)) };
+    const m = {};
+    if (t === 0) m.dust = 10; else if (t === 1) { m.dust = 20; m.shard = 3; } else if (t === 2) m.shard = 8; else if (t === 3) { m.shard = 15; m.essence = 1; } else m.essence = 3;
+    r.mats = m;
+    if (t >= 3) r.mark = 1;
+    if (d.mod) r.mod = [d.mod[0], d.mod[1]];
+    return r;
+  }
+  function rewardText(r) {
+    const parts = [];
+    if (r.gold) parts.push(fmt(r.gold) + ' gold');
+    if (r.mats) parts.push(ui._matsText ? ui._matsText(r.mats) : '');
+    if (r.mark) parts.push('1 Mark');
+    if (r.mod) parts.push((G.items && G.items.formatStat ? G.items.formatStat(r.mod[0], r.mod[1]) : '+' + r.mod[1] + ' ' + r.mod[0]) + ' for good');
+    return parts.filter(Boolean).join(', ');
+  }
+  const reached = function () { const f = S.flags; if (!f.milestones || typeof f.milestones !== 'object') f.milestones = {}; return f.milestones; };
+  const tierName = function (d, t) { return (d.names && d.names[t]) || d.name + ' ' + (ROMAN[t] || (t + 1)); };
+
+  function grant(d, t) {
+    const p = S.player, r = reward(d, t);
+    if (r.gold) { p.gold = (p.gold || 0) + r.gold; G.emit('gold:changed', { gold: p.gold, delta: r.gold, quiet: true }); }
+    p.materials = p.materials || {};
+    for (const k in (r.mats || {})) p.materials[k] = (p.materials[k] || 0) + r.mats[k];
+    if (r.mark) {
+      if (G.game && typeof G.game.grantMark === 'function') { try { G.game.grantMark('milestone_' + d.id + '_' + t); } catch (err) { p.marks = (p.marks | 0) + 1; } }
+      else p.marks = (p.marks | 0) + 1;
+    }
+    ui.toast('Milestone: ' + tierName(d, t) + ' — ' + rewardText(r), '#ffe45b');
+    ui._sfx('quest');
+    G.emit('milestone:reached', { id: d.id, tier: t + 1, reward: r });
+    return r;
+  }
+  function check() {
+    dirty = false;
+    if (!S.player || S.scene === 'menu') return;
+    const got = reached();
+    let mods = false;
+    defs().forEach(function (d) {
+      const v = value(d);
+      let t = got[d.id] | 0;
+      while (t < d.tiers.length && v >= d.tiers[t]) { const r = grant(d, t); if (r.mod) mods = true; t++; got[d.id] = t; }
+    });
+    if (mods && G.game && G.game.recomputeStats) { try { G.game.recomputeStats(S.player); } catch (err) { console.error('[ui milestones recompute]', err); } G.emit('player:stats', {}); }
+  }
+  ui._updaters.push((function () { let t = 0; return function (dt) { t -= dt; if (t > 0) return; t = 0.7; if (dirty || (S.player && S.flags.maxDepth)) check(); }; })());
+
+  meta.getMilestoneMods = function () {
+    const out = {}, got = (S.flags && S.flags.milestones) || {};
+    defs().forEach(function (d) { if (d.mod && got[d.id]) out[d.mod[0]] = (out[d.mod[0]] || 0) + d.mod[1] * got[d.id]; });
+    return out;
+  };
+  meta.getMilestones = function () {
+    const got = reached();
+    return defs().map(function (d) {
+      const v = value(d), t = got[d.id] | 0;
+      return { id: d.id, name: d.name, desc: d.desc, value: v, tier: t, tiers: d.tiers.map(function (at, i) { return { at: at, reached: i < t, reward: reward(d, i), name: tierName(d, i) }; }),
+        next: t < d.tiers.length ? d.tiers[t] : null };
+    });
+  };
+
+  // ---------- the page ----------
+  ui._register('milestones', {
+    render: function () {
+      const list = meta.getMilestones();
+      const body = h('div', { class: 'ed-body' }, h('div', { class: 'ed-note', style: 'margin-bottom:6px', text: 'Everything you do counts. Each tier pays at once: gold, materials, a Mark at the big ones, and a small bonus that stays.' }),
+        list.map(function (m) {
+          const nextR = m.next != null ? m.tiers[m.tier].reward : null;
+          return h('div', { class: 'ed-ms' },
+            h('div', { class: 't' }, h('b', { text: m.name + (m.tier ? ' ' + (ROMAN[m.tier - 1] || m.tier) : '') }), h('span', { class: m.next == null ? 'ed-gold' : 'ed-dim', text: m.next == null ? 'Complete' : fmt(m.value) + ' / ' + fmt(m.next) })),
+            h('small', { text: m.desc }),
+            h('div', { class: 'pips' }, m.tiers.map(function (t) { return h('i', { class: t.reached ? 'on' : null }); })),
+            nextR ? h('small', { text: 'Next: ' + rewardText(nextR) }) : null);
+        }));
+      return ui._frame('Milestones', null, body);
+    },
+  });
+})();

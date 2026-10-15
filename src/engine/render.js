@@ -324,6 +324,41 @@
     return N && N[e.role] ? null : ROLE_LOOK[e.role] || null;
   }
 
+  // R12 quest markers above NPCs: G.meta.npcQuestState(role, else id) → null | 'available' | 'active' | 'ready',
+  // asked at most twice a second per NPC. Gold "!" available, dim "?" active, bright pulsing green "?" ready to turn in.
+  // Glyphs are the bitmap font at 2x with a dark outline, so they read at phone size.
+  const qCache = new Map();
+  function questState(e) {
+    const fn = G.meta && G.meta.npcQuestState;
+    if (typeof fn !== 'function') return null;
+    let c = qCache.get(e.id);
+    if (c && V.time - c.t < 0.5 && V.time >= c.t) return c.s;
+    let s = null;
+    try { s = (e.role != null ? fn(e.role) : null) || fn(e.id) || null; } catch (err) { s = null; }
+    if (!c) { if (qCache.size > 64) qCache.clear(); c = { t: 0, s: null }; qCache.set(e.id, c); }
+    c.t = V.time; c.s = s;
+    return s;
+  }
+  function questMarker(ctx, e, x, y) {
+    const s = questState(e);
+    if (s !== 'available' && s !== 'active' && s !== 'ready') return;
+    const t = V.time, ready = s === 'ready', act = s === 'active';
+    const img = U.text(act || ready ? '?' : '!', ready ? '#5bff8a' : act ? '#a8a49a' : '#ffd94a');
+    const bob = act ? 0 : Math.round(Math.sin(t * 4 + (e.id || 0)) * 1.5), w = img.width * 2, h = img.height * 2;
+    const by = y - h - 1 + bob;
+    if (!act) {                                                    // a soft halo behind the live markers
+      const a = U.aura(ready ? '#5bff8a' : '#ffd94a', 24);
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.globalAlpha = ready ? 0.55 + 0.4 * Math.sin(t * 5) : 0.4;
+      ctx.drawImage(a, x - 12, by + h / 2 - 6, 24, 12);
+      ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+    }
+    ctx.globalAlpha = act ? 0.7 : 1;
+    const sc = ready ? 1 + 0.15 * Math.max(0, Math.sin(t * 5)) : 1;
+    ctx.drawImage(img, Math.round(x - w * sc / 2), Math.round(by - (sc - 1) * h), Math.round(w * sc), Math.round(h * sc));
+    ctx.globalAlpha = 1;
+  }
+
   // R6.2: the Echo (a hostile copy of the player) — matched loosely, like the UI does
   function isEcho(e) { return !!e && (e.echo === true || e.isEcho === true || e.monsterId === 'echo' || e.kind === 'echo'); }
   // Echo look: the sheet drained of colour, cold-tinted (cached per source canvas)
@@ -1173,6 +1208,7 @@
         const nm = e.type === 'npc' && npcLook(e) && ROLE_NAME[e.role] && G.game && G.game.NPCS && G.game.NPCS.merchant && e.name === G.game.NPCS.merchant.name ? ROLE_NAME[e.role] : e.name;
         const img = U.text(String(nm).slice(0, 26), color);
         ctx.drawImage(img, b.x - (img.width >> 1), y);
+        if (e.type === 'npc') questMarker(ctx, e, b.x, y - 3);
         for (let k = 0; k < lines; k++) {
           let s = String(af[k]).slice(0, 18);
           if (k === 2 && af.length > 3) s = '+' + (af.length - 2);

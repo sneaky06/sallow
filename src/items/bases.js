@@ -12,6 +12,7 @@
   D.MAX_PLUS = 5;                                  // blacksmith upgrade cap
   // R4.6: the game's player-facing name lives here only (core may override with G.C.GAME_NAME). Ids never change.
   D.GAME_NAME = (G.C && G.C.GAME_NAME) || 'Sallow';
+  D.ICON_BLOOD = 'bloodstone';      // R12: every bloodstone uses this icon shape (cut gems keep 'gem')
   D.MISC_NAMES = { gold: 'Gold', lorePage: 'Torn Page', setTag: 'Set' };   // player-facing names that are not items in a table (R6.2 naming pass)
 
   // Scaling curves (level -> budget). Bases keep scaling with ilvl past the last tier for deep floors.

@@ -582,22 +582,34 @@
     return ok;
   }
 
-  // R5.6: a tapped ground item may be part of a pile. A pile with one item (gold aside) is simply taken; with several,
-  // the gold is taken and the UI is asked to open the pile popup.
+  // R12: a tap on a pile (or the LOOT action) takes everything that fits, best first (G.items.pickupPile); the pile list opens
+  // only on a long-press (input:longpress / G.game.openPileAt). Gold goes through pickup() so the midas mythic still fires.
   function takeGround(p, g) {
     const I = G.items, pid = g.pileId;
+    if (pid === undefined || pid === null || !(I && I.pickupPile && I.getPile)) { pickup(p, g); return; }
     let pile = null;
-    if (pid !== undefined && pid !== null && I && I.getPile) {
-      try { pile = I.getPile(pid); } catch (err) { console.error('[game] getPile failed', err); pile = null; }
-    }
-    if (!pile || pile.length <= 1) { pickup(p, g); return; }
-    let items = 0;
-    for (let i = 0; i < pile.length; i++) if (pile[i] && pile[i].item && pile[i].item.type !== 'gold') items++;
-    if (items <= 1) { for (let i = pile.length - 1; i >= 0; i--) if (pile[i]) pickup(p, pile[i]); return; }
+    try { pile = I.getPile(pid); } catch (err) { console.error('[game] getPile failed', err); pile = null; }
+    if (!pile || !pile.length) { pickup(p, g); return; }
     for (let i = pile.length - 1; i >= 0; i--) if (pile[i] && pile[i].item && pile[i].item.type === 'gold') pickup(p, pile[i]);
-    U.sfx('click');
-    G.emit('pile:open', { pileId: pid });
+    let res = null;
+    try { res = I.pickupPile(pid); } catch (err) { console.error('[game] pickupPile failed', err); }
+    if (res && res.left > 0) { U.toast('Bag full — ' + res.left + ' left on the pile (hold to open it)', '#ffb347'); U.sfx('error'); }
   }
+  game.openPileAt = function (x, y) {
+    const S = G.state;
+    if (!S.player || S.player.dead || !S.map) return false;
+    let best = null, bd = 1.2;
+    for (const g of S.groundItems) {
+      if (g.pileId === undefined || g.pileId === null) continue;
+      const d = Math.hypot(g.x - x, g.y - y);
+      if (d < bd) { bd = d; best = g; }
+    }
+    if (!best) return false;
+    U.sfx('click');
+    G.emit('pile:open', { pileId: best.pileId });
+    return true;
+  };
+  G.on('input:longpress', function (e) { if (e && canAct()) game.openPileAt(e.x, e.y); });
 
   function groundById(id) {
     const list = G.state.groundItems;

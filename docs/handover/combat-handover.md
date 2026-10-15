@@ -295,3 +295,9 @@ Status: tests/combat.html → 484/484, 0 errors; real index.html with perks boug
   perkKill / perkMinionKill / perkMinionDeath (kill), perkCast / perkAfterCast (castNow: may change V, cost, cooldown), perkMinion
   (createMinion), perkLootRolls, perkPotion, perkTick (per frame). Licences feed `bonus.licence` / `bonus.licenceAll`, which
   lift the R8.7 penalty and the skill lock.
+
+## R12 (combat)
+- Piles: a tap on a pile and the LOOT action take everything that fits via `G.items.pickupPile` (gold first through the game's
+  pickup so midas still fires); a "Bag full — N left" toast if something stays. `pile:open` is emitted only by a long-press:
+  `input:longpress { x, y }` or `G.game.openPileAt(x, y) → bool` (nearest pile within 1.2 tiles).
+- `G.meta.getMilestoneMods() → { stat: value }` is added in recomputeStats right after the equipment mods (guarded).
