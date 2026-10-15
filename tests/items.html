@@ -79,7 +79,7 @@ function harness() {
 
   // ---- stubs ----
   G.game = { recomputeStats: function () { T.recomputes++; } };
-  ['loot:dropped', 'item:picked', 'inventory:changed', 'equipment:changed', 'gold:changed', 'sfx', 'fx:spawn', 'ui:toast'].forEach(function (n) {
+  ['loot:dropped', 'item:picked', 'inventory:changed', 'equipment:changed', 'gold:changed', 'sfx', 'fx:spawn', 'ui:toast', 'item:sold', 'item:salvaged', 'gold:spent'].forEach(function (n) {
     T.events[n] = [];
     G.on(n, function (p) { T.events[n].push(p); if (T.events[n].length > 5000) T.events[n].shift(); });
   });
@@ -1931,16 +1931,19 @@ function harness() {
 
   section('R12 bulk rate, filters, take-all, bloodstone icon', function () {
     const p = mkPlayer('warrior', 40);
-    eq(I.BULK_RATE, 0.6, 'BULK_RATE is 0.6');
+    S.flags = { maxDepth: 1, waypoints: [1], portalDepth: 0, visits: 0, kills: 0, deaths: 0 };
+    eq(I.bulkRate('sell'), 0.5, 'bulk sell rate starts at 50%');
+    eq(I.bulkRate('salvage'), 0.5, 'bulk salvage rate starts at 50%');
+    eq(I.BULK_RATE, 0.5, 'BULK_RATE is a getter for the sell rate');
     const it = I.rollItem({ level: 30, rarity: 'rare', slot: 'boots' }); it.value = 100;
     S.surface = [it]; p.gold = 0;
-    eq(I.surfaceSell(0), 60, 'selling from the crate pays 60% of the trader price');
+    eq(I.surfaceSell(0), 50, 'selling from the crate pays 50% of the trader price');
     const full = give({ level: 30, rarity: 'rare', slot: 'boots' }); full.value = 100;
     eq(I.sell(idx(full)), 100, 'the trader pays full price for the same item');
     const a = I.rollItem({ level: 40, rarity: 'magic', slot: 'helm' });
     const y = I.salvageYield(a); S.surface = [a]; p.materials = { dust: 0, shard: 0, essence: 0, gemdust: 0 };
     I.surfaceSalvage(0);
-    ok(p.materials.dust === Math.round(y.dust * 0.6) && p.materials.shard === Math.round(y.shard * 0.6), 'crate salvage yields 60% of the materials', JSON.stringify(y) + ' -> ' + JSON.stringify(p.materials));
+    ok(p.materials.dust === Math.round(y.dust * 0.5) && p.materials.shard === Math.round(y.shard * 0.5), 'crate salvage yields 50% of the materials', JSON.stringify(y) + ' -> ' + JSON.stringify(p.materials));
 
     // filters
     S.surface = []; p.gold = 0; p.inventory.fill(null);
@@ -1964,7 +1967,7 @@ function harness() {
     const f = { maxRarity: 'rare', excludeCorrupted: true, excludeSocketed: true };
     const pv = I.previewSellFilter(f), expectGold = [low, blue, lowIlvl].reduce(function (s, x) { return s + x.value; }, 0);
     ok(pv.count === 3 && pv.gold === expectGold, 'previewSellFilter counts and prices the bag at the full rate', JSON.stringify(pv) + ' ' + expectGold);
-    eq(I.previewSellFilter(f, { bulk: true }).gold, [low, blue, lowIlvl].reduce(function (s, x) { return s + Math.round(x.value * 0.6); }, 0), 'preview with bulk uses 60%');
+    eq(I.previewSellFilter(f, { bulk: true }).gold, [low, blue, lowIlvl].reduce(function (s, x) { return s + Math.round(x.value * 0.5); }, 0), 'preview with bulk uses the bulk rate');
     const ps = I.previewSalvageFilter(f);
     ok(ps.count === 3 && ps.materials.dust > 0, 'previewSalvageFilter', JSON.stringify(ps));
     S.scene = 'dungeon';
@@ -2015,6 +2018,79 @@ function harness() {
     I.migrateState();
     ok(old.icon.shape === 'bloodstone' && host.sockets[0].icon.shape === 'bloodstone' && S.surface[0].icon.shape === 'bloodstone', 'old bloodstones (bag, socketed, crate) migrate');
     S.surface = [];
+  });
+
+  section('R13 loyalty raises the bulk rate', function () {
+    const p = mkPlayer('warrior', 40);
+    S.flags = { maxDepth: 1, waypoints: [1], portalDepth: 0, visits: 0, kills: 0, deaths: 0, loyalty: { sell: 0.2, salvage: 0.1 } };
+    eq(I.bulkRate('sell'), 0.7, 'sell rate = 0.5 + loyalty.sell');
+    eq(I.bulkRate('salvage'), 0.6, 'salvage rate is independent');
+    eq(I.BULK_RATE, 0.7, 'BULK_RATE follows the sell rate');
+    const a = I.rollItem({ level: 30, rarity: 'rare', slot: 'boots' }); a.value = 100; S.surface = [a]; p.gold = 0;
+    eq(I.surfaceSell(0), 70, 'crate sale uses the loyalty rate');
+    const b = I.rollItem({ level: 40, rarity: 'magic', slot: 'helm' }); const y = I.salvageYield(b);
+    S.surface = [b]; p.materials = { dust: 0, shard: 0, essence: 0, gemdust: 0 }; I.surfaceSalvage(0);
+    eq(p.materials.dust, Math.round(y.dust * 0.6), 'crate salvage uses the salvage loyalty');
+    const c = I.rollItem({ level: 30, rarity: 'rare', slot: 'ring' }); c.value = 100; S.surface = [c];
+    eq(I.previewSellFilter({ maxRarity: 'rare' }, { from: 'surface' }).gold, 70, 'filter previews use the sell rate');
+    S.flags.loyalty = { sell: 0.5, salvage: 0.9 };
+    ok(I.bulkRate('sell') === 0.8 && I.bulkRate('salvage') === 0.8, 'capped at 80%');
+    S.flags.loyalty = { sell: -1 };
+    eq(I.bulkRate('sell'), 0.5, 'never below 50%');
+    S.surface = []; S.flags = { maxDepth: 1, waypoints: [1], portalDepth: 0, visits: 0, kills: 0, deaths: 0 };
+  });
+
+  section('R13 trader events (item:sold, item:salvaged, gold:spent)', function () {
+    const p = mkPlayer('warrior', 40);
+    p.gold = 100000; p.materials = { dust: 999, shard: 99, essence: 9, gemdust: 999, forge_warrior: 99 };
+    const a = give({ level: 20, rarity: 'rare', slot: 'boots' });
+    clearEvents();
+    const g = I.sell(idx(a));
+    const e = T.events['item:sold'] || [];
+    ok(e.length === 1 && e[0].item === a && e[0].role === 'merchant' && e[0].bulk === false && e[0].gold === g, 'a sale at the counter emits item:sold (merchant, not bulk)', JSON.stringify(e.map(function (x) { return [x.role, x.bulk, x.gold]; })));
+    const b = give({ level: 20, rarity: 'rare', slot: 'helm' });
+    clearEvents();
+    I.salvage(idx(b));
+    const s = T.events['item:salvaged'] || [];
+    ok(s.length === 1 && s[0].item === b && s[0].role === 'blacksmith' && s[0].bulk === false, 'salvaging emits item:salvaged (blacksmith, not bulk)');
+    const c = I.rollItem({ level: 20, rarity: 'rare', slot: 'ring' }), d = I.rollItem({ level: 20, rarity: 'rare', slot: 'belt' });
+    S.surface = [c, d]; clearEvents();
+    I.surfaceSell(0); I.surfaceSalvage(0);
+    ok(T.events['item:sold'][0].role === 'surface' && T.events['item:sold'][0].bulk === true && T.events['item:salvaged'][0].role === 'surface' && T.events['item:salvaged'][0].bulk === true, 'crate sale and salvage: role surface, bulk true');
+    const m = [1, 2, 3].map(function () { const x = I.rollItem({ level: 20, rarity: 'common', slot: 'belt' }); delete x.sockets; return x; });
+    S.surface = m.slice(); clearEvents();
+    I.sellFilter({ maxRarity: 'common' }, { from: 'surface' });
+    ok(T.events['item:sold'].length === 3 && T.events['item:sold'].every(function (x) { return x.bulk && x.role === 'surface'; }), 'a crate filter sale emits one event per item');
+    S.surface = m.map(function () { return I.rollItem({ level: 20, rarity: 'common', slot: 'belt' }); }); clearEvents();
+    I.salvageFilter({ maxRarity: 'common' }, { from: 'surface' });
+    eq((T.events['item:salvaged'] || []).length, 3, 'a crate salvage filter emits one event per item');
+    S.surface = [];
+    // gold spent
+    const w = give({ level: 20, rarity: 'rare', baseId: 'sword_3' });
+    clearEvents();
+    ok(I.upgrade(idx(w)), 'upgrade works');
+    let gs = T.events['gold:spent'] || [];
+    ok(gs.length === 1 && gs[0].role === 'blacksmith' && gs[0].what === 'upgrade' && gs[0].amount > 0, 'upgrade emits gold:spent (blacksmith)', JSON.stringify(gs));
+    const rr = give({ level: 30, rarity: 'rare', slot: 'ring' }); clearEvents();
+    I.rerollAffix(idx(rr), rr.mods.findIndex(function (x) { return !x.implicit; }));
+    gs = T.events['gold:spent'] || [];
+    ok(gs.length === 1 && gs[0].role === 'mystic' && gs[0].what === 'reroll', 'reroll emits gold:spent (mystic)');
+    clearEvents(); I.gamble('helm');
+    gs = T.events['gold:spent'] || [];
+    ok(gs.length === 1 && gs[0].role === 'mystic' && gs[0].what === 'gamble', 'gamble emits gold:spent (mystic)');
+    clearEvents(); I.buyPotion('hp');
+    gs = T.events['gold:spent'] || [];
+    ok(gs.length === 1 && gs[0].what === 'potion' && gs[0].amount === I.potionPrice('hp'), 'potions emit gold:spent');
+    I.refreshVendors(20);
+    const st = I.getVendorStock('merchant'); clearEvents();
+    ok(st.length > 0 && I.buy('merchant', 0), 'buy from the merchant');
+    gs = T.events['gold:spent'] || [];
+    ok(gs.length === 1 && gs[0].role === 'merchant' && gs[0].what === 'buy' && gs[0].amount === st[0] ? true : gs.length === 1 && gs[0].role === 'merchant' && gs[0].what === 'buy', 'buy emits gold:spent with the vendor role');
+    clearEvents();
+    const sold = give({ level: 20, rarity: 'rare', slot: 'boots' }); I.sell(idx(sold)); clearEvents();
+    I.buyback(0);
+    gs = T.events['gold:spent'] || [];
+    ok(gs.length === 1 && gs[0].what === 'buyback' && gs[0].role === 'merchant', 'buyback emits gold:spent');
   });
 
   section('Starter gear', function () {

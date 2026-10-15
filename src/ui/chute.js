@@ -108,7 +108,7 @@
     return !!it && !!it.slot && !it.locked && !it.setId && !(it.bleached && !it.revealed) && !ui._wanted(it) &&
       ui._rarityOrder(it.rarity) < ui._rarityOrder('legendary');
   }
-  const bulkRate = function () { const r = G.items && +G.items.BULK_RATE; return r > 0 && r <= 1 ? r : 0.6; };
+  const bulkRate = function () { return ui._bulkRate ? ui._bulkRate('sell') : 0.5; };
   const goldOf = function (it) { return Math.round((it.value || 0) * (it.qty || 1)); };
   const MASS = ['common', 'uncommon', 'rare'];
 

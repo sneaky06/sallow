@@ -126,7 +126,7 @@
     if (p.gold < cost.gold) return D.fail('Not enough gold');
     p.materials.gemdust -= cost.gemdust;
     p.materials.riftshard -= cost.riftshard;
-    D.addGold(p, -cost.gold, 'buy');
+    D.spend(p, cost.gold, 'blacksmith', 'cleanse');
     item.mods = item.mods.filter(function (m) { return m.corrupt !== 'down'; });
     for (const m of item.mods) if (m.corrupt === 'up') { m.value = m.pure; delete m.pure; m.corrupt = 'pure'; }
     for (const m of item.latent || []) item.mods.push({ stat: m.stat, value: m.value, cleansed: true });

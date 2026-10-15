@@ -363,6 +363,50 @@ async function run() {
     G.emit('pile:open', { pileId: pida }); await wait(60); ck('pile:open without long-press just takes the pile', !q('.ed-pilesheet') && S.groundItems.filter(function (g) { return g.pileId === pida; }).length === 0);
     G.emit('pile:open', { pileId: pidb, long: true }); await wait(60); ck('long-press opens the list', !!q('.ed-pilesheet')); ui._closePile(); S.groundItems.length = 0;
     delete G.meta.STORY.VENDOR_QUESTS;
+    // ---- Revision 13: loyalty quests, crate bulk-rate line, trader loyalty ----
+    ui.close(); ui._closeModals(); S.paused = false; S.settings.tips = false;
+    G.scenes.enterTown(); await wait(700); tapTalk(6); S.paused = false;
+    var LQ = { id: 'lq_test', giver: 'Orlen', role: 'blacksmith', requiresAct: 2, act: 1, name: 'Good Customer', steps: [{ kind: 'kill', goal: 1, desc: 'Kill one.', before: ['Please.'], after: ['Thanks.'] }], rewards: { gold: 1, loyalty: { kind: 'salvage', amount: 0.1 } } };
+    G.meta.STORY.VENDOR_QUESTS = [LQ]; S.flags.act = 1; S.flags.loyalty = {}; if (S.quests && S.quests.side) delete S.quests.side.lq_test;
+    ck('requiresAct hides the quest until that act', G.meta.npcQuestState('blacksmith') !== 'available');
+    S.flags.act = 2; ck('requiresAct opens it in act 2', G.meta.npcQuestState('blacksmith') === 'available');
+    G.meta.acceptQuest('lq_test'); tapTalk(4); G.emit('monster:killed', { monster: { rarity: 'normal', faction: 'enemy', monsterId: 'ghoul' } });
+    G.meta.turnInQuest('lq_test'); tapTalk(4);
+    ck('loyalty reward is stored in flags.loyalty', S.flags.loyalty && S.flags.loyalty.salvage === 0.1);
+    ck('bulk line names the rates and the traders', /Bulk rate: sell \d+% · salvage \d+%/.test(ui._bulkLine()) && /Raise it by helping/.test(ui._bulkLine()));
+    G.emit('npc:interact', { role: 'blacksmith' }); await wait(80);
+    ck('blacksmith panel shows loyalty', /Loyalty ★/.test((q('.ed-npc') || {}).textContent || ''));
+    ui.close(); ui._closeModals(); S.paused = false;
+    S.surface = [I.rollItem({ level: 10, rarity: 'common', slot: 'belt' })]; ui.open('surface'); await wait(80);
+    ck('crate shows the current bulk rate and hint', /Bulk rate: sell/.test((q('.ed-fbox') || {}).textContent || ''));
+    ui.close(); delete G.meta.STORY.VENDOR_QUESTS; S.flags.loyalty = {};
+    // ---- R13b: loyalty goal kinds (sold / salvaged by hand, goldSpent at a trader, deliver) + story milestone table ----
+    ui.close(); ui._closeModals(); S.paused = false; S.settings.tips = false;
+    G.scenes.enterTown(); await wait(700); tapTalk(6); S.paused = false; S.flags.act = 3; S.flags.loyalty = {};
+    var mk = function (id, role, step, rw) { return { id: id, giver: id, role: role, npc: role, act: 1, name: id, steps: [Object.assign({ desc: 'd', before: ['b'], after: ['a'] }, step)], rewards: rw || { gold: 1 } }; };
+    G.meta.STORY.VENDOR_QUESTS = [mk('lq_sold', 'merchant', { kind: 'sold', goal: 2, role: 'merchant', rarity: ['uncommon'] }, { xp: 1, loyalty: { kind: 'sell', amount: 0.1 } }),
+      mk('lq_salv', 'blacksmith', { kind: 'salvaged', goal: 1, role: 'blacksmith' }), mk('lq_spent', 'blacksmith', { kind: 'goldSpent', goal: 500, role: 'blacksmith' }),
+      mk('lq_deliver', 'blacksmith', { kind: 'deliver', goal: 3, mat: 'riftshard' }, { gold: 1, mats: { shard: 2 }, mark: 1 })];
+    if (S.quests && S.quests.side) { delete S.quests.side.lq_sold; delete S.quests.side.lq_salv; delete S.quests.side.lq_spent; delete S.quests.side.lq_deliver; }
+    ['lq_sold', 'lq_salv', 'lq_spent', 'lq_deliver'].forEach(function (id) { G.meta.acceptQuest(id); }); tapTalk(8);
+    var st = function (id) { return G.meta.getQuests().filter(function (x) { return x.id === id; })[0]; };
+    var unc = { rarity: 'uncommon' }, com = { rarity: 'common' };
+    G.emit('item:sold', { item: unc, role: 'merchant', bulk: true }); G.emit('item:sold', { item: com, role: 'merchant', bulk: false }); G.emit('item:sold', { item: unc, role: 'blacksmith', bulk: false });
+    ck('sold ignores bulk sales, low rarity and other traders', st('lq_sold').progress === 0);
+    G.emit('item:sold', { item: unc, role: 'merchant', bulk: false }); G.emit('item:sold', { item: unc, role: 'merchant', bulk: false });
+    ck('sold counts hand sales to that trader', st('lq_sold').status === 'ready');
+    G.emit('item:salvaged', { item: com, role: 'blacksmith', bulk: true }); ck('salvaged ignores bulk', st('lq_salv').progress === 0);
+    G.emit('item:salvaged', { item: com, role: 'blacksmith', bulk: false }); ck('salvaged counts hand salvage', st('lq_salv').status === 'ready');
+    G.emit('gold:spent', { amount: 300, role: 'merchant', what: 'buy' }); ck('goldSpent filters by trader', st('lq_spent').progress === 0);
+    G.emit('gold:spent', { amount: 500, role: 'blacksmith', what: 'upgrade' }); ck('goldSpent at the trader completes', st('lq_spent').status === 'ready');
+    S.player.materials.riftshard = 2; for (var dz = 0; dz < 3; dz++) G.ui.update(0.6); ck('deliver follows what you carry', st('lq_deliver').status === 'active' && st('lq_deliver').progress === 2);
+    S.player.materials.riftshard = 3; for (var dz2 = 0; dz2 < 3; dz2++) G.ui.update(0.6); ck('deliver becomes ready at the goal', st('lq_deliver').status === 'ready');
+    var sh0 = S.player.materials.shard | 0; G.meta.turnInQuest('lq_deliver'); tapTalk(4);
+    ck('claiming takes the materials and pays the rewards', (S.player.materials.riftshard | 0) === 0 && (S.player.materials.shard | 0) === sh0 + 2);
+    G.meta.turnInQuest('lq_sold'); tapTalk(4); ck('loyalty from a hand-sale quest', S.flags.loyalty.sell === 0.1);
+    G.meta.STORY.MILESTONES = { kills: { name: 'Butcher\'s Tally', flavour: 'Every one was something once.', tiers: ['Bloodied', 'Culler'] }, sold: { name: 'Trader in Relics', tiers: ['Seller'] } };
+    var msl = G.meta.getMilestones(); ck('story milestone names are used (keys aliased)', msl.filter(function (m) { return m.id === 'kills'; })[0].name === 'Butcher\'s Tally' && msl.filter(function (m) { return m.id === 'itemsSold'; })[0].name === 'Trader in Relics' && msl[0].tiers[1].name === 'Culler' && msl[0].tiers[2].name === 'Culler II');
+    delete G.meta.STORY.MILESTONES; delete G.meta.STORY.VENDOR_QUESTS; S.flags.loyalty = {};
     G.ui.open('journal'); await wait(50); log('journal ok: ' + !!q('.ed-panel .ed-page')); ui.close();
     log('small controls (hud): ' + small(q('.ed-hud')).join('; '));
   } catch (err) { ERR.push('TEST: ' + err.stack); }

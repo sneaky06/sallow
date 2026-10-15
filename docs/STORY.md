@@ -127,3 +127,11 @@ XP, an item rarity, materials, a Tome or (rarely) a Mark. A giver's quests chain
 `MILESTONES` gives each lifetime counter a name, a one-line flavour and five tier titles. Examples: kills are the
 *Butcher's Tally* (Bloodied → The Rift's Undertaker), deaths are *Returned* (Fallen Once → The Rift Spits You Out), and
 Close Calls are *Hair's Breadth*.
+
+## Loyalty quests (R13)
+Six quests raise the surface crate's bulk rate, one per act from each trader, chained separately (`chain: 'loyalty'`,
+`requiresAct`). Each pays `loyalty: { kind, amount: 0.1 }`.
+- **Orlen (sell rate):** A Good Customer (sell 20 by hand) · Credit (spend 8,000 with him) · Last Man Standing (sell 40 Rare+).
+  He wants to be the last shop open when the town dies.
+- **Brakka (salvage yield):** Feed the Forge (salvage 15 at his anvil) · Shards for the Quench (bring 3 Rift Shards) ·
+  The Last Anvil (spend 15,000 at the forge). His father's anvil cracked the winter the rift went cold.

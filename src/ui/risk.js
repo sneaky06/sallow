@@ -83,7 +83,7 @@
     if (!S.player || S.scene !== 'dungeon') { if (pill && pill.style.display !== 'none') pill.style.display = 'none'; lastStacks = 0; return; }
     let st = 0;
     if (G.game && typeof G.game.getEffect === 'function') { try { const fx = G.game.getEffect(S.player, 'close_call'); st = fx ? fx.stacks | 0 : 0; } catch (err) { st = 0; } }
-    if (st > lastStacks) { pop('CLOSE CALL' + (st > 1 ? ' ×' + st : ''), st); if (ui._stat) ui._stat('closeCalls'); }
+    if (st > lastStacks) { pop('CLOSE CALL' + (st > 1 ? ' ×' + st : ''), st); if (ui._stat) ui._stat('closeCalls'); G.emit('closecall:ui', {}); }
     lastStacks = st;
     if (pillT > 0) { pillT -= dt; if (pillT <= 0 && pill) pill.style.display = 'none'; }
   });

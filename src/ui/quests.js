@@ -3,6 +3,7 @@
 (function () {
   'use strict';
   const G = window.G, S = G.state, C = G.C;
+  const ui = G.ui;
   const meta = G.meta = G.meta || {};
 
   // kind 'depth': reach depth `goal`. kind 'boss': slay `boss` (a monsterId, R4.1) — any depth, it returns deeper; with
@@ -170,7 +171,7 @@
     const s = line.steps[Math.min(st.step, line.steps.length - 1)];
     const lastStep = st.step >= line.steps.length - 1;
     const fillN = meta._fillNames || String;
-    return { id: line.id, lineId: line.id, side: true, step: st.step, giver: line.role || 'elder', giverRole: line.role || null, giverName: line.giver,
+    return { id: line.id, lineId: line.id, side: true, step: st.step, giver: line.role || 'elder', giverRole: line.role || null, npc: line.npc || null, chain: line.chain || null, giverName: line.giver,
       name: fillN(line.name) + (line.steps.length > 1 ? ' (' + (Math.min(st.step, line.steps.length - 1) + 1) + '/' + line.steps.length + ')' : ''),
       desc: fillN(s.desc), status: st.status, progress: Math.min(st.progress, s.goal), goal: s.goal, main: false,
       rewards: lastStep ? Object.assign({}, line.rewards) : { xp: Math.round((line.rewards.xp || 0) / 4) } };
@@ -180,7 +181,8 @@
     if (!q) return out;
     const act = S.flags.act | 0 || 1;
     for (const line of sideLines()) {
-      if (act < (line.act || 1)) continue;
+      if (act < Math.max(line.act || 1, line.requiresAct || 1)) continue;
+      if (line.requires && !(q.side && q.side[line.requires] && q.side[line.requires].status === 'done')) continue;        // the giver's previous quest comes first
       const st = sideState(q, line);
       if (st.status !== 'done') out.push(sideView(line, st));
     }
@@ -210,6 +212,7 @@
     G.emit('quest:updated', { quest: sideView(line, st) });
     const s = line.steps[st.step];
     if (s && s.kind === 'depth') sideAdvance((kind, prog, e) => (e === s ? Math.max(prog, S.flags.maxDepth | 0) : prog));
+    if (typeof refreshDeliver === 'function') refreshDeliver();
     return true;
   }
   function sideTurnIn(id) {
@@ -217,9 +220,16 @@
     if (!q || !line) return false;
     const st = sideState(q, line);
     if (st.status !== 'ready') return false;
+    const stp = line.steps[st.step];
+    if (stp && stp.kind === 'deliver') {                                        // materials are handed over now
+      const have = (S.player.materials && S.player.materials[stp.mat]) | 0;
+      if (have < stp.goal) { G.emit('ui:toast', { text: 'You need ' + stp.goal + ' ' + (ui._matName ? ui._matName(stp.mat) : stp.mat) + '.', color: '#ff8a7a' }); st.status = 'active'; st.progress = have; return false; }
+      S.player.materials[stp.mat] = have - stp.goal;
+      G.emit('inventory:changed', {});
+    }
     const done = sideView(line, st);
     done.status = 'done';
-    grant(done.rewards);
+    grant(done.rewards, id);
     st.step++; st.progress = 0;
     st.status = st.step < line.steps.length ? 'available' : 'done';
     G.emit('sfx', { name: 'quest' });
@@ -286,10 +296,16 @@
     return false;
   };
 
-  function grant(rewards) {
+  function grant(rewards, qid) {
     const p = S.player;
     if (!p || !rewards) return;
     const parts = [];
+    // R13 loyalty: a trader's quest raises the crate's bulk rate (flags.loyalty.sell / .salvage, each capped at +0.3)
+    if (rewards.loyalty && (rewards.loyalty.kind === 'sell' || rewards.loyalty.kind === 'salvage')) {
+      const L = S.flags.loyalty && typeof S.flags.loyalty === 'object' ? S.flags.loyalty : (S.flags.loyalty = {});
+      L[rewards.loyalty.kind] = Math.min(0.3, Math.round(((L[rewards.loyalty.kind] || 0) + (+rewards.loyalty.amount || 0.1)) * 100) / 100);
+      parts.push('better crate ' + (rewards.loyalty.kind === 'sell' ? 'sell' : 'salvage') + ' rate');
+    }
     if (rewards.gold) {
       p.gold = (p.gold || 0) + rewards.gold;
       G.emit('gold:changed', { gold: p.gold, delta: rewards.gold });
@@ -299,6 +315,18 @@
       if (G.game && G.game.gainXp) G.game.gainXp(rewards.xp);
       parts.push(rewards.xp + ' XP');
     }
+    if (rewards.mats) {
+      p.materials = p.materials || {};
+      for (const k in rewards.mats) p.materials[k] = (p.materials[k] || 0) + rewards.mats[k];
+      parts.push(ui._matsText ? ui._matsText(rewards.mats) : 'materials');
+    }
+    if (rewards.mark > 0) {                                                       // a Mark: a feat of its own per quest, so it counts like any other
+      for (let i = 0; i < rewards.mark; i++) {
+        if (G.game && typeof G.game.perkFeat === 'function') { try { G.game.perkFeat('quest_' + (qid || 'x') + '_' + i); } catch (err) { p.marks = (p.marks | 0) + 1; } } else p.marks = (p.marks | 0) + 1;
+      }
+      parts.push(rewards.mark + ' Mark' + (rewards.mark > 1 ? 's' : ''));
+    }
+    if (rewards.tome > 0 && G.items && typeof G.items.grantTome === 'function') { try { G.items.grantTome(rewards.tome); parts.push(rewards.tome + ' skill point' + (rewards.tome > 1 ? 's' : '')); } catch (err) { /* ignore */ } }
     if (rewards.item && G.items && G.items.rollItem) {
       const item = G.items.rollItem({ level: p.level || 1, rarity: meta._rarityPick(rewards.item) });
       if (item) {
@@ -352,13 +380,22 @@
   meta._MAIN = MAIN;
 
   // ---------- tracking ----------
+  // kill goals may carry filters: tier (elite | champion | rare | legendary | boss), body (monster.sprite.body), minDepth (checked by sideAdvance)
+  function killMatches(entry, mon) {
+    if (entry.tier) {
+      const r = mon.rarity;
+      if (entry.tier === 'elite' ? !(r === 'champion' || r === 'rare' || r === 'legendary' || r === 'boss') : r !== entry.tier) return false;
+    }
+    if (entry.body && !((mon.sprite && mon.sprite.body === entry.body) || mon.body === entry.body)) return false;
+    return true;
+  }
   G.on('monster:killed', function (e) {
     const mon = e && e.monster;
     if (!mon) return;
     if (mon.faction && mon.faction !== 'enemy') return;      // a fallen minion is not a kill
     const elite = mon.rarity === 'champion' || mon.rarity === 'rare' || mon.rarity === 'legendary' || mon.rarity === 'boss';
     advance(function (kind, prog, entry) {
-      if (kind === 'kill') return prog + 1;
+      if (kind === 'kill') return killMatches(entry, mon) ? prog + 1 : prog;
       if (kind === 'elite' && elite) return prog + 1;
       if (kind === 'boss' && mon.rarity === 'boss' && (mon.monsterId === entry.boss || ((entry.orDepth || !mon.monsterId) && (S.depth | 0) >= entry.depth))) return 1;
       return prog;
@@ -398,4 +435,59 @@
     if (it && cleansedSeen) { if (cleansedSeen.has(it)) return; cleansedSeen.add(it); }
     advance((kind, prog) => (kind === 'cleanse' ? prog + 1 : prog));
   });
+
+  // ---------- R12/R13 goal kinds written by the story (story_data.js VENDOR_QUESTS) ----------
+  // found (item:picked >= rarity), chute (items sent up while in the dungeon), goldSpent (all spending in town, or at a given trader's
+  // role via gold:spent), sold / salvaged (BY HAND only: item:sold / item:salvaged with bulk false, filtered by role and min rarity),
+  // deliver (progress = what you carry; handed over on claim), fallen, events, grade, closeCall, flow.
+  const rankOf = function (list) { const k = meta._rarityPick ? meta._rarityPick(list) : list; return rarityOrder(k); };
+  const GRADE = { S: 4, A: 3, B: 2, C: 1, D: 0 };
+  G.on('item:picked', function (e) {
+    const it = e && e.item;
+    if (!it || it.type === 'gold' || e.salvaged) return;
+    advance(function (kind, prog, entry) { return kind === 'found' && (!entry.rarity || rarityOrder(it.rarity) >= rankOf(entry.rarity)) ? prog + 1 : prog; });
+  });
+  let surfLen = -1;
+  G.on('surface:changed', function () {
+    const len = Array.isArray(S.surface) ? S.surface.length : 0, d = surfLen >= 0 ? len - surfLen : 0;
+    surfLen = len;
+    if (d > 0 && S.scene === 'dungeon') advance(function (kind, prog) { return kind === 'chute' ? prog + d : prog; });
+  });
+  G.on('scene:changed', function () { surfLen = Array.isArray(S.surface) ? S.surface.length : 0; });
+  G.on('gold:changed', function (e) {
+    if (!e || !(e.delta < 0) || S.scene !== 'town' || e.quiet) return;
+    advance(function (kind, prog, entry) { return kind === 'goldSpent' && !entry.role ? prog - e.delta : prog; });
+  });
+  G.on('gold:spent', function (e) {
+    if (!e || !(e.amount > 0)) return;
+    advance(function (kind, prog, entry) { return kind === 'goldSpent' && entry.role && entry.role === e.role ? prog + (e.amount | 0) : prog; });
+  });
+  const handFilter = function (entry, e) {
+    if (e.bulk) return false;                                                  // crate sales never count
+    if (entry.role && e.role && entry.role !== e.role) return false;
+    if (entry.rarity && e.item && rarityOrder(e.item.rarity) < rankOf(entry.rarity)) return false;
+    return true;
+  };
+  G.on('item:sold', function (e) { if (e) advance(function (kind, prog, entry) { return kind === 'sold' && handFilter(entry, e) ? prog + ((e.count | 0) || 1) : prog; }); });
+  G.on('item:salvaged', function (e) { if (e) advance(function (kind, prog, entry) { return kind === 'salvaged' && handFilter(entry, e) ? prog + ((e.count | 0) || 1) : prog; }); });
+  G.on('relic:granted', function () { advance(function (kind, prog) { return kind === 'fallen' ? prog + 1 : prog; }); });
+  G.on('event:end', function (e) { if (e && e.success) advance(function (kind, prog) { return kind === 'events' ? prog + 1 : prog; }); });
+  G.on('floor:graded', function (e) {
+    const g = e && GRADE[String(e.grade).toUpperCase().charAt(0)];
+    if (g == null) return;
+    advance(function (kind, prog, entry) { return kind === 'grade' && g >= (GRADE[entry.grade || 'C'] || 0) ? prog + 1 : prog; });
+  });
+  G.on('closecall:ui', function () { advance(function (kind, prog) { return kind === 'closeCall' ? prog + 1 : prog; }); });
+  G.on('flow:chain', function (e) {
+    const c = e && ((e.count | 0) || (e.chain | 0));
+    advance(function (kind, prog, entry) { return kind === 'flow' && c === (entry.chain | 0 || 1) ? prog + 1 : prog; });
+  });
+  // deliver: progress follows the materials you carry (checked when they change and once a second), capped at the goal
+  function refreshDeliver() {
+    const q = Q();
+    if (!q || !q.side || !S.player) return;
+    advance(function (kind, prog, entry) { return kind === 'deliver' ? Math.min(entry.goal || 1, (S.player.materials && S.player.materials[entry.mat]) | 0) : prog; });
+  }
+  ['inventory:changed', 'item:picked', 'scene:changed'].forEach(function (n) { G.on(n, refreshDeliver); });
+  ui._updaters.push((function () { let t = 0; return function (dt) { t -= dt; if (t <= 0) { t = 1; refreshDeliver(); } }; })());
 })();

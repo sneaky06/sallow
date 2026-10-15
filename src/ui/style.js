@@ -565,6 +565,7 @@
 .ed-chip{flex:1 1 auto;min-width:64px;font-size:11px!important;padding:2px 6px!important}
 .ed-step{display:flex;align-items:center;gap:6px;margin:4px 0}.ed-step span{flex:1;font-weight:normal;font-size:11px;color:var(--ash)}.ed-step b{min-width:44px;text-align:center;font-size:12px}
 .ed-fbox{margin-bottom:8px}
+.ed-loyal{margin-top:2px;font-size:10px;font-weight:normal;color:var(--brass-hi)}.ed-loyal small{color:var(--ash)}
 .ed-fbtns{display:grid;grid-template-columns:2fr 1fr 1fr;gap:4px;margin-top:6px}
 .ed-gearsw{display:flex;gap:2px;margin-bottom:8px}.ed-gearsw .ed-btn{flex:1}
 .ed-ms{display:block;width:100%;text-align:left;margin-bottom:4px;padding:6px 8px!important;background:var(--stone);border:1px solid #453e3a;min-height:56px}

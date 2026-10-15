@@ -25,7 +25,7 @@
     tome: ['Tome of Insight', 'Reading a Tome of Insight gives one skill point. Use it from your bag.', ico('tome', '#e8d8a0', '#b65bff')],
     chute: ['The chute', 'Mark items and send them up the chute: they arrive at the surface crate in town. Selling and salvaging happen up there.', ico('bag', '#d8c9a3')],
     surface: ['The surface crate', 'Everything you sent up the chute waits here. Sell it, salvage it, hand it to the Curator or stash it.', ico('chest', '#d8c9a3')],
-    crateRate: ['Bulk rate', 'Selling or salvaging straight from the crate pays the bulk rate: about 60% of what a trader pays. Take items to a trader for full price.', ico('chest', '#d8c9a3')],
+    crateRate: ['Bulk rate', 'Selling or salvaging straight from the crate pays a bulk rate: it starts at 50% of what a trader pays and rises, up to 80%, as you help the merchant and the blacksmith. Carry items to a trader for full price.', ico('chest', '#d8c9a3')],
     curator: ['The Curator', 'The Curator keeps a book of every armour look and set. Pieces with a teal book mark fill a gap: hand them in for permanent rewards.', ico('scroll', '#9ae6d8')],
     relic: ['Relics', 'A fallen adventurer leaves a relic: a permanent power. Collect all ten and they combine at the Elder.', ico('star', '#ffe45b')],
     fallen: ['A fallen adventurer', 'Corrupted former adventurers wait on deeper floors. They are hard and optional. Beating one earns a relic.', ico('skull', '#ff6a5a')],

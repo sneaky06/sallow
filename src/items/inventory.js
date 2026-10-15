@@ -29,6 +29,12 @@
     if (sfx) G.emit('sfx', { name: sfx });
   };
 
+  // Pay a trader: takes the gold and emits gold:spent { amount, role, what } (loyalty quests and milestones listen).
+  D.spend = function (p, amount, role, what) {
+    D.addGold(p, -amount, 'buy');
+    G.emit('gold:spent', { amount: amount, role: role, what: what });
+  };
+
   // Belt potions are counters. Anything over the belt cap is cashed in on the spot so nothing litters the floor.
   function addPotion(p, kind, qty, level) {
     const room = Math.max(0, D.POTION_CAP - (p.potions[kind] || 0));

@@ -29,11 +29,14 @@
   ];
   const ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI'];
 
+  // the story's table is { counterKey: { name, flavour, tiers: [titles low to high] } }; its keys differ from ours for four counters
+  const ALIAS = { sold: 'itemsSold', salvaged: 'itemsSalvaged', chute: 'itemsSent', flowChains: 'flows' };
   function defs() {
-    const over = (meta.STORY && Array.isArray(meta.STORY.MILESTONES)) ? meta.STORY.MILESTONES : [];
+    const raw = (meta.STORY && meta.STORY.MILESTONES) || null;
+    const over = Array.isArray(raw) ? raw : (raw ? Object.keys(raw).map(function (k) { const o = raw[k]; return o && typeof o === 'object' ? { id: ALIAS[k] || k, name: o.name, flavour: o.flavour, names: Array.isArray(o.tiers) && typeof o.tiers[0] === 'string' ? o.tiers : null } : null; }).filter(Boolean) : []);
     const byId = {};
     over.forEach(function (o) { if (o && o.id) byId[o.id] = o; });
-    const out = DEFS.map(function (d) { const o = byId[d.id]; delete byId[d.id]; return o ? Object.assign({}, d, { name: o.name || d.name, desc: o.desc || d.desc, names: o.names, tiers: Array.isArray(o.tiers) && o.tiers.length ? o.tiers : d.tiers }) : d; });
+    const out = DEFS.map(function (d) { const o = byId[d.id]; delete byId[d.id]; return o ? Object.assign({}, d, { name: o.name || d.name, desc: o.desc || d.desc, flavour: o.flavour, names: o.names, tiers: Array.isArray(o.tiers) && o.tiers.length ? o.tiers : d.tiers }) : d; });
     Object.keys(byId).forEach(function (k) { const o = byId[k]; if (o.stat && Array.isArray(o.tiers)) out.push(o); });     // entries the story adds on its own
     return out;
   }
@@ -62,7 +65,7 @@
   G.on('player:died', function () { meta.addStat('deaths'); });
   G.on('item:sold', function (e) { meta.addStat('itemsSold', (e && e.count) || 1); });
   G.on('item:salvaged', function (e) { meta.addStat('itemsSalvaged', (e && e.count) || 1); });
-  // the items module has no sell / salvage events yet: count what its entry points report (a sale returns its gold, a salvage a bool)
+  // sales and salvages are counted from the items module's item:sold / item:salvaged events (R13); only the chute has no event yet
   (function wrap() {
     const I = G.items;
     if (!I) return;
@@ -72,10 +75,6 @@
       I[name] = function () { const r = fn.apply(this, arguments); try { count(r, arguments); } catch (err) { /* never break a sale */ } return r; };
       I[name]._ms = true;
     };
-    w('sell', function (r) { if (r > 0) meta.addStat('itemsSold'); });
-    w('surfaceSell', function (r) { if (r > 0) meta.addStat('itemsSold'); });
-    w('salvage', function (r) { if (r) meta.addStat('itemsSalvaged'); });
-    w('surfaceSalvage', function (r) { if (r) meta.addStat('itemsSalvaged'); });
     w('chuteSend', function (r) { if (typeof r === 'number' && r > 0) meta.addStat('itemsSent', r); });
   })();
 
@@ -98,7 +97,10 @@
     return parts.filter(Boolean).join(', ');
   }
   const reached = function () { const f = S.flags; if (!f.milestones || typeof f.milestones !== 'object') f.milestones = {}; return f.milestones; };
-  const tierName = function (d, t) { return (d.names && d.names[t]) || d.name + ' ' + (ROMAN[t] || (t + 1)); };
+  const tierName = function (d, t) {
+    if (d.names && d.names.length) return d.names[t] || d.names[d.names.length - 1] + ' ' + (ROMAN[t - d.names.length + 1] || (t + 1));     // extra thresholds reuse the last title + a numeral
+    return d.name + ' ' + (ROMAN[t] || (t + 1));
+  };
 
   function grant(d, t) {
     const p = S.player, r = reward(d, t);
@@ -137,7 +139,7 @@
     const got = reached();
     return defs().map(function (d) {
       const v = value(d), t = got[d.id] | 0;
-      return { id: d.id, name: d.name, desc: d.desc, value: v, tier: t, tiers: d.tiers.map(function (at, i) { return { at: at, reached: i < t, reward: reward(d, i), name: tierName(d, i) }; }),
+      return { id: d.id, name: d.name, desc: d.desc, flavour: d.flavour || '', value: v, tier: t, tiers: d.tiers.map(function (at, i) { return { at: at, reached: i < t, reward: reward(d, i), name: tierName(d, i) }; }),
         next: t < d.tiers.length ? d.tiers[t] : null };
     });
   };
@@ -151,7 +153,7 @@
           const nextR = m.next != null ? m.tiers[m.tier].reward : null;
           return h('div', { class: 'ed-ms' },
             h('div', { class: 't' }, h('b', { text: m.name + (m.tier ? ' ' + (ROMAN[m.tier - 1] || m.tier) : '') }), h('span', { class: m.next == null ? 'ed-gold' : 'ed-dim', text: m.next == null ? 'Complete' : fmt(m.value) + ' / ' + fmt(m.next) })),
-            h('small', { text: m.desc }),
+            h('small', { text: m.desc + (m.flavour ? '. ' + m.flavour : '') }),
             h('div', { class: 'pips' }, m.tiers.map(function (t) { return h('i', { class: t.reached ? 'on' : null }); })),
             nextR ? h('small', { text: 'Next: ' + rewardText(nextR) }) : null);
         }));

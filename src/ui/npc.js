@@ -51,7 +51,7 @@
     const who = pool[Math.abs(key) % pool.length];
     const n = campVisits[key] = (campVisits[key] || 0) + 1;
     const nm = (G.meta._fillNames || String);
-    return { name: who.name, look: who.look, line: nm(who.lines[(n - 1) % who.lines.length]), camp: camp.name };
+    return { id: who.id || null, name: who.name, look: who.look, line: nm(who.lines[(n - 1) % who.lines.length]), camp: camp.name };
   }
   const GAMBLE_SLOTS = [['weapon', 'Weapon', 'sword'], ['offhand', 'Offhand', 'shield'], ['helm', 'Helm', 'helm'], ['chest', 'Armor', 'armor'],
     ['gloves', 'Gloves', 'gloves'], ['boots', 'Boots', 'boots'], ['belt', 'Belt', 'belt'], ['amulet', 'Amulet', 'amulet'], ['ring', 'Ring', 'ring']];
@@ -295,12 +295,18 @@
     if (r && r.xp) parts.push(fmt(r.xp) + ' XP');
     const it = r && r.item && G.meta._rarityPick ? G.meta._rarityPick(r.item) : r && r.item;
     if (it) parts.push(((C.RARITY[it] && C.RARITY[it].name) || it) + ' item');
+    if (r && r.mats) parts.push(ui._matsText ? ui._matsText(r.mats) : 'materials');
+    if (r && r.mark) parts.push(r.mark + ' Mark' + (r.mark > 1 ? 's' : ''));
+    if (r && r.tome) parts.push(r.tome + ' skill point' + (r.tome > 1 ? 's' : ''));
+    if (r && r.loyalty) parts.push('+' + Math.round((r.loyalty.amount || 0.1) * 100) + '% crate ' + (r.loyalty.kind === 'salvage' ? 'salvage' : 'sell') + ' rate');
     return parts.join(', ');
   }
 
-  function questList(actions, role) {
+  function questList(actions, role, npcId) {
     let list = (G.meta && G.meta.getQuests) ? G.meta.getQuests() : [];
     if (role) list = list.filter(function (q) { return role === 'elder' ? !q.giverRole : q.giverRole === role; });
+    // several camp people share a role (refugee, camp_merchant): each shows only the quests written for them (line.npc = story CAMP id)
+    if (npcId) list = list.filter(function (q) { return !q.npc || q.npc === role || q.npc === npcId; });
     const wrap = h('div', { class: 'ed-list' });
     const order = { ready: 0, active: 1, available: 2, done: 3 };
     const add = function (title, items) {
@@ -396,7 +402,7 @@
       else if (view.tab === 'gamble') body = gambleTab(p);
       else if (view.tab === 'heal') body = healTab(p);
       else if (view.tab === 'enchant') body = enchantTab(p);
-      else if (view.tab === 'quests') body = h('div', { class: 'ed-body' }, questList(true, role));
+      else if (view.tab === 'quests') body = h('div', { class: 'ed-body' }, questList(true, role, view.person && view.person.id));
       else if (view.tab === 'relics') body = ui._relicsBody();
       else if (view.tab === 'hand') body = ui._handInBody(view);
       else if (view.tab === 'book') body = ui._bookBody(view);
@@ -405,7 +411,7 @@
         : view.tab === 'book' && view.page ? [ui._btn('◀ Pages', function () { view.page = null; ui._refreshNow(); })] : null;
       const sub = h('div', { class: 'ed-npc' }, ui._portrait((ent && ent.sprite) || NPC_SPRITE[role], 48),
         h('div', { style: 'flex:1;min-width:0' }, h('b', { class: 'ed-ember', text: (view.person && view.person.name) || (ent && ent.name) || def.title }),
-          h('p', { text: '"' + ((view.person && view.person.line) || (!camp && ui._townLine && ui._townLine(role)) || def.line) + '"' })),
+          h('p', { text: '"' + ((view.person && view.person.line) || (!camp && ui._townLine && ui._townLine(role)) || def.line) + '"' }), ui._loyaltyEl ? ui._loyaltyEl(role) : null),
         ui._goldEl(p.gold || 0));
       const foot = view.tab === 'sell' ? [
         ui._junkButton(),

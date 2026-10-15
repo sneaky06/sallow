@@ -509,6 +509,42 @@
       before: ['When a big one dies down there, a light goes out. I can see it from the camp. Make three go out.'],
       after: ['Three. And the man in grey wrote a fourth on my wall. I scrubbed it off.'],
       rewards: { gold: 2500, xp: 9000, tome: 1 } },
+
+    // R13 loyalty quests: one per act from Orlen (bulk sell rate +10%) and Brakka (bulk salvage yield +10%). chain: 'loyalty'
+    // keeps them out of the giver's other quest order; requiresAct = the act that must be reached (flags.act >= n).
+    // New goal kinds: sold (items sold BY HAND to that trader: item:sold { item, role, bulk:false }), salvaged (by hand at the
+    // blacksmith: item:salvaged { item, role, bulk:false }), goldSpent with role (gold spent at that trader), deliver (materials
+    // handed over on turn-in: progress = player.materials[mat], consumed when claimed).
+    { id: 'vq_orlen_loyal_1', giver: 'merchant', giverName: 'Orlen the Peddler', chain: 'loyalty', requiresAct: 1, name: 'A Good Customer',
+      desc: 'Sell 20 items to Orlen by hand, at his counter. He wants to know you will come back.', goal: { kind: 'sold', n: 20, role: 'merchant' },
+      before: ['Everyone who walks in here might be the last customer I ever have. So I remember the ones who come back.', 'Sell to me. Here, at the counter, like a person.'],
+      after: ['Twenty. You came back twenty times. Most people do not come back once.', 'Your crate goods. I will take them at a better rate now. Do not tell the twins.'],
+      rewards: { xp: 800, loyalty: { kind: 'sell', amount: 0.1 } } },
+    { id: 'vq_orlen_loyal_2', giver: 'merchant', giverName: 'Orlen the Peddler', chain: 'loyalty', requiresAct: 2, name: 'Credit',
+      desc: 'Spend 8,000 gold at Orlen\'s stall. A merchant who is paid stays open.', goal: { kind: 'goldSpent', n: 8000, role: 'merchant' },
+      before: ['I extended credit to six adventurers. Six. You know how many paid me back.', 'You pay up front. I like that. Keep doing it.'],
+      after: ['My ledger has more black ink than red for the first time in nine years.', 'Better rate on the crate. You have earned it. The dead have not.'],
+      rewards: { xp: 4000, loyalty: { kind: 'sell', amount: 0.1 } } },
+    { id: 'vq_orlen_loyal_3', giver: 'merchant', giverName: 'Orlen the Peddler', chain: 'loyalty', requiresAct: 3, name: 'Last Man Standing',
+      desc: 'Sell 40 items of Rare quality or better to Orlen by hand. He means to outlast the town.', goal: { kind: 'sold', n: 40, role: 'merchant', rarity: ['rare'] },
+      before: ['If this town dies, I want to be the last shop open. Lights on, door open, prices fair. Nearly fair.', 'Bring me good stock. Forty good pieces.'],
+      after: ['I will be here when the rest have gone. Now I have a reason to be.', 'Best rate I give anyone. Do not die. It would ruin my books.'],
+      rewards: { xp: 12000, loyalty: { kind: 'sell', amount: 0.1 } } },
+    { id: 'vq_brakka_loyal_1', giver: 'blacksmith', giverName: 'Brakka Ironhand', chain: 'loyalty', requiresAct: 1, name: 'Feed the Forge',
+      desc: 'Salvage 15 items by hand at Brakka\'s anvil.', goal: { kind: 'salvaged', n: 15, role: 'blacksmith' },
+      before: ['A cold forge is a dead smith. Bring me metal to break. Here. At my anvil.'],
+      after: ['Fifteen. The fire held all week.', 'Your crate scrap comes back richer now. I have learned where to strike.'],
+      rewards: { xp: 800, loyalty: { kind: 'salvage', amount: 0.1 } } },
+    { id: 'vq_brakka_loyal_2', giver: 'blacksmith', giverName: 'Brakka Ironhand', chain: 'loyalty', requiresAct: 2, name: 'Shards for the Quench',
+      desc: 'Bring Brakka 3 Rift Shards. He wants to quench in something that remembers heat.', goal: { kind: 'deliver', n: 3, mat: 'riftshard' },
+      before: ['Water quench is for farm tools. I want to quench in rift. Three shards. Hand them over; I will not ask how.'],
+      after: ['The steel screamed. Good steel screams.', 'Better yield from your scrap. Do not waste it.'],
+      rewards: { xp: 4000, loyalty: { kind: 'salvage', amount: 0.1 } } },
+    { id: 'vq_brakka_loyal_3', giver: 'blacksmith', giverName: 'Brakka Ironhand', chain: 'loyalty', requiresAct: 3, name: 'The Last Anvil',
+      desc: 'Spend 15,000 gold at Brakka\'s forge on upgrades, gems or cleansing.', goal: { kind: 'goldSpent', n: 15000, role: 'blacksmith' },
+      before: ['My father\'s anvil cracked the winter the rift went cold. I have been working on a flawed one ever since.', 'Pay for good work. I will buy a good anvil. One of us should leave something whole behind.'],
+      after: ['A new anvil. It rings true. My father would have wept.', 'Nothing you break will be wasted again. Not while I live.'],
+      rewards: { xp: 12000, loyalty: { kind: 'salvage', amount: 0.1 } } },
   ];
 
   // Converted to the SIDE line shape that quests.js reads: { id, role, npc, giver (display name), act, requires, name,
@@ -517,10 +553,12 @@
   const lastOf = {};
   const VENDOR_QUESTS = VENDOR_RAW.map(function (q) {
     const g = q.goal, step = { kind: g.kind, goal: g.n, desc: q.desc, before: q.before, after: q.after };
-    ['rarity', 'body', 'tier', 'minDepth', 'grade', 'chain'].forEach(function (k) { if (g[k] != null) step[k] = g[k]; });
-    const line = { id: q.id, role: CAMP_ROLE[q.giver] || q.giver, npc: q.giver, giver: q.giverName, act: q.act || 1,
-      requires: lastOf[q.giver] || null, name: q.name, steps: [step], rewards: q.rewards };
-    lastOf[q.giver] = q.id;
+    ['rarity', 'body', 'tier', 'minDepth', 'grade', 'chain', 'role', 'mat'].forEach(function (k) { if (g[k] != null) step[k] = g[k]; });
+    const key = q.giver + (q.chain ? ':' + q.chain : '');
+    const line = { id: q.id, role: CAMP_ROLE[q.giver] || q.giver, npc: q.giver, giver: q.giverName, act: q.requiresAct || q.act || 1,
+      requiresAct: q.requiresAct || null, chain: q.chain || null,
+      requires: lastOf[key] || null, name: q.name, steps: [step], rewards: q.rewards };
+    lastOf[key] = q.id;
     return line;
   });
 

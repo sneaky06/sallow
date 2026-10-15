@@ -29,7 +29,28 @@
   const cur = function () { return store().cur; };
   const save = function () { if (G.meta && G.meta.save) G.meta.save(); };
 
-  const bulkRate = function () { const r = G.items && +G.items.BULK_RATE; return r > 0 && r <= 1 ? r : 0.6; };
+  // R13: the crate's bulk rate starts at 50% and rises with loyalty (G.items.bulkRate(kind), kind = 'sell' | 'salvage')
+  const rateOf = function (kind) {
+    let r = 0;
+    if (G.items && typeof G.items.bulkRate === 'function') { try { r = +G.items.bulkRate(kind); } catch (err) { r = 0; } }
+    if (!(r > 0)) r = G.items && +G.items.BULK_RATE;
+    return r > 0 && r <= 1 ? r : 0.5;
+  };
+  const bulkRate = function () { return rateOf('sell'); };
+  ui._bulkRate = rateOf;
+  const traderName = function (role) { const N = (G.meta && G.meta.STORY && G.meta.STORY.NAMES) || {}; return N[role] || (role === 'merchant' ? 'the Merchant' : 'the Blacksmith'); };
+  // "Bulk rate: sell 60% · salvage 50%. Raise it by helping Orlen and Brakka."
+  ui._bulkLine = function () {
+    const s = Math.round(rateOf('sell') * 100), v = Math.round(rateOf('salvage') * 100);
+    return 'Bulk rate: sell ' + s + '% · salvage ' + v + '%' + (s < 80 || v < 80 ? '. Raise it by helping ' + traderName('merchant') + ' (sell) and ' + traderName('blacksmith') + ' (salvage).' : ' (the most the crate pays).');
+  };
+  // the trader's loyalty level (0-3 stars; each +10% of bulk rate) for the merchant / blacksmith panels
+  ui._loyaltyEl = function (role) {
+    if (role !== 'merchant' && role !== 'blacksmith') return null;
+    const kind = role === 'merchant' ? 'sell' : 'salvage', L = (S.flags.loyalty && S.flags.loyalty[kind]) || 0;
+    const n = Math.max(0, Math.min(3, Math.round(L * 10)));
+    return h('div', { class: 'ed-loyal', title: 'Loyalty raises what the crate pays for ' + kind }, 'Loyalty ' + '★'.repeat(n) + '☆'.repeat(3 - n), h('small', { text: '  crate ' + kind + ' ' + Math.round(rateOf(kind) * 100) + '%' }));
+  };
 
   // does this item belong to filter f? (equipment only)
   function matches(it, f) {
@@ -134,7 +155,7 @@
         h('div', { class: 'ed-note', text: 'Also include (tap to switch)' }),
         h('div', { class: 'ed-seg', style: 'flex-wrap:wrap' }, TOGGLES.map(function (t) { return chip(t[1] + ': ' + (f[t[0]] ? 'yes' : 'no'), !!f[t[0]], function () { f[t[0]] = !f[t[0]]; }); })),
         h('div', { class: 'ed-box', style: 'margin-top:6px' }, h('div', { class: 'ed-kv' }, h('span', { text: 'Matches now' }), h('b', { class: pv.count ? 'ed-gold' : 'ed-dim', text: pv.count + ' item' + (pv.count === 1 ? '' : 's') + (source === 'surface' ? ' · ' : ' · ') + fmt(pv.gold) + ' g' })),
-          source === 'surface' ? h('div', { class: 'ed-note', text: 'Bulk rate ' + Math.round(bulkRate() * 100) + '% of the trader\'s price.' }) : null),
+          source === 'surface' ? h('div', { class: 'ed-note', text: ui._bulkLine() }) : null),
         h('div', { class: 'ed-seg', style: 'margin-top:6px' },
           ui._btn('Save as preset', function () {
             sf.presets.push({ name: 'Mine ' + (sf.presets.length + 1), f: JSON.parse(JSON.stringify(f)) }); if (sf.presets.length > 6) sf.presets.splice(3, 1);
@@ -165,7 +186,7 @@
     return h('div', { class: 'ed-box ed-fbox' },
       h('div', { class: 'ed-kv' }, h('span', { text: 'Sell filter' }), h('b', { text: describe(f) })),
       h('div', { class: 'ed-fbtns' }, sell, salv, ui._btn('Edit', function () { builder(source, ui._refreshNow); })),
-      source === 'surface' ? h('div', { class: 'ed-note', text: 'Bulk rate: ' + Math.round(bulkRate() * 100) + '% of a trader\'s price. Carry items to a trader for full price.' }) : null);
+      source === 'surface' ? h('div', { class: 'ed-note', text: ui._bulkLine() + ' Carry items to a trader for full price.' }) : null);
   };
   ui._openFilter = builder;
 })();

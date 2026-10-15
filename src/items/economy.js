@@ -170,7 +170,9 @@
     return { materials: { dust: y.dust, shard: y.shard, essence: y.essence, gemdust: ground.gemdust }, gems: ground.gems };
   }
   D.salvageItem = salvageItem;
+  function emitSalvaged(item, role, bulk) { G.emit('item:salvaged', { item: item, role: role, bulk: !!bulk }); }
   function salvageAt(p, i) {
+    emitSalvaged(p.inventory[i], 'blacksmith', false);
     const r = salvageItem(p, p.inventory[i]);
     p.inventory[i] = null;
     return r;
@@ -215,7 +217,9 @@
   // ---- buyback (R2.7): the last 12 things sold, newest first, at 2.5x what the vendor paid; forgotten on entering a dungeon ----
   const BUYBACK_MAX = 12, BUYBACK_MULT = 2.5;
   let buybackList = [];
-  function remember(item, paid) {
+  // Every sale ends here: item:sold { item, role, bulk, gold } (role = the trader, or 'surface' for the crate; bulk = crate or bulk-rate path)
+  function remember(item, paid, bulk, role) {
+    G.emit('item:sold', { item: item, role: role || (bulk ? 'surface' : 'merchant'), bulk: !!bulk, gold: paid });
     buybackList.unshift({ item: item, price: Math.max(1, Math.ceil(paid * BUYBACK_MULT)) });
     if (buybackList.length > BUYBACK_MAX) buybackList.length = BUYBACK_MAX;
   }
@@ -230,7 +234,7 @@
     if (p.gold < e.price) return D.fail('Not enough gold');
     if (!I.addToInventory(e.item)) return D.fail('Inventory full');
     buybackList.splice(index, 1);
-    D.addGold(p, -e.price, 'buy');
+    D.spend(p, e.price, 'merchant', 'buyback');
     return true;
   };
 
@@ -254,7 +258,7 @@
     if (p.gold < cost) return D.fail('Not enough gold');
     if (!I.addToInventory(gem)) return D.fail('Inventory full');
     item.sockets[socketIndex] = null;
-    D.addGold(p, -cost, 'buy');
+    D.spend(p, cost, 'blacksmith', 'unsocket');
     D.toast(gem.name + ' removed', (C.RARITY[gem.rarity] || C.RARITY.common).color);
     if (typeof target !== 'number') D.equipChanged(p);
     return true;
@@ -333,7 +337,7 @@
       return D.fail('Inventory full');
     }
     p.materials.gemdust -= cost.gemdust;
-    D.addGold(p, -cost.gold, 'buy');
+    D.spend(p, cost.gold, 'blacksmith', 'gem');
     G.emit('sfx', { name: 'equip' });
     D.toast('Cut ' + next.name, (C.RARITY[next.rarity] || C.RARITY.common).color);
     return true;
@@ -389,7 +393,7 @@
     item.rerolls = (item.rerolls || 0) + 1;
     item.value = D.itemValue(item);
     p.materials.gemdust -= cost.gemdust;
-    D.addGold(p, -cost.gold, 'buy');
+    D.spend(p, cost.gold, 'mystic', 'reroll');
     G.emit('sfx', { name: 'loot_rare' });
     invChanged();
     if (typeof target !== 'number') D.equipChanged(p);
@@ -446,7 +450,7 @@
     item.name = item.name.replace(/ \+\d+$/, '') + ' +' + plus;
     item.value = D.itemValue(item);
 
-    D.addGold(p, -cost.gold);
+    D.spend(p, cost.gold, 'blacksmith', 'upgrade');
     G.emit('sfx', { name: 'equip' });
     G.emit('fx:spawn', { type: 'spark', x: p.x || 0, y: p.y || 0, color: '#ffd94a' });
     D.toast(item.name + ' forged', (C.RARITY[item.rarity] || C.RARITY.common).color);
@@ -521,7 +525,7 @@
     const item = e.infinite ? Object.assign({}, e.item, { id: G.newId(), icon: Object.assign({}, e.item.icon), base: {}, mods: [] }) : e.item;
     if (!I.addToInventory(item)) return D.fail('Inventory full');
     if (!e.infinite) list.splice(index, 1);
-    D.addGold(p, -e.price, 'buy');
+    D.spend(p, e.price, role, 'buy');
     return true;
   };
 
@@ -539,7 +543,7 @@
     if (p.inventory.indexOf(null) < 0) { D.fail('Inventory full'); return null; }
     const item = I.rollItem({ level: plevel(), slot: slot, _boost: 3, _floor: 'uncommon' });
     I.addToInventory(item);
-    D.addGold(p, -cost, 'buy');
+    D.spend(p, cost, 'mystic', 'gamble');
     const o = rord(item.rarity);
     if (o >= rord('legendary')) G.emit('sfx', { name: 'loot_legendary' });
     else if (o >= rord('rare')) G.emit('sfx', { name: 'loot_rare' });
@@ -557,7 +561,7 @@
     const price = I.potionPrice(kind);
     if (p.gold < price) return D.fail('Not enough gold');
     p.potions[kind] = (p.potions[kind] || 0) + 1;
-    D.addGold(p, -price, 'buy');
+    D.spend(p, price, 'healer', 'potion');
     invChanged();
     return true;
   };
@@ -671,10 +675,10 @@
     const r = surfacePull(index, 'Selling');
     if (!r) return 0;
     if (r.item.locked) { D.fail('Unlock it first'); return 0; }
-    const gold = sellFor(r.item, I.BULK_RATE);
+    const gold = sellFor(r.item, I.bulkRate('sell'));
     if (D.isEquip(r.item)) grindGems(r.p, r.item);
     surface().splice(index, 1);
-    remember(r.item, gold);
+    remember(r.item, gold, true, 'surface');
     D.addGold(r.p, gold, 'sell');
     surfaceDone();
     return gold;
@@ -684,8 +688,9 @@
     if (!r) return false;
     if (!D.isEquip(r.item)) return D.fail('Cannot salvage that');
     if (r.item.locked) return D.fail('Unlock it first');
-    const m = salvageWithRate(r.p, r.item, I.BULK_RATE);
+    const m = salvageWithRate(r.p, r.item, I.bulkRate('salvage'));
     surface().splice(index, 1);
+    emitSalvaged(r.item, 'surface', true);
     const parts = [];
     for (const k in m) if (m[k]) parts.push('+' + m[k] + ' ' + (k === 'gemdust' ? 'gem dust' : k));
     D.toast('Salvaged: ' + parts.join(', '), '#8fb4ff');
@@ -710,10 +715,16 @@
   };
 
   // ---- R12: bulk rate, filters, take-all ----
-  // Selling or salvaging straight from the surface crate pays BULK_RATE of the trader price / of the salvage yield (rounded);
+  // Selling or salvaging straight from the surface crate pays bulkRate(kind) of the trader price / of the salvage yield (rounded);
   // carry the item into the bag (surfaceTake) and sell it to a trader for the full price.
-  I.BULK_RATE = 0.6;
-  function rateOf(bulk) { return bulk ? I.BULK_RATE : 1; }
+  // R13: starts at 50%, +loyalty from the trader quests (state.flags.loyalty.sell / .salvage, each 0-0.3), capped at 80%.
+  I.BULK_BASE = 0.5; I.BULK_MAX = 0.8;
+  I.bulkRate = function (kind) {
+    const l = (G.state.flags && G.state.flags.loyalty) || {};
+    const v = +l[kind === 'salvage' ? 'salvage' : 'sell'] || 0;
+    return Math.min(I.BULK_MAX, Math.max(I.BULK_BASE, I.BULK_BASE + v));
+  };
+  Object.defineProperty(I, 'BULK_RATE', { get: function () { return I.bulkRate('sell'); }, enumerable: true, configurable: true });
   function scaled(n, rate) { return rate === 1 ? n : Math.round(n * rate); }
   function sellFor(item, rate) { return scaled(sellValue(item), rate); }
   function salvageFor(item, rate) {
@@ -757,7 +768,8 @@
     const p = G.state.player;
     const from = opts.from === 'surface' ? 'surface' : 'bag';
     const list = from === 'surface' ? surface() : (p && p.inventory) || [];
-    return { from: from, list: list, rate: rateOf(opts.bulk !== undefined ? opts.bulk : from === 'surface') };
+    const bulk = opts.bulk !== undefined ? opts.bulk : from === 'surface';
+    return { from: from, list: list, sellRate: bulk ? I.bulkRate('sell') : 1, salvageRate: bulk ? I.bulkRate('salvage') : 1 };
   }
   function matching(f, src) {
     const out = [];
@@ -768,7 +780,7 @@
   // -> { count, gold, gems } (gems = socketed gems that would be ground to dust)
   I.previewSellFilter = function (f, opts) {
     const src = source(opts), out = { count: 0, gold: 0, gems: 0 };
-    for (const i of matching(f, src)) { const it = src.list[i]; out.count++; out.gold += sellFor(it, src.rate); out.gems += socketedCount(it); }
+    for (const i of matching(f, src)) { const it = src.list[i]; out.count++; out.gold += sellFor(it, src.sellRate); out.gems += socketedCount(it); }
     return out;
   };
   // -> { count, gold }
@@ -779,9 +791,9 @@
     const idx = matching(f, src);
     for (let k = idx.length - 1; k >= 0; k--) {
       const it = src.list[idx[k]];
-      const gold = sellFor(it, src.rate);
+      const gold = sellFor(it, src.sellRate);
       grindGems(p, it);
-      remember(it, gold);
+      remember(it, gold, src.sellRate < 1, src.from === 'surface' ? 'surface' : 'merchant');
       out.gold += gold; out.count++;
       if (src.from === 'surface') src.list.splice(idx[k], 1); else src.list[idx[k]] = null;
     }
@@ -796,7 +808,7 @@
   // -> { count, materials: { dust, shard, essence, gemdust } }
   I.previewSalvageFilter = function (f, opts) {
     const src = source(opts), out = { count: 0, materials: emptyMats() };
-    for (const i of matching(f, src)) { out.count++; const m = salvageFor(src.list[i], src.rate); for (const k in m) out.materials[k] += m[k]; }
+    for (const i of matching(f, src)) { out.count++; const m = salvageFor(src.list[i], src.salvageRate); for (const k in m) out.materials[k] += m[k]; }
     return out;
   };
   I.salvageFilter = function (f, opts) {
@@ -805,7 +817,8 @@
     const src = source(opts);
     const idx = matching(f, src);
     for (let k = idx.length - 1; k >= 0; k--) {
-      const m = salvageWithRate(p, src.list[idx[k]], src.rate);
+      emitSalvaged(src.list[idx[k]], src.from === 'surface' ? 'surface' : 'blacksmith', src.salvageRate < 1);
+      const m = salvageWithRate(p, src.list[idx[k]], src.salvageRate);
       for (const key in m) out.materials[key] += m[key];
       out.count++;
       if (src.from === 'surface') src.list.splice(idx[k], 1); else src.list[idx[k]] = null;
