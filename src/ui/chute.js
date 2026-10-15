@@ -68,91 +68,172 @@
   });
 
   // ---------- the surface crate (town) ----------
-  // Run fn(bagIndex) on a surface item: take it into the bag first (surfaceTake) and act on it there.
-  function viaBag(i, fn) {
-    const it = surface()[i];
-    if (!it) return false;
-    if (!has('surfaceTake')) { ui.toast('The crate is not ready yet.', '#a89f8f'); return false; }
-    let taken = false;
-    try { taken = G.items.surfaceTake(i) !== false; } catch (err) { console.error('[ui surfaceTake]', err); }
-    const idx = taken ? S.player.inventory.indexOf(it) : -1;
-    if (idx < 0) { ui._sfx('error'); if (taken) ui.toast('Your bag is full.', '#a89f8f'); return false; }
-    if (fn) fn(idx, it);
-    return true;
-  }
-  function junkRule() { return (S.settings.junk && S.settings.junk.action) === 'salvage' ? 'salvage' : 'sell'; }
+  // Holds up to G.items.SURFACE_SIZE (300) items, so it is a scrolling grid that is UPDATED, not rebuilt: every item keeps its own cell
+  // element (cache: item -> element); after a sale only that cell disappears and the cells after it slide up.
+  const item = function (name) { return G.items && typeof G.items[name] === 'function' ? G.items[name] : null; };
+  const SORT_SLOT = function (it) { const s = it.slot === 'ring' ? 'ring1' : it.slot; const i = C.EQUIP_SLOTS.indexOf(s); return i < 0 ? 99 : i; };
 
-  function actionsFor(i, it) {
+  // Sort S.surface in place (modes of the bag sort: rarity | level | slot | value | upgrades | newest).
+  ui._sortSurface = function (mode) {
+    const list = surface();
+    const ord = list.map(function (it, i) { return { it: it, i: i }; });
+    const rar = function (x) { return ui._rarityOrder(x.it.rarity); };
+    const lvl = function (x) { return x.it.ilvl || x.it.level || 0; };
+    const key = {
+      rarity: function (a, b) { return rar(b) - rar(a); },
+      level: function (a, b) { return lvl(b) - lvl(a); },
+      slot: function (a, b) { return SORT_SLOT(a.it) - SORT_SLOT(b.it); },
+      value: function (a, b) { return (b.it.value || 0) * (b.it.qty || 1) - (a.it.value || 0) * (a.it.qty || 1); },
+      upgrades: function (a, b) { const r = { up: 0, same: 1, down: 2 }; const va = a.it.slot ? (r[ui._verdict(a.it)] != null ? r[ui._verdict(a.it)] : 3) : 4, vb = b.it.slot ? (r[ui._verdict(b.it)] != null ? r[ui._verdict(b.it)] : 3) : 4; return va - vb; },
+      newest: function (a, b) { return (b.it.foundAt || 0) - (a.it.foundAt || 0); },
+    }[mode] || function () { return 0; };
+    ord.sort(function (a, b) { return key(a, b) || rar(b) - rar(a) || lvl(b) - lvl(a) || a.i - b.i; });
+    for (let i = 0; i < ord.length; i++) list[i] = ord[i].it;
+    ui._refresh();
+  };
+  // auto-sort when something arrives (same rule as the bag: settings.autoSort, default on)
+  (function () {
+    let n = -1;
+    G.on('surface:changed', function () {
+      const len = surface().length;
+      const grew = n >= 0 && len > n;
+      n = len;
+      if (grew && S.settings.autoSort !== false) ui._sortSurface(ui._sortMode ? ui._sortMode() : 'rarity');
+    });
+    G.on('scene:changed', function () { n = -1; });
+  })();
+
+  // what the mass-sell buttons may touch: gear that is not locked, a set piece, Legendary+, unrevealed-bleached or wanted by the book
+  function sellable(it) {
+    return !!it && !!it.slot && !it.locked && !it.setId && !(it.bleached && !it.revealed) && !ui._wanted(it) &&
+      ui._rarityOrder(it.rarity) < ui._rarityOrder('legendary');
+  }
+  const goldOf = function (it) { return Math.round((it.value || 0) * (it.qty || 1)); };
+  const MASS = ['common', 'uncommon', 'rare'];
+
+  function surfaceView(view) {
+    if (!view.built) {
+      view.cache = new Map();
+      view.head = h('div', { class: 'ed-kv', style: 'margin-bottom:4px' });
+      view.mass = h('div', { class: 'ed-mass' });
+      view.note = h('div', { class: 'ed-note', style: 'margin:6px 0' });
+      view.grid = h('div', { class: 'ed-grid ed-bigcrate' });
+      view.body = h('div', { class: 'ed-body' }, view.head, view.mass, view.note, view.grid);
+      view.built = true;
+    }
+    return view;
+  }
+
+  function actionsFor(it) {
+    const idx = function () { return surface().indexOf(it); };
     const a = [];
-    const wantedHere = ui._wanted(it);
-    if (wantedHere) a.push({ label: 'Curator', cls: 'gold', fn: function () { viaBag(i, function (idx) { ui._sendToCurator(idx); }); } });
-    if (it.slot && has('sell')) a.push({ label: 'Sell' + (it.value ? ' ' + fmt(it.value) + 'g' : ''), cls: wantedHere ? '' : 'gold', fn: function () {
-      viaBag(i, function (idx) { ui._gemGuard(idx, 'Sell', function () { const g = ui._itemsCall('sell', idx); if (g > 0) ui._sfx('sell'); ui._refreshNow(); }); });
-    } });
-    if (it.slot && has('salvage')) a.push({ label: 'Salvage', fn: function () {
-      viaBag(i, function (idx) {
-        const go = function () { ui._itemsCall('salvage', idx); ui._refreshNow(); };
-        if (!ui._gemGuard(idx, 'Salvage', go)) go();
-      });
-    } });
-    if (has('stashDeposit')) a.push({ label: 'Stash', fn: function () { viaBag(i, function (idx) { if (ui._itemsCall('stashDeposit', idx) === false) ui._sfx('error'); }); } });
-    a.push({ label: 'Take', fn: function () { viaBag(i); } });
+    const run = function (fn) { return function () { const i = idx(); if (i >= 0) fn(i); }; };
+    if (ui._wanted(it) && item('surfaceRegister')) a.push({ label: 'Curator', cls: 'gold', fn: run(function (i) { const r = G.items.surfaceRegister(i); if (r && r.ok) { ui._sfx('quest'); } else ui._sfx('error'); }) });
+    if (it.slot && item('surfaceSell')) a.push({ label: 'Sell' + (it.value ? ' ' + fmt(goldOf(it)) + 'g' : ''), cls: ui._wanted(it) ? '' : 'gold', fn: run(function (i) {
+      const g = G.items.surfaceSell(i); ui._sfx(g > 0 ? 'sell' : 'error');
+    }) });
+    if (it.slot && item('surfaceSalvage')) a.push({ label: 'Salvage', fn: run(function (i) {
+      const sal = function () { ui._sfx(G.items.surfaceSalvage(i) ? 'click' : 'error'); };
+      const gems = (it.sockets || []).filter(Boolean).length;
+      if (gems) ui._confirm(gems + ' socketed gem' + (gems === 1 ? '' : 's') + ' will be ground to dust.', 'Salvage anyway', sal, { danger: true }); else sal();
+    }) });
+    if (item('surfaceStash')) a.push({ label: 'Stash', fn: run(function (i) { if (!G.items.surfaceStash(i)) ui._sfx('error'); }) });
+    if (item('surfaceTake')) a.push({ label: 'Take', fn: run(function (i) { if (!G.items.surfaceTake(i)) ui._sfx('error'); }) });
     return a;
   }
 
-  function surfaceBody(view) {
-    const list = surface();
-    const body = h('div', { class: 'ed-body' });
-    const items = [];
-    list.forEach(function (it, i) { if (it) items.push({ it: it, i: i }); });
-    if (!items.length) { body.appendChild(h('div', { class: 'ed-box ed-note', text: 'Nothing has come up yet. Items you send down a chute in the rift arrive here, instantly.' })); return { body: body, foot: null }; }
-    const wantedN = items.filter(function (x) { return ui._wanted(x.it); }).length;
-    const junkN = items.filter(function (x) { return x.it.slot && !x.it.locked && !ui._wanted(x.it) && ui._isJunk(x.it); }).length;
+  function cellFor(view, it) {
+    let el = view.cache.get(it);
+    if (el && el._lk === !!it.locked) return el;
+    el = ui._cell(it, { arrow: true, junk: true, onTap: function (x) { ui._showItem(x, actionsFor(x)); } });
+    el._lk = !!it.locked;
+    view.cache.set(it, el);
+    return el;
+  }
+
+  // bring the grid in line with state.surface touching only what changed
+  function syncGrid(view) {
+    const list = surface().filter(Boolean);
+    const live = new Set(list);
+    view.cache.forEach(function (el, it) { if (!live.has(it)) view.cache.delete(it); });
+    const grid = view.grid;
+    for (let i = 0; i < list.length; i++) {
+      const el = cellFor(view, list[i]);
+      const cur = grid.children[i];
+      if (cur !== el) { if (cur && !live.has(cur._it) && cur._it && cur._it !== list[i]) { /* stale node is replaced below */ } grid.insertBefore(el, cur || null); }
+      el._it = list[i];
+    }
+    while (grid.children.length > list.length) grid.lastChild.remove();
+    return list;
+  }
+
+  function surfaceRender(view) {
+    surfaceView(view);
+    const size = (G.items && G.items.SURFACE_SIZE) || 300;
+    const list = syncGrid(view);
+    // one pass: junk / wanted counts and the three mass-sell tiers
+    let wantedN = 0, junkN = 0;
+    const tier = MASS.map(function () { return { n: 0, g: 0 }; });
+    const lim = MASS.map(function (k) { return ui._rarityOrder(k); });
+    for (let i = 0; i < list.length; i++) {
+      const it = list[i];
+      if (ui._wanted(it)) { wantedN++; continue; }
+      if (!sellable(it)) continue;
+      const o = ui._rarityOrder(it.rarity);
+      for (let t = 0; t < MASS.length; t++) if (o <= lim[t]) { tier[t].n++; tier[t].g += goldOf(it); }
+      if (ui._isJunk(it)) junkN++;
+    }
+    view.head.replaceChildren(h('span', { text: 'Surface crate' }), h('b', { class: list.length >= size ? 'ed-bad' : (list.length > size * 0.9 ? 'ed-gold' : null), text: list.length + ' / ' + size }));
+    view.note.textContent = list.length ? 'Tap an item to sell, salvage, hand in or stash it. Lock it in its tooltip to keep it safe.' : 'Nothing has come up yet. Items you send down a chute in the rift arrive here, instantly.';
+    // Sell all <= Common / Uncommon / Rare: one tap, one confirm that names the count and the gold
+    view.mass.replaceChildren.apply(view.mass, [h('span', { class: 'ed-note', text: 'Sell all' })].concat(MASS.map(function (k, t) {
+      const rar = C.RARITY[k];
+      const b = ui._btn([h('span', { text: '≤ ' + ((rar && rar.name) || k) }), h('small', { text: tier[t].n + ' · ' + fmt(tier[t].g) + 'g' })], function () {
+        ui._confirm('Sell ' + tier[t].n + ' item' + (tier[t].n === 1 ? '' : 's') + ' for about ' + fmt(tier[t].g) + ' gold?', 'Sell', function () {
+          let sold = 0, gold = 0;
+          for (let i = surface().length - 1; i >= 0; i--) {
+            const it = surface()[i];
+            if (sellable(it) && ui._rarityOrder(it.rarity) <= lim[t]) { const g = item('surfaceSell') ? G.items.surfaceSell(i) : 0; if (g > 0) { sold++; gold += g; } }
+          }
+          ui._sfx(sold ? 'sell' : 'error');
+          if (sold) ui.toast('Sold ' + sold + ' item' + (sold === 1 ? '' : 's') + ' for ' + fmt(gold) + ' gold.', '#dfc06a');
+        }, { note: 'Locked items, set pieces, Legendary items and Collection Book pieces are kept.' });
+      });
+      if (!tier[t].n || !item('surfaceSell')) b.disabled = true; else b.style.color = (rar && rar.color) || '';
+      return b;
+    })));
     const rule = junkRule();
-    body.appendChild(h('div', { class: 'ed-note', style: 'margin-bottom:6px', text: items.length + ' item' + (items.length === 1 ? '' : 's') + ' up here. Tap one to sell it, salvage it, hand it in or stash it.' }));
-    items.forEach(function (x) {
-      const it = x.it, v = ui._verdict(it), want = ui._wanted(it);
-      body.appendChild(h('button', { type: 'button', class: 'ed-row', 'aria-label': (it.name || 'item'), onclick: function () {
-        ui._sfx('click');
-        ui._showItem(it, actionsFor(x.i, it), { lock: false });
-      } }, ui._icon(it.icon, 32),
-        h('span', { class: 'n ' + ui._glowText(it.rarity), style: '--rc:' + ui._rarityColor(it.rarity) + ';color:' + ui._rarityColor(it.rarity) },
-          v === 'up' ? h('b', { class: 'ed-good', text: '▲ ' }) : v === 'down' ? h('b', { class: 'ed-bad', text: '▼ ' }) : null,
-          want ? h('i', { class: 'bk' }) : null, (it.qty > 1 ? it.qty + ' ' : '') + (it.name || '?'),
-          h('small', { text: (C.RARITY[it.rarity] ? C.RARITY[it.rarity].name : '') + (it.slot ? ' · ' + it.slot : '') + (it.value ? ' · ' + fmt(it.value * (it.qty || 1)) + 'g' : '') }))));
-    });
-    // bulk: one tap each; every one moves the items through the bag one by one, stopping if the bag fills
-    const each = function (filter, fn) {
+    const cur = ui._btn('Curator' + (wantedN ? ' (' + wantedN + ')' : ''), function () {
       let n = 0;
-      for (let k = surface().length - 1; k >= 0; k--) {
-        const it = surface()[k];
-        if (it && filter(it) && !viaBag(k, function (idx) { if (fn) fn(idx); n++; })) break;
+      for (let i = surface().length - 1; i >= 0; i--) {
+        const it = surface()[i];
+        if (it && !it.locked && ui._wanted(it) && item('surfaceRegister')) { const r = G.items.surfaceRegister(i); if (r && r.ok) n++; }
       }
-      ui._refreshNow();
-      return n;
-    };
-    const foot = [];
-    const curBtn = ui._btn('Curator' + (wantedN ? ' (' + wantedN + ')' : ''), function () {
-      const n = each(function (it) { return ui._wanted(it); }, function (idx) { ui._sendToCurator(idx); });
-      if (!n) ui._sfx('error');
+      ui._sfx(n ? 'quest' : 'error');
     }, wantedN ? 'gold' : '');
-    if (!wantedN) curBtn.disabled = true;
+    if (!wantedN || !item('surfaceRegister')) cur.disabled = true;
     const jb = ui._btn((rule === 'salvage' ? 'Salvage junk' : 'Sell junk') + (junkN ? ' (' + junkN + ')' : ''), function () {
-      const n = each(function (it) { return it.slot && !it.locked && !ui._wanted(it) && ui._isJunk(it); },
-        function (idx) { if (rule === 'salvage') ui._itemsCall('salvage', idx); else if (ui._itemsCall('sell', idx) > 0) ui._sfx('sell'); });
-      if (!n) ui._sfx('error');
+      let n = 0;
+      for (let i = surface().length - 1; i >= 0; i--) {
+        const it = surface()[i];
+        if (!sellable(it) || !ui._isJunk(it)) continue;
+        if (rule === 'salvage' ? (item('surfaceSalvage') && G.items.surfaceSalvage(i)) : (item('surfaceSell') && G.items.surfaceSell(i) > 0)) n++;
+      }
+      ui._sfx(n ? (rule === 'salvage' ? 'click' : 'sell') : 'error');
     }, junkN ? 'gold' : '');
     if (!junkN) jb.disabled = true;
-    foot.push(curBtn, jb, ui._btn('Take all', function () { each(function () { return true; }, null); }));
-    return { body: body, foot: foot };
+    return { body: view.body, foot: [cur, jb, ui._sortButton('surface')] };
   }
   ui._register('surface', {
     render: function (view) {
       if (!S.player) return ui._frame('Surface crate', null, h('div', { class: 'ed-body' }));
-      const c = surfaceBody(view);
+      const c = surfaceRender(view);
       return ui._frame('Surface crate', { foot: c.foot }, c.body);
     },
   });
+  // the arrows on cached cells depend on what is worn: start over when that changes
+  G.on('equipment:changed', function () { const c = ui._current && ui._current(); if (c && c.name === 'surface' && c.view.cache) c.view.cache.clear(); });
+  function junkRule() { return (S.settings.junk && S.settings.junk.action) === 'salvage' ? 'salvage' : 'sell'; }
 
   G.on('object:interact', function (e) {
     if (!e || !S.player || S.scene === 'menu') return;

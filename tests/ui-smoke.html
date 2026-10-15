@@ -175,12 +175,26 @@ async function run() {
     var stubbed = [];
     if (!I.surfaceTake) { stubbed.push('surfaceTake'); I.surfaceTake = function (i) { var it = S.surface[i]; if (!it || !I.addToInventory(it)) return false; S.surface.splice(i, 1); return true; }; }
     if (!I.chuteSend) { stubbed.push('chuteSend'); I.chuteSend = function (a) { var p = S.player; [].concat(a).forEach(function (i) { if (p.inventory[i]) { S.surface.push(p.inventory[i]); p.inventory[i] = null; } }); G.emit('inventory:changed', {}); return true; }; }
-    S.surface = [I.rollItem({ level: 10, rarity: 'common', slot: 'chest' }), I.rollItem({ level: 10, rarity: 'rare', slot: 'helm' })];
+    S.surface = [];
+    for (var si = 0; si < 214; si++) S.surface.push(I.rollItem({ level: 10 + (si % 20), rarity: ['common', 'common', 'uncommon', 'rare', 'magic'][si % 5], slot: ['chest', 'helm', 'boots', 'gloves', 'weapon'][si % 5] }));
+    var t0 = performance.now(); G.emit('object:interact', { type: 'surface_crate' }); await wait(120); var tOpen = performance.now() - t0;
+    ck('surface crate is a grid of 214 / 300', document.querySelectorAll('.ed-bigcrate .ed-cell').length === 214 && /214 \/ 300/.test((q('.ed-panel') || {}).textContent || ''));
+    ck('Sell all buttons + Sell junk + Sort in the crate', document.querySelectorAll('.ed-mass .ed-btn').length === 3 && [].some.call(document.querySelectorAll('.ed-foot .ed-btn'), function (b) { return /Sort/.test(b.textContent); }));
+    var keep = q('.ed-bigcrate .ed-cell:nth-child(100)'), keepItem = S.surface[99];
+    var gold0 = S.player.gold; I.surfaceSell(0); G.ui.update(0.2); await wait(60);
+    ck('selling one item does not rebuild the other cells', document.querySelectorAll('.ed-bigcrate .ed-cell').length === 213 && document.querySelectorAll('.ed-bigcrate .ed-cell')[98] === keep && S.surface[98] === keepItem);
+    var sellAll = document.querySelectorAll('.ed-mass .ed-btn')[0]; var before = S.surface.length; sellAll.click(); await wait(60);
+    var yes = [].filter.call(document.querySelectorAll('.ed-modal .ed-btn'), function (b) { return b.textContent === 'Sell'; })[0]; if (yes) yes.click(); await wait(100);
+    ck('Sell all <= Common sells commons from the crate', S.surface.length < before && S.player.gold > gold0 && S.surface.every(function (it) { return !it || it.rarity !== 'common' || it.locked; }));
+    var sb = [].filter.call(document.querySelectorAll('.ed-foot .ed-btn'), function (b) { return /Sort/.test(b.textContent); })[0]; sb.click(); await wait(60);
+    var ordr = S.surface.map(function (it) { return G.ui._rarityOrder(it.rarity); }); var sortedOk = true; for (var oi = 1; oi < ordr.length; oi++) if (ordr[oi] > ordr[oi - 1]) sortedOk = false;
+    ck('crate sort by rarity', sortedOk);
+    log('crate open ' + Math.round(tOpen) + ' ms with 214 items');
+    ui.close(); S.surface = [I.rollItem({ level: 10, rarity: 'common', slot: 'chest' }), I.rollItem({ level: 10, rarity: 'rare', slot: 'helm' })];
     G.emit('object:interact', { type: 'surface_crate' }); await wait(80);
-    ck('surface crate lists items', document.querySelectorAll('.ed-row').length >= 2);
-    var takeAll = [].filter.call(document.querySelectorAll('.ed-foot .ed-btn'), function (b) { return /Take all/.test(b.textContent); })[0];
-    ck('surface bulk buttons', !!takeAll); if (takeAll) takeAll.click(); await wait(80);
-    ck('take all moves them to the bag', S.surface.length === 0); ui.close();
+    document.querySelector('.ed-bigcrate .ed-cell').click(); await wait(50);
+    var takeB = [].filter.call(document.querySelectorAll('.ed-dialog .ed-btn'), function (b) { return b.textContent === 'Take'; })[0]; ck('crate item offers Take', !!takeB); if (takeB) takeB.click(); await wait(80);
+    ck('Take moves it to the bag', S.surface.length === 1); ui.close();
     // sort: single tap re-sorts, double tap opens the picker
     ui.open('inventory'); await wait(50);
     var sortB = [].filter.call(document.querySelectorAll('.ed-head .ed-btn'), function (b) { return /Sort/.test(b.textContent); })[0];
@@ -208,7 +222,7 @@ async function run() {
     // dungeon: chute, pile sheet, explored label, action mode, grade, auto skill, depth label
     G.scenes.enterDungeon(2); await wait(1500); tapTalk(6); S.paused = false;
     bagItem('common', 'gloves'); bagItem('rare', 'belt');
-    G.emit('object:interact', { type: 'chute' }); await wait(80); ck('chute panel opens', !!q('.ed-panel .ed-grid'));
+    G.emit('object:interact', { type: 'chute' }); await wait(80); ck('chute panel opens', !!q('.ed-panel .ed-grid')); ck('chute shows Crate n / size', /Crate up top\s*\d+ \/ \d+/.test((q('.ed-panel') || {}).textContent || ''));
     var cells = document.querySelectorAll('.ed-panel .ed-grid .ed-cell:not([disabled])'); cells[0].click(); await wait(50);
     ck('tap marks an item', !!q('.ed-cell.mk'));
     var sendBtn = [].filter.call(document.querySelectorAll('.ed-foot .ed-btn'), function (b) { return /^Send \(/.test(b.textContent); })[0]; ck('Send button counts marks', !!sendBtn);
@@ -221,6 +235,16 @@ async function run() {
     ck('pile sheet is compact and the game keeps running', !!sh && sh.getBoundingClientRect().height <= Math.max(short * 0.35, 152) + 2 && !S.paused);
     var fold = q('.ps-fold'); if (fold) fold.click(); await wait(30); ck('pile sheet collapses', !!q('.ed-pilesheet.collapsed') && !q('.ps-list .ed-row'));
     ui._closePile(); S.groundItems.length = 0;
+    var mkPile = function () { var id = G.newId(); for (var k = 0; k < 3; k++) S.groundItems.push({ id: G.newId(), x: pl.x + 1, y: pl.y, pileId: id, item: I.rollItem({ level: 10, rarity: 'rare' }) }); return id; };
+    var pid2 = mkPile(); G.emit('pile:open', { pileId: pid2 }); await wait(60);
+    var tk = q('.ps-take'), lst = q('.ps-list'); ck('Take all is large, at the bottom, on the right', !!tk && tk.getBoundingClientRect().top >= lst.getBoundingClientRect().bottom - 1 && tk.getBoundingClientRect().height >= 48 && tk.getBoundingClientRect().right > q('.ed-pilesheet').getBoundingClientRect().right - 12);
+    ui._closePile();
+    var realAm = G.game.getActionMode; G.game.getActionMode = function () { return 'loot'; };
+    var ptr = function (t) { q('.ed-atk').dispatchEvent(new PointerEvent(t, { bubbles: true, pointerId: 7 })); };
+    var bagBefore = S.player.inventory.filter(Boolean).length; ptr('pointerdown'); ptr('pointerup'); await wait(60);
+    ck('Loot tap takes the whole pile with no popup', !q('.ed-pilesheet') && S.groundItems.filter(function (g) { return g.pileId === pid2; }).length === 0 && S.player.inventory.filter(Boolean).length === bagBefore + 3);
+    var pid3 = mkPile(); ptr('pointerdown'); await wait(520); ck('Loot long-press opens the popup', !!q('.ed-pilesheet')); ptr('pointerup'); await wait(40);
+    ck('the pile is untouched after a long-press', S.groundItems.filter(function (g) { return g.pileId === pid3; }).length === 3); ui._closePile(); S.groundItems.length = 0; G.game.getActionMode = realAm;
     var oldEx = G.game.getExplored; G.game.getExplored = function () { return { value: 55, low: 40, high: 70, label: '40–70%' }; };
     for (var z = 0; z < 8; z++) G.ui.update(0.25); await wait(50); ck('explored label shown', /40–70%/.test((q('.ed-expl') || {}).textContent || '')); G.game.getExplored = oldEx;
     var oldAm = G.game.getActionMode; G.game.getActionMode = function () { return 'loot'; }; for (var z2 = 0; z2 < 8; z2++) G.ui.update(0.25);

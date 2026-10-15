@@ -1906,21 +1906,21 @@ function harness() {
   section('R8.13 crate capacity', function () {
     const p = mkPlayer('warrior', 30);
     S.scene = 'dungeon'; S.settings = { junk: { maxRarity: 'common', action: 'sell', auto: false, keepUpgrades: false, keepSocketed: false } };
-    eq(I.SURFACE_SIZE, 20, 'SURFACE_SIZE is 20');
-    S.surface = []; for (let i = 0; i < 18; i++) S.surface.push(I.rollItem({ level: 5, rarity: 'common', slot: 'helm' }));
+    eq(I.SURFACE_SIZE, 300, 'SURFACE_SIZE is 300');
+    S.surface = []; for (let i = 0; i < I.SURFACE_SIZE - 2; i++) S.surface.push(I.rollItem({ level: 5, rarity: 'common', slot: 'helm' }));
     eq(I.surfaceSpace(), 2, 'surfaceSpace');
     const cheap = give({ level: 2, rarity: 'common', slot: 'belt' }), dear = give({ level: 40, rarity: 'common', slot: 'chest' }), mid = give({ level: 20, rarity: 'common', slot: 'boots' });
     clearEvents();
     const r = I.sendJunk();
     ok(r.count === 2 && r.left === 1 && idx(cheap) >= 0 && idx(dear) < 0 && idx(mid) < 0, 'sendJunk sends only what fits, best value first', JSON.stringify(r));
-    eq(S.surface.length, 20, 'crate is now full');
+    eq(S.surface.length, I.SURFACE_SIZE, 'crate is now full');
     clearEvents();
     ok(I.chuteSend(idx(cheap)) === 0 && idx(cheap) >= 0 && T.events['ui:toast'].length === 1, 'chuteSend refuses with a toast once full');
     eq(I.surfaceSpace(), 0, 'no space left');
     S.surface.push(I.rollItem({ level: 5, rarity: 'common', slot: 'helm' }));
-    ok(S.surface.length === 21 && I.surfaceSpace() === 0 && I.chuteSend(idx(cheap)) === 0, 'an over-full save keeps its items but accepts no more');
+    ok(S.surface.length === I.SURFACE_SIZE + 1 && I.surfaceSpace() === 0 && I.chuteSend(idx(cheap)) === 0, 'an over-full save keeps its items but accepts no more');
     I.surfaceTake(0); I.surfaceTake(0);
-    ok(I.surfaceSpace() === 0 && S.surface.length === 19 + 0 || I.surfaceSpace() === 1, 'space returns once under the cap');
+    ok(I.surfaceSpace() === 1, 'space returns once under the cap');
     S.surface = []; S.settings = {};
   });
 

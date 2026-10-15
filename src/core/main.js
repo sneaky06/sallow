@@ -17,7 +17,9 @@
   let last = performance.now();
 
   function frame(now) {
-    const dt = Math.min(MAX_DT, (now - last) / 1000);
+    // timeScale (R9.1): set by gameplay for brief slow-motion moments; 1 = normal speed.
+    const ts = S.timeScale > 0 && S.timeScale <= 1 ? S.timeScale : 1;
+    const dt = Math.min(MAX_DT, (now - last) / 1000) * ts;
     last = now;
     if (S.scene !== 'menu' && !S.paused) {
       S.time += dt;

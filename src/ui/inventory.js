@@ -722,6 +722,7 @@
     ['slot', 'Slot', 'Weapons, armour, jewellery'], ['level', 'Level', 'Highest item level first'], ['value', 'Value', 'Most gold first']];
   function sortMode() { const m = S.settings.sort; return SORTS.some(function (s) { return s[0] === m; }) ? m : 'rarity'; }
   function doSort(which, mode) {
+    if (which === 'surface') { if (ui._sortSurface) ui._sortSurface(mode); return; }
     if (which !== 'stash') call('sortInventory', mode);
     if (which !== 'inv' && G.items && G.items.sortStash) call('sortStash', mode);
   }
@@ -738,7 +739,7 @@
         ui._refreshNow();
       } }, h('span', { class: 'n' }, s[1], h('small', { text: s[2] })), s[0] === cur ? h('b', { class: 'ed-gold', text: '✓' }) : null);
     });
-    close = ui._modal(ui._dialog([h('div', { class: 'ed-h', text: which === 'stash' ? 'Sort stash by' : which === 'both' ? 'Sort stash and pack by' : 'Sort pack by' }), rows],
+    close = ui._modal(ui._dialog([h('div', { class: 'ed-h', text: which === 'surface' ? 'Sort the crate by' : which === 'stash' ? 'Sort stash by' : which === 'both' ? 'Sort stash and pack by' : 'Sort pack by' }), rows],
       [ui._btn('Cancel', function () { close(); })]));
   }
   // R8.5: one tap re-sorts by the chosen mode; double-tap or press-and-hold opens the picker.

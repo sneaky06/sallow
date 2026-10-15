@@ -846,3 +846,27 @@ The chute panel shows "Crate 214 / 300". Players must decide what is worth sendi
 The pile popup's "Take all" must sit at the bottom of the sheet, inside the thumb zone (same side as the action button), and be large.
 Also: pressing the action button while in LOOT mode next to a pile takes everything that fits (best first) without opening the popup;
 a long-press on the pile or on the LOOT button opens the popup to pick items individually.
+
+---
+
+# Revision 9 — design pillars and approved team pitches (lead dev, 2026-10-15)
+
+## R9.0 The pillars (decide every ambiguity in their favour)
+1. **Push your luck:** constant, readable gambles — go deeper, carry more, wait longer, take the bargain — where greed pays and
+   misjudgement costs.
+2. **Speed and precision:** well-timed movement, dashes and precise taps decide outcomes; fast, accurate play clears more and earns more.
+3. **High skill ceiling, high reward:** an average player progresses; a great player is visibly and materially rewarded.
+4. **Unlike anything else:** keep being creative and push boundaries; prefer the strange, original idea over the familiar one. Every
+   team keeps pitching, and builds small bold ideas without asking.
+
+## R9.1 Approved pitches
+- **Flow chain** (combat): chaining Close Calls (e.g. 3 within ~8 s) triggers a brief slow-motion moment and a guaranteed crit on the
+  next hit; longer chains escalate. Needs a time-scale hook: combat may add `G.state.timeScale` (core main loop multiplies dt by it —
+  the lead adds that line).
+- **Floors shape their monsters** (world → combat): `map.variant` carries a monster bias (e.g. drowned dead on flooded floors, fire
+  creatures on forge floors); combat honours it in spawnMapEntities.
+- **Shrine bargains** (combat + UI; world places): some shrines offer a deal instead of a buff — a clear cost for a clear reward on
+  this floor (e.g. −25% max life → double loot; no potions → +2 rarity steps; hunted by a legendary → guaranteed Elite chance).
+  UI shows a two-button prompt with the exact terms.
+- **The Scavenger** (combat + items): a rival looter who appears on some floors and races the player to the best drop on the ground;
+  if he reaches it he takes it and flees (kill him to get it back, plus his own stash). Readable, fair, beatable by fast players.

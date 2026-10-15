@@ -7,6 +7,7 @@
   G.state = {
     scene: 'menu',        // 'menu' | 'town' | 'dungeon'
     paused: false,        // true freezes G.game.update (UI sets this while a full-screen panel is open)
+    timeScale: 1,         // R9.1 slow motion: gameplay may set 0.2..1 briefly; the main loop scales dt by it
     time: 0,              // seconds of unpaused play
     seed: 1,
     depth: 0,             // 0 = town
