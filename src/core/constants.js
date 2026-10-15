@@ -55,7 +55,7 @@
     ICON_SHAPES: ['sword', 'axe', 'mace', 'dagger', 'bow', 'staff', 'wand', 'shield', 'helm', 'armor', 'gloves', 'boots',
       'belt', 'ring', 'amulet', 'potion', 'scroll', 'gem', 'gold', 'key', 'rune', 'orb', 'tome',
       // skill / UI icons
-      'slash', 'whirl', 'fire', 'ice', 'bolt', 'poison', 'heal', 'buff', 'arrow', 'multishot', 'trap', 'skull', 'summon', 'leap', 'aura', 'star'],
+      'slash', 'whirl', 'fire', 'ice', 'bolt', 'poison', 'heal', 'buff', 'arrow', 'multishot', 'trap', 'skull', 'summon', 'leap', 'aura', 'star', 'bloodstone'],
     PROP_TYPES: ['chest', 'chest_open', 'barrel', 'crate', 'torch', 'shrine', 'pillar', 'bones', 'stash', 'portal',
       'dungeon_entrance', 'waypoint', 'tree', 'bush', 'fountain', 'sign', 'stall', 'well', 'tombstone', 'crystal', 'campfire', 'gate', 'corpse', 'chute', 'surface_crate'],
     NPC_ROLES: ['merchant', 'blacksmith', 'mystic', 'healer', 'elder', 'stashkeeper', 'curator', 'refugee', 'camp_merchant'],

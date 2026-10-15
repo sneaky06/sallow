@@ -324,3 +324,28 @@ Contradictions or gaps found while folding the revisions. Nothing below was gues
 15. **R10 items partly in code (at time of writing).** Heat pips on the HUD (`hud.js`) and the rift-core finale screen (`story.js`) exist; `settings.lowFx` and `settings.showFps` had no references in `src/` yet (other sessions were still editing). Re-check §11/§12 once R10 lands.
 16. **Fallen placement vs. R7.10.** "Roughly three per act plus one endgame" — actual depths 3/6/9, 13/16/19, 21/24/28, 35. Act II has no fallen between 10 and 12, and fallen_10 waits at depth 36 (35 is a boss floor). Fine as built; flagging because the rule says "never two close together" and depths 19–21 are close.
 17. **Spec gaps.** Armour-weight penalty for off-class armour ("if the combat team agrees", R8.7) was never decided; R11 perks are expected to replace this whole system.
+
+### R12 — lead dev feedback (2026-10-15)
+Core (done by the lead): climbing stairs up arrives beside the previous floor's STAIRS_DOWN (town: beside the dungeon entrance) —
+`G.scenes.enterDungeon(depth, arrive)` / `enterTown(arrive)` with `arrive === 'below'`; `'bloodstone'` added to `C.ICON_SHAPES`.
+1. **Quest markers over NPCs.** `G.meta.npcQuestState(roleOrNpcId) → null | 'available' | 'active' | 'ready'`. Engine draws a marker
+   above the NPC: `!` (gold) when a quest is available, a dim `?` while active, a bright pulsing `?` (green) when ready to turn in.
+2. **Quests from every vendor.** Each townsperson (merchant, blacksmith, mystic, healer, stashkeeper, Curator, camp NPCs) gives 1–3
+   quests that fit their trade and personality (story writes them as data; UI wires `giver` per NPC; the vendor panel gets a Quests tab
+   when that NPC has any).
+3. **Surface crate bulk actions.** Sell or salvage straight from the crate at a bulk rate (lead default: 60% of the trader's price; salvage
+   yields 60% materials); full price only by carrying items to a trader. A first-time tip explains this. Plus "Take all" (fills the bag
+   in sort order, leaves the rest).
+4. **Custom sell filter.** Replace the fixed "≤ White/Blue/Yellow" buttons with a filter the player builds and the game remembers:
+   rarity at or below, item level / Power below, slot types, include/exclude upgrades (▲), locked, socketed, sets, Curator-wanted,
+   corrupted. Preview count and gold before confirming. `G.items.matchFilter(item, filter)`, `previewSellFilter(filter, { bulk })`,
+   `sellFilter(filter, { bulk })`, same for salvage. Saved in `state.settings.sellFilter` (a few named presets).
+5. **Piles.** Tapping a pile (or the LOOT button) always takes everything that fits, best first; the pile list opens only on long-press.
+6. **Bloodstones look different.** Icon shape `bloodstone` (jagged, dark-veined, with a red outline) for every bloodstone; cut gems keep `gem`.
+7. **Your gear inside shop screens.** Every vendor panel has a quick toggle between the vendor's stock and the player's bag + equipped
+   gear (paper doll), with equip/compare available without leaving the shop.
+8. **Milestones.** Lifetime counters (`state.flags.stats`: kills, elites, bosses, gold earned/spent, items sold/salvaged/sent up the
+   chute, chests opened, floors cleared, S grades, Close Calls, Flow chains, deaths…) with tiers (e.g. 10/50/100/500/1000…). Each tier
+   gives a reward: gold, materials, a Mark at big tiers, and small permanent bonuses (e.g. kills → +1% damage per tier, chests →
+   +2% magic find). `G.meta.getMilestones()`, `milestone:reached { id, tier, reward }`, permanent bonuses via
+   `G.meta.getMilestoneMods() → { [stat]: value }`, which combat adds in recomputeStats. A Milestones page in the Journal.

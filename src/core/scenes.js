@@ -4,7 +4,33 @@
   const G = window.G;
   const S = G.state;
 
-  function loadMap(map, scene, depth) {
+  // Put the player on a free tile beside the way down (dungeon: STAIRS_DOWN tile; town: the dungeon entrance prop).
+  // Never on the stairs tile itself, so arriving doesn't immediately trigger a descent.
+  function placeBelow(map) {
+    let tx = -1, ty = -1;
+    if (map.kind === 'town') {
+      const ent = (map.props || []).find(function (p) { return p.type === 'dungeon_entrance'; });
+      if (ent) { tx = ent.x; ty = ent.y; }
+    } else {
+      const T = G.C.TILE.STAIRS_DOWN;
+      for (let i = 0; i < map.tiles.length; i++) if (map.tiles[i] === T) { tx = i % map.w; ty = (i / map.w) | 0; break; }
+    }
+    if (tx < 0) return;
+    let best = null, bd = 1e9;
+    for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
+      const x = tx + dx, y = ty + dy;
+      if ((dx || dy) && map.tiles[y * map.w + x] !== G.C.TILE.STAIRS_DOWN && G.world.isWalkable(map, x, y)) {
+        const d = dx * dx + dy * dy;
+        if (d < bd) { bd = d; best = { x: x, y: y }; }
+      }
+    }
+    if (!best && G.world.findFreeTileNear) best = G.world.findFreeTileNear(map, tx, ty, 6);
+    if (best) { S.player.x = best.x + 0.5; S.player.y = best.y + 0.5; }
+  }
+
+  // arrive: where the player appears — default map.spawn (top of the stairs down from above);
+  // 'below' = next to the stairs down (climbing up from the floor below), or the dungeon entrance in town.
+  function loadMap(map, scene, depth, arrive) {
     S.map = map;
     S.scene = scene;
     S.depth = depth;
@@ -14,6 +40,7 @@
     if (S.player && map) {
       S.player.x = map.spawn.x + 0.5;
       S.player.y = map.spawn.y + 0.5;
+      if (arrive === 'below') placeBelow(map);
     }
     if (map && G.game && G.game.spawnMapEntities) G.game.spawnMapEntities(map);
     S.paused = false;
@@ -45,16 +72,16 @@
       return true;
     },
 
-    enterTown() {
+    enterTown(arrive) {
       const map = G.world.generateTown(S.seed);
       if (S.flags.portalDepth > 0) {
         map.props.push({ type: 'portal', x: map.spawn.x + 1, y: map.spawn.y - 1, solid: false, interact: 'portal' });
       }
       if (G.items && G.items.refreshVendors) G.items.refreshVendors(S.player ? S.player.level : 1);
-      loadMap(map, 'town', 0);
+      loadMap(map, 'town', 0, arrive);
     },
 
-    enterDungeon(depth) {
+    enterDungeon(depth, arrive) {
       depth = Math.max(1, depth | 0);
       S.flags.visits++;
       if (depth > S.flags.maxDepth) S.flags.maxDepth = depth;
@@ -67,7 +94,7 @@
         map.props.push({ type: 'corpse', x: Math.floor(corpse.x), y: Math.floor(corpse.y), solid: false, interact: 'corpse', light: 2 });
         if (G.world.invalidate) G.world.invalidate(map);
       }
-      loadMap(map, 'dungeon', depth);
+      loadMap(map, 'dungeon', depth, arrive);
     },
 
     // Take back everything left on the corpse. Items that don't fit are dropped at the player's feet.
@@ -94,8 +121,8 @@
     descend() { scenes.enterDungeon(S.depth + 1); },
 
     ascend() {
-      if (S.depth <= 1) scenes.enterTown();
-      else scenes.enterDungeon(S.depth - 1);
+      if (S.depth <= 1) scenes.enterTown('below');
+      else scenes.enterDungeon(S.depth - 1, 'below');
     },
 
     // Town Portal: leave the dungeon, remember the depth; a portal prop in town leads back once.
