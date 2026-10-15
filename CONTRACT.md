@@ -870,3 +870,23 @@ a long-press on the pile or on the LOOT button opens the popup to pick items ind
   UI shows a two-button prompt with the exact terms.
 - **The Scavenger** (combat + items): a rival looter who appears on some floors and races the player to the best drop on the ground;
   if he reaches it he takes it and flees (kill him to get it back, plus his own stash). Readable, fair, beatable by fast players.
+
+---
+
+# Revision 10 — polish and verify (lead dev, 2026-10-15)
+The story (docs/STORY.md), the Hearthking and the man-in-grey twist are approved by the lead dev as they stand.
+This round adds no new features: make everything clean and functional.
+- **Combat:** the Leap — a dash must cross the 2-tile CHASM gap (dash may pass over CHASM/DEEP tiles but never end on one or pass
+  walls); handle `interact:'rift_core'` after the Hearthking (story beat + finale, emit `object:interact` for UI); a full depths 1–30
+  bot run with every system on (events, bargains, Scavenger, Heat, Flow, Echo, Fallen, cleansed acts) reporting deaths, potions per
+  boss, level by depth, and clear-time difference between a fast/precise bot and a slow one; fix every bug found.
+- **Engine:** draw embers (Heat) and the Leap's gap readably; a `state.settings.lowFx` mode (fewer particles, no screen-wide
+  overlays, cheaper lighting) and an optional FPS counter (`state.settings.showFps`); measure frame cost per act.
+- **UI:** Heat stacks on the HUD; settings toggles for low effects and FPS; the rift-core finale screen; a sweep of every panel at
+  both orientations for overflow, overlap with the stick, and stale text (old area names, "Emberfall" where the town is now Emberdeep).
+- **Docs:** fold CONTRACT.md Revisions 1–10 into one current `docs/DESIGN.md` (what the game is now, every system, every API, every
+  event), move CONTRACT.md to `docs/history/CONTRACT-r1-r10.md`, and leave a short CONTRACT.md that points to DESIGN.md.
+
+# Revision 11 — queued next: perk trees for the existing classes (lead dev's choice)
+Build out per-class perk trees, starting with cross-class perks that let a class use off-class gear without the R8.7 penalty. Design
+round first (combat + story), then build. Not started yet.
