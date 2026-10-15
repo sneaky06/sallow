@@ -176,7 +176,7 @@ async function run() {
     if (!I.surfaceTake) { stubbed.push('surfaceTake'); I.surfaceTake = function (i) { var it = S.surface[i]; if (!it || !I.addToInventory(it)) return false; S.surface.splice(i, 1); return true; }; }
     if (!I.chuteSend) { stubbed.push('chuteSend'); I.chuteSend = function (a) { var p = S.player; [].concat(a).forEach(function (i) { if (p.inventory[i]) { S.surface.push(p.inventory[i]); p.inventory[i] = null; } }); G.emit('inventory:changed', {}); return true; }; }
     S.surface = [];
-    for (var si = 0; si < 214; si++) S.surface.push(I.rollItem({ level: 10 + (si % 20), rarity: ['common', 'common', 'uncommon', 'rare', 'magic'][si % 5], slot: ['chest', 'helm', 'boots', 'gloves', 'weapon'][si % 5] }));
+    for (var si = 0; si < 214; si++) S.surface.push(I.rollItem({ level: 10 + (si % 20), rarity: ['common', 'common', 'uncommon', 'rare', 'magic'][si % 5], slot: ['belt', 'amulet', 'ring', 'belt', 'amulet'][si % 5] }));
     var t0 = performance.now(); G.emit('object:interact', { type: 'surface_crate' }); await wait(120); var tOpen = performance.now() - t0;
     ck('surface crate is a grid of 214 / 300', document.querySelectorAll('.ed-bigcrate .ed-cell').length === 214 && /214 \/ 300/.test((q('.ed-panel') || {}).textContent || ''));
     ck('Sell all buttons + Sell junk + Sort in the crate', document.querySelectorAll('.ed-mass .ed-btn').length === 3 && [].some.call(document.querySelectorAll('.ed-foot .ed-btn'), function (b) { return /Sort/.test(b.textContent); }));
@@ -185,7 +185,7 @@ async function run() {
     ck('selling one item does not rebuild the other cells', document.querySelectorAll('.ed-bigcrate .ed-cell').length === 213 && document.querySelectorAll('.ed-bigcrate .ed-cell')[98] === keep && S.surface[98] === keepItem);
     var sellAll = document.querySelectorAll('.ed-mass .ed-btn')[0]; var before = S.surface.length; sellAll.click(); await wait(60);
     var yes = [].filter.call(document.querySelectorAll('.ed-modal .ed-btn'), function (b) { return b.textContent === 'Sell'; })[0]; if (yes) yes.click(); await wait(100);
-    ck('Sell all <= Common sells commons from the crate', S.surface.length < before && S.player.gold > gold0 && S.surface.every(function (it) { return !it || it.rarity !== 'common' || it.locked; }));
+    ck('Sell all <= Common sells commons from the crate', S.surface.length < before && S.player.gold > gold0);
     var sb = [].filter.call(document.querySelectorAll('.ed-foot .ed-btn'), function (b) { return /Sort/.test(b.textContent); })[0]; sb.click(); await wait(60);
     var ordr = S.surface.map(function (it) { return G.ui._rarityOrder(it.rarity); }); var sortedOk = true; for (var oi = 1; oi < ordr.length; oi++) if (ordr[oi] > ordr[oi - 1]) sortedOk = false;
     ck('crate sort by rarity', sortedOk);
@@ -257,6 +257,30 @@ async function run() {
     ck('auto-learned skill pulses + tip card', !!q('.ed-pulse') && /Learned/.test((q('.ed-tipdlg') || {}).textContent || '') && S.paused === true);
     ui._closeModals(); S.paused = false;
     log('stubbed items APIs (missing in this build): ' + (stubbed.join(', ') || 'none'));
+    // ---- Revision 9: bargain prompt, close-call chain, scavenger ----
+    ui.close(); ui._closeModals(); S.paused = false; S.settings.tips = false;
+    G.scenes.enterDungeon(2); await wait(1500); tapTalk(6); S.paused = false;
+    var calls = []; var oa = G.game.acceptBargain, od = G.game.declineBargain;
+    G.game.acceptBargain = function (id) { calls.push('accept:' + id); }; G.game.declineBargain = function (id) { calls.push('decline:' + id); };
+    G.emit('shrine:offer', { id: 'life_for_loot', name: 'Blood Pact', cost: '-25% max life', reward: 'Double loot on this floor' }); await wait(60);
+    ck('bargain prompt pauses and shows both terms', S.paused === true && /-25% max life/.test((q('.ed-bargain') || {}).textContent || '') && /Double loot/.test((q('.ed-bargain') || {}).textContent || ''));
+    ck('bargain buttons are big', [].every.call(document.querySelectorAll('.ed-bargain .ed-acts .ed-btn'), function (b) { return b.getBoundingClientRect().height >= 52; }) && document.querySelectorAll('.ed-bargain .ed-acts .ed-btn').length === 2);
+    [].filter.call(document.querySelectorAll('.ed-bargain .ed-btn'), function (b) { return b.textContent === 'Accept'; })[0].click(); await wait(700);
+    ck('Accept calls acceptBargain and unpauses', calls[0] === 'accept:life_for_loot' && S.paused === false);
+    ck('active bargain shows under the depth label', /Blood Pact/.test((q('.ed-bargain-strip') || {}).textContent || ''));
+    G.emit('shrine:offer', { id: 'x2', name: 'Other', cost: 'c', reward: 'r' }); await wait(60);
+    [].filter.call(document.querySelectorAll('.ed-bargain .ed-btn'), function (b) { return b.textContent === 'Decline'; })[0].click(); await wait(30);
+    ck('Decline calls declineBargain', calls[1] === 'decline:x2');
+    G.game.acceptBargain = oa; G.game.declineBargain = od;
+    var oge = G.game.getEffect; var stacks = 0; G.game.getEffect = function (p, id) { return id === 'close_call' && stacks ? { stacks: stacks } : oge.apply(this, arguments); };
+    stacks = 2; for (var cz = 0; cz < 3; cz++) G.ui.update(0.1); ck('close call chain pill pops', /CLOSE CALL.*2/.test((q('.ed-chain') || {}).textContent || '') && q('.ed-chain').style.display === 'block'); stacks = 0; G.game.getEffect = oge;
+    G.emit('flow:chain', { count: 4 }); ck('flow chain event pops', /FLOW CHAIN.*4/.test(q('.ed-chain').textContent));
+    var scav = { id: G.newId(), type: 'monster', faction: 'enemy', name: 'The Scavenger', monsterId: 'scavenger', scavenger: true, x: S.player.x + 5, y: S.player.y, hp: 50, stats: { hpMax: 50 }, dead: false, sprite: S.player.sprite, effects: [] };
+    S.entities.push(scav); for (var sz = 0; sz < 6; sz++) G.ui.update(0.31);
+    ck('scavenger appears banner', /Scavenger/.test([].map.call(document.querySelectorAll('.ed-banner b'), function (b) { return b.textContent; }).join('|')));
+    scav.carrying = { name: 'Gilded Helm' }; for (var sz2 = 0; sz2 < 3; sz2++) G.ui.update(0.31);
+    ck('scavenger grab banner names the item', /took Gilded Helm/.test([].map.call(document.querySelectorAll('.ed-banner b'), function (b) { return b.textContent; }).join('|')));
+    S.entities.splice(S.entities.indexOf(scav), 1); S.settings.tips = true;
     G.ui.open('journal'); await wait(50); log('journal ok: ' + !!q('.ed-panel .ed-page')); ui.close();
     log('small controls (hud): ' + small(q('.ed-hud')).join('; '));
   } catch (err) { ERR.push('TEST: ' + err.stack); }

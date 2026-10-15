@@ -194,7 +194,9 @@
     const shatter = type === 'fire' && b.shatterFire && game.getEffect(t, 'freeze');
     if (shatter) scale *= 1.5;
     if (myth.ramping_fire && (type === 'fire' || st.fireDmg) && game.fireRamp) scale *= 1 + game.fireRamp(p);      // relic: Varr's ramping fire
-    const crit = U.chance(st.critChance + (spec.crit || 0));
+    const flowCrit = pfx.length && game.getEffect(p, 'flow_crit');          // R9.1 Flow: the next hit is a guaranteed crit
+    const crit = !!flowCrit || U.chance(st.critChance + (spec.crit || 0));
+    if (flowCrit) game.removeEffect(p, 'flow_crit');
     if (crit) scale *= 1 + st.critDmg / 100;
     mult *= scale;
     const parts = {};
@@ -369,10 +371,16 @@
       game.gainXp(t.xp * (over > 0 ? Math.max(0.1, 1 - over * 0.15) : 1) * (1 + fr.xpGain / 100));
     }
     if (!t.noLoot && G.items && G.items.dropLoot) {
-      try {
-        G.items.dropLoot(t.x, t.y, { source: t.rarity === 'normal' ? 'monster' : t.rarity, level: t.level,
-          magicFind: (p.stats.magicFind || 0) + fr.magicFind, goldFind: (p.stats.goldFind || 0) + fr.goldFind, pallor: game.pallorValue ? game.pallorValue() : 0 });
-      } catch (err) { console.error('[game] dropLoot failed', err); }
+      const lb = game.lootBonus ? game.lootBonus(t) : null;          // R9: shrine bargains, Ember Heat
+      const rolls = lb && lb.rolls > 1 ? lb.rolls : 1;
+      for (let r = 0; r < rolls; r++) {
+        try {
+          const opts = { source: t.rarity === 'normal' ? 'monster' : t.rarity, level: t.level,
+            magicFind: (p.stats.magicFind || 0) + fr.magicFind + (lb ? lb.magicFind : 0), goldFind: (p.stats.goldFind || 0) + fr.goldFind, pallor: game.pallorValue ? game.pallorValue() : 0 };
+          if (lb && lb.floor) opts.floor = lb.floor;
+          G.items.dropLoot(t.x, t.y, opts);
+        } catch (err) { console.error('[game] dropLoot failed', err); }
+      }
     }
     G.emit('monster:killed', { monster: t, x: t.x, y: t.y });
   };

@@ -163,6 +163,34 @@
   ];
 
   W.VARIANTS = V;
+
+  // R9: floors shape their monsters. monsterBias = { tags: [descriptive words], monsterIds: [ids from the bestiary], weight: 0..1 }
+  // weight = share of the floor's spawn slots that should be drawn from monsterIds (the rest follows the theme as usual).
+  const BIAS = {
+    restless_graves: [['undead', 'graveyard'], ['skeleton', 'skeleton_archer', 'ghoul'], 0.5],
+    forgotten_cellars: [['vermin', 'rot'], ['grave_rat', 'ghoul', 'skeleton'], 0.5],
+    ossuary: [['undead', 'bones'], ['skeleton', 'skeleton_archer', 'bone_mage'], 0.6],
+    drowned_vaults: [['drowned', 'undead', 'cold'], ['wraith', 'ghoul', 'bone_mage'], 0.6],
+    gravelord_approach: [['undead', 'court'], ['skeleton', 'bone_mage', 'wraith'], 0.6],
+    mossy_caverns: [['beast', 'green'], ['slime', 'goblin', 'troll'], 0.5],
+    fungal_warrens: [['spore', 'spider'], ['cave_spider', 'slime', 'shaman'], 0.6],
+    crystal_lake: [['aquatic', 'flyer'], ['cave_bat', 'shaman', 'slime'], 0.5],
+    amber_hollows: [['hive', 'spider'], ['cave_spider', 'cave_bat', 'goblin_slinger'], 0.6],
+    smouldering_halls: [['fire', 'imp'], ['imp', 'fire_imp', 'pyromancer'], 0.5],
+    magma_flows: [['fire', 'molten'], ['magma_brute', 'fire_imp', 'hellhound'], 0.6],
+    ash_wastes: [['ash', 'hound'], ['hellhound', 'demon_warrior', 'imp'], 0.5],
+    forgeworks: [['fire', 'forge', 'demon'], ['magma_brute', 'demon_warrior', 'pyromancer'], 0.6],
+    starless_isles: [['void', 'flyer'], ['void_wraith', 'gazer', 'shadowling'], 0.5],
+    shattered_spire: [['void', 'knight'], ['dread_knight', 'void_caller', 'gazer'], 0.5],
+    glasswork_drift: [['void', 'glass'], ['gazer', 'void_caller', 'abyss_stalker'], 0.5],
+    fallen_cathedral: [['undead', 'void'], ['skeleton', 'wraith', 'dread_knight', 'bone_mage'], 0.6],
+    cinder_drift: [['fire', 'void'], ['fire_imp', 'magma_brute', 'void_wraith'], 0.6],
+    overgrown_dark: [['spider', 'flesh'], ['cave_spider', 'abyss_stalker', 'slime'], 0.6],
+    unmaking: [['void', 'shade'], ['shadowling', 'void_wraith', 'abyss_stalker', 'gazer'], 0.7],
+    pale_end: [['pale', 'wraith'], ['void_wraith', 'wraith', 'shadowling'], 0.6],
+    the_wound: [['rift', 'demon'], ['shadowling', 'void_caller', 'dread_knight', 'demon_warrior'], 0.7],
+    rift_core: [['rift', 'void'], ['void_caller', 'dread_knight', 'shadowling'], 0.75],
+  };
   // Layout each theme falls back to if its variant layout keeps failing validation.
   W.DEFAULT_LAYOUT = { crypt: 'ossuary_halls', caves: 'caverns', inferno: 'broken_halls', abyss: 'floating_chambers' };
 
@@ -190,6 +218,7 @@
       light: { color: li.color, radius: Math.round(7 * li.radius * 10) / 10, ambient: am.fogColor, torch: li.torch, torchRadius: li.torchRadius, flicker: li.flicker },
       ambient: { particles: PART[am.particles.kind], density: Math.round(am.particles.density * 4) / 2, color: am.particles.color, fog: am.fog, darkness: am.darkness, sound: SOUND[am.sound] },
       blend: def.blend ? clone(def.blend) : null,
+      monsterBias: { tags: BIAS[def.id][0].slice(), monsterIds: BIAS[def.id][1].slice(), weight: BIAS[def.id][2] },
     };
     return { variant, floorName, def };
   };

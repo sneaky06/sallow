@@ -2152,7 +2152,7 @@ ok(back.hp < 1e6 && front[0].hp < 1e6 && front[1].hp < 1e6, 'Whirlwind hits all 
     oFc();
     ok(hk.ai.phase === 2 && hk.sprite.body === 'demon' && hk.ai.lastInward !== undefined && cnt.length >= 3 && /Three/.test(cnt[2]), 'phase III: the body changes, the floor pulses INWARD/OUTWARD, the Factor counts your dashes', cnt.join(' '));
     let tomes = 0; const tWas = G.items.grantTome; G.items.grantTome = function () { tomes++; return true; };
-    hk.hp = 1; game.playerHit(hk, { pct: 100, type: 'phys', skill: false }); G.items.grantTome = tWas;
+    hk.hp = 1; hk.effects = []; game.playerHit(hk, { pct: 100, type: 'phys', skill: false }); G.items.grantTome = tWas;
     ok(hk.dead && tomes === 1 && S.flags.worldBossKilled, 'the Hearthking drops a Tome of Insight');
     p = fresh('sorcerer', true, 25); tank(p); const chB = game.createBoss(25, p.x + 3, p.y); S.entities.push(chB); chB.ai.st = 'chase';
     let sung = false; step(6, function () { if (chB.ai.note > 2) sung = true; });
@@ -2321,8 +2321,9 @@ ok(back.hp < 1e6 && front[0].hp < 1e6 && front[1].hp < 1e6, 'Whirlwind hits all 
     // the −35% (bow is ranged: compare one basic hit's damage via a spec without weapon ranged effects)
     ok(offHit > 0 && inClass > 0 && offPct === -35, 'R8.7: out-of-class weapon: bonus.offClass −35% (unless G.items.classPenalty says otherwise)');
     // R8.11 cleave + pierce
-    p = fresh('warrior', true); const main8 = dummy(p.x + 1, p.y, 1e6), side8 = dummy(p.x + 0.9, p.y + 0.7, 1e6), back8 = dummy(p.x - 1.2, p.y, 1e6); step(0.05);
+    p = fresh('warrior', true); const main8 = dummy(p.x + 1, p.y, 1e6), side8 = dummy(p.x + 0.9, p.y + 0.7, 1e6), back8 = dummy(p.x - 1.2, p.y, 1e6); step(0.05); const ccW = game.U.chance; game.U.chance = function () { return false; };
     game.ctl.targetId = main8.id; G.emit('input:attack', {}); step(0.6);
+    game.U.chance = ccW;
     ok(main8.hp < 1e6 && side8.hp < 1e6 && back8.hp === 1e6 && (1e6 - side8.hp) < (1e6 - main8.hp), 'R8.11: basic melee cleaves a short arc (side target hit for less, the one behind untouched)');
     p = fresh('ranger', true); p.skills = { eagle_eye: 3 }; game.recomputeStats(p);
     const rr1 = dummy(p.x + 3, p.y, 1e6), rr2 = dummy(p.x + 4.5, p.y, 1e6); step(0.05); game.ctl.targetId = rr1.id; G.emit('input:attack', {}); step(1);
@@ -2337,6 +2338,71 @@ ok(back.hp < 1e6 && front[0].hp < 1e6 && front[1].hp < 1e6, 'Whirlwind hits all 
     ok(m4 === 'attack' && m5 === 'loot', 'moving toward a pile 3.5 tiles away switches the button to loot');
     const onIt = dummy(far8.x, far8.y, 1e6); step(0.05); G.emit('input:tap', { x: far8.x, y: far8.y });
     ok(game.ctl.intent && game.ctl.intent.type === 'item', 'a tap on a pile loots even with a monster standing on it');
+
+    section('Revision 9');
+    // Flow chain
+    p = fresh('warrior', true); toLevel(p, 5); const fstart = [], fts = []; const oFl = G.on('flow:start', function (e) { fstart.push(e.chain); fts.push(S.timeScale); });
+    const ccall = function () { game.addZone({ x: p.x + 0.3, y: p.y, r: 1.6, delay: 0.5, faction: 'enemy', dmg: 1, dtype: 'phys', lvl: 1 }); step(0.2); p.x += 3; game.onPlayerMoved(true); step(0.45); p.x -= 3; game.onPlayerMoved(true); step(0.8); };
+    ccall(); ccall(); const ts2 = S.timeScale; ccall(); const ts3 = S.timeScale;
+    const flowEff = !!game.getEffect(p, 'flow_crit'); const fo = dummy(p.x + 1, p.y, 1e6); const fh = game.playerHit(fo, { pct: 100, type: 'phys', skill: false }); const usedFc = !game.getEffect(p, 'flow_crit');
+    step(1); const tsAfter = S.timeScale;
+    ccall(); ccall();
+    oFl();
+    ok(ts2 === 1 && fts[0] < 1 && flowEff && fh > 0 && usedFc && tsAfter === 1 && fstart[0] === 3 && fstart.indexOf(5) >= 0, 'R9.1 Flow: 3 Close Calls → slow motion that ends by itself, a guaranteed crit; chains escalate (' + fstart.join(',') + ')');
+    S.timeScale = 0.35; G.scenes.enterDungeon(1); const tsScene = S.timeScale;
+    ok(tsScene === 1, 'time scale is restored on scene change (and death)');
+    // variant monster bias
+    p = fresh('warrior', true, 3);
+    const countIds = function (bias) { const m = Object.assign({}, S.map, { seed: 4242, mods: [], variant: bias ? { monsterBias: bias } : undefined, spawns: [] });
+      for (let i = 0; i < 12; i++) m.spawns.push({ x: 4 + (i % 4) * 3, y: 4 + Math.floor(i / 4) * 3, kind: 'pack', count: 4 }); S.entities = []; game.spawnMapEntities(m);
+      const c = {}; S.entities.forEach(function (e) { if (e.type === 'monster') c[e.monsterId] = (c[e.monsterId] || 0) + 1; }); return c; };
+    const plainB = countIds(null), wraithy = countIds({ ids: { wraith: 8 } }), fiery = countIds(['imp']);
+    ok((wraithy.wraith || 0) > (plainB.wraith || 0) * 2 && (fiery.imp || 0) > 0 && !plainB.imp, 'R9.1 map.variant.monsterBias tilts the picks (wraith ' + (plainB.wraith || 0) + ' → ' + (wraithy.wraith || 0) + '; imp joins the pool: ' + (fiery.imp || 0) + ')');
+    // shrine bargains
+    p = fresh('warrior', true, 3); const uiW = G.ui; G.ui = G.ui || {};
+    const offers = []; const oOf = G.on('shrine:offer', function (e) { offers.push(e); });
+    const shr = { type: 'shrine', x: Math.floor(p.x) + 1, y: Math.floor(p.y), solid: true, interact: 'shrine', bargain: 'blood_tithe' }; S.map.props.push(shr);
+    const hp9 = p.stats.hpMax; game.ctl.intent = { type: 'prop', x: shr.x, y: shr.y }; step(0.5);
+    ok(offers.length === 1 && offers[0].id === 'blood_tithe' && offers[0].cost && offers[0].reward && !game.bargain, 'a bargain shrine emits shrine:offer { id, name, cost, reward } and waits');
+    ok(game.acceptBargain('blood_tithe') && game.bargain && p.stats.hpMax < hp9 * 0.8 && game.lootBonus({}).rolls === 2, 'acceptBargain: Blood Tithe — −25% max life, every kill drops twice');
+    const d0b = H.drops; const kb = dummy(p.x + 1, p.y, 1); game.playerHit(kb, { pct: 100, type: 'phys', skill: false });
+    ok(H.drops === d0b + 2, 'a kill under the Blood Tithe rolls loot twice');
+    G.scenes.enterDungeon(3); ok(!game.bargain && p.stats.hpMax === hp9, 'the bargain ends with the floor');
+    const shB2 = { type: 'shrine', x: Math.floor(S.player.x) + 1, y: Math.floor(S.player.y), solid: true, interact: 'shrine', bargain: 'dry_vow' }; S.map.props.push(shB2);
+    p = S.player; game.ctl.intent = { type: 'prop', x: shB2.x, y: shB2.y }; step(0.5); game.acceptBargain('dry_vow'); p.hp = p.stats.hpMax * 0.5; p.potions.hp = 3;
+    ok(!game.usePotion('hp') && game.lootBonus({}).magicFind >= 200, 'Dry Vow: no potions, +200% magic find');
+    G.scenes.enterDungeon(3); p = S.player;
+    const sh3 = { type: 'shrine', x: Math.floor(p.x) + 1, y: Math.floor(p.y), solid: true, interact: 'shrine', bargain: 'the_hunt' }; S.map.props.push(sh3);
+    game.ctl.intent = { type: 'prop', x: sh3.x, y: sh3.y }; step(0.5); game.acceptBargain('the_hunt');
+    const hunter = S.entities.find(function (e) { return e.huntPrize; });
+    ok(hunter && hunter.rarity === 'legendary' && game.lootBonus(hunter).floor === 'legendary', 'The Hunt: a legendary is sent after you; its best drop is at least Legendary Elite');
+    G.scenes.enterDungeon(3); p = S.player;
+    const sh4 = { type: 'shrine', x: Math.floor(p.x) + 1, y: Math.floor(p.y), solid: true, interact: 'shrine', bargain: 'glass_heart' }; S.map.props.push(sh4);
+    game.ctl.intent = { type: 'prop', x: sh4.x, y: sh4.y }; step(0.5); const dec = game.declineBargain('glass_heart');
+    ok(dec && sh4.used && !game.bargain && !game.getEffect(p, 'shrine'), 'declineBargain leaves the shrine dark (no buff, no deal)');
+    oOf(); G.ui = uiW;
+    // the Scavenger
+    p = fresh('ranger', true, 6); tank(p); S.entities = [];
+    const scv = game.spawnScavenger(S.map); const races = []; const oRc = G.on('scavenger:race', function (e) { races.push(e); });
+    const pz = game.W.free(scv.x + 3, scv.y, 6) || game.W.free(scv.x, scv.y, 3); const prize = { id: G.newId(), x: pz.x, y: pz.y, item: { id: G.newId(), type: 'armor', name: 'Shiny Thing', rarity: 'rare' } }; S.groundItems.push(prize);
+    const ps9 = game.W.free(scv.x + 12, scv.y, 5) || { x: scv.x + 1, y: scv.y }; p.x = ps9.x; p.y = ps9.y; game.onPlayerMoved(true); step(0.2);
+    ok(races.length === 1, 'the Scavenger announces the race (scavenger:race) when a rare-or-better drop lies on the ground');
+    step(3);
+    ok(S.groundItems.indexOf(prize) < 0 && scv.stash.length === 1 && scv.ai.flee, 'if he reaches it first he takes it and flees');
+    const drops9 = H.drops, gi0 = S.groundItems.length; scv.hp = 1; game.playerHit(scv, { pct: 100, type: 'phys', skill: false });
+    ok(scv.dead && H.drops === drops9 + 1 && H.lastDrop.floor === 'rare', 'kill him: the stolen item drops back plus his own stash (rare floor)');
+    oRc();
+    p = fresh('ranger', true, 6); tank(p); S.entities = []; const sc2 = game.spawnScavenger(S.map);
+    const pz2 = game.W.free(p.x + 1, p.y, 3) || { x: p.x, y: p.y }; const prize2 = { id: G.newId(), x: pz2.x, y: pz2.y, item: { id: G.newId(), type: 'armor', name: 'Shiny', rarity: 'rare' } }; S.groundItems.push(prize2);
+     G.input.attackHeld = false; step(0.1); game.ctl.intent = { type: 'item', id: prize2.id }; step(0.5);
+    ok(S.groundItems.indexOf(prize2) < 0 && !sc2.stash.length, 'a fast player gets there first');
+    // Ember Heat
+    p = fresh('warrior', true); const em0 = game.embers.length;
+    let heatOk = false;
+    for (let i = 0; i < 20 && !heatOk; i++) { const v = dummy(p.x + 0.4, p.y, 1); game.playerHit(v, { pct: 100, type: 'phys', skill: false }); step(0.1); if (game.heatStacks() > 0) heatOk = true; }
+    const eff = game.getEffect(p, 'heat'), mfHeat = game.lootBonus({}).magicFind;
+    game.applyHit(p, { phys: p.stats.hpMax * 0.6 }, { lvl: 1 }); const after = game.heatStacks();
+    ok(heatOk && eff && eff.dealt > 0 && mfHeat > 0 && after < eff.stacks, 'Ember Heat: kills shed embers; sweeping through one stacks Heat (+damage, +magic find); a hard hit knocks it down', [heatOk, !!eff, eff && eff.dealt, game.lootBonus({}).magicFind, eff && eff.stacks, after, p.dead].join());
     oT(); H.mods = null;
   }
 

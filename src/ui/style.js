@@ -511,6 +511,13 @@
 @keyframes ed-pulse{50%{box-shadow:0 0 0 3px var(--ember),inset 0 0 8px var(--ember)}}
 .ed-hud .ed-pulse{animation:ed-pulse .7s steps(2) infinite}
 .ed-atk.loot{border-color:var(--brass-hi);color:var(--brass-hi);background:radial-gradient(circle at 6px 6px,var(--brass) 0 1.5px,#0000 2px),#1c160ae6}
+.ed-bargain-strip{display:block;font-size:9px!important;color:#7fffd4!important;max-width:58vw;overflow:hidden;text-overflow:ellipsis;margin-top:2px}
+.ed-bargain .ed-bg-row{display:flex;flex-direction:column;gap:2px;margin:6px 0;padding:6px 8px;background:var(--stone);border-left:4px solid currentColor;font-weight:normal;line-height:17px}
+.ed-bargain .ed-bg-row b{font-size:10px;text-transform:uppercase;letter-spacing:1px}
+.ed-bargain .ed-acts .ed-btn{min-height:56px;font-size:14px}
+.ed-chain{position:absolute;left:0;right:0;top:56%;text-align:center;pointer-events:none;font-size:15px;letter-spacing:1px;text-shadow:1px 1px 0 #000,-1px -1px 0 #000,1px -1px 0 #000,-1px 1px 0 #000}
+.ed-chain.pop{animation:ed-chainpop .35s steps(4)}
+@keyframes ed-chainpop{from{transform:scale(1.7);opacity:.2}to{transform:none;opacity:1}}
 @media (max-width:520px){.ed-ttl.opt{display:none}}
 @media (max-width:350px){.ed-topbtns{gap:1px}}
 `;

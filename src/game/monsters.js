@@ -150,12 +150,35 @@
   // ------------------------------ map population ------------------------------
   const ARCH_W = { melee: 4, ranged: 2.4, caster: 1.6, swarm: 3, brute: 1.2 };
 
+  // R9.1 "floors shape their monsters": map.variant.monsterBias (world) tilts the picks. Accepted shapes, all optional:
+  //   { ids: { [monsterId]: weightMult } | [monsterId], arch: { melee: mult, … }, dtype: { fire: mult, … }, body: { wraith: mult, … } }
+  // or a plain array of monster ids (= ×3 each). Ids outside the theme pool join it. Read once per map in spawnMapEntities.
+  let bias = null;
+  function readBias(map) {
+    const v = map && map.variant, b = v && (v.monsterBias || v.monsters);
+    if (!b) return null;
+    if (Array.isArray(b)) { const ids = {}; b.forEach(function (id) { ids[id] = 3; }); return { ids: ids }; }
+    if (Array.isArray(b.ids)) { const ids = {}; b.ids.forEach(function (id) { ids[id] = 3; }); return Object.assign({}, b, { ids: ids }); }
+    return b;
+  }
+  function biasMult(id) {
+    if (!bias) return 1;
+    const d = M[id];
+    let w = 1;
+    if (bias.ids && bias.ids[id]) w *= bias.ids[id];
+    if (bias.arch && bias.arch[d.arch]) w *= bias.arch[d.arch];
+    if (bias.dtype && bias.dtype[d.dtype || 'phys']) w *= bias.dtype[d.dtype || 'phys'];
+    if (bias.body && bias.body[d.sprite.body]) w *= bias.body[d.sprite.body];
+    return w;
+  }
+  game.monsterBiasOf = function (map) { return readBias(map); };
   function pickType(rng, pool, depth, not) {
     const entries = [];
     for (const id of pool) {
       if (id === not) continue;
       let w = ARCH_W[M[id].arch] || 1;
       if (depth <= 1 && (M[id].arch === 'brute' || M[id].arch === 'caster')) w *= 0.4;
+      w *= biasMult(id);
       entries.push({ w: w, id: id });
     }
     return rng.weighted(entries).id;
@@ -181,7 +204,9 @@
     const rng = G.rng.create(((map.seed | 0) ^ 0x5bd1e995) >>> 0);
     const depth = Math.max(1, map.depth | 0);
     if (game.notePallorFloor) game.notePallorFloor(map);       // R5.2: Pallor rises before this floor's monsters are made
-    const pool = game.THEME_POOLS[map.theme] || game.THEME_POOLS[G.C.themeForDepth(depth)] || game.THEME_POOLS.crypt;
+    let pool = game.THEME_POOLS[map.theme] || game.THEME_POOLS[G.C.themeForDepth(depth)] || game.THEME_POOLS.crypt;
+    bias = readBias(map);
+    if (bias && bias.ids) { const extra = Object.keys(bias.ids).filter(function (id) { return M[id] && !M[id].boss && M[id].theme !== 'minion' && M[id].theme !== 'event' && pool.indexOf(id) < 0; }); if (extra.length) pool = pool.concat(extra); }
     const order = { npc: 0, boss: 1, elite: 2, pack: 3, monster: 4 };
     const spawns = map.spawns.slice().sort(function (a, b) { return (order[a.kind] || 9) - (order[b.kind] || 9); });
     let count = 0;
@@ -256,6 +281,7 @@
         S.entities[S.entities.indexOf(far)] = L;
       }
     }
+    bias = null;
     S.map = prevMap || map;
   };
 
@@ -666,7 +692,7 @@
     }
     if (!t) { ai.st = 'sleep'; ai.wind = 0; ai.cast = null; relax(e, 'idle'); return; }
     const d = Math.hypot(t.x - e.x, t.y - e.y);
-    if (d > LEASH && e.rarity !== 'boss' && !e.lockdown && !e.fallen) { ai.st = 'sleep'; ai.wind = 0; ai.path = null; relax(e, 'idle'); return; }   // leash: give up
+    if (d > LEASH && e.rarity !== 'boss' && !e.lockdown && !e.fallen && !e.noLeash) { ai.st = 'sleep'; ai.wind = 0; ai.path = null; relax(e, 'idle'); return; }   // leash: give up
 
     if (ai.wind > 0) {
       ai.wind -= dt * sm;

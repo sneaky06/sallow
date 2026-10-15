@@ -212,6 +212,7 @@
 
     const tiles = ctx.tiles, tw = ctx.w, th = ctx.h;
     ctx.n = tw * th;
+    gen.stampDashGap(ctx);
     gen.corruptTerrain(ctx);
     const si = ctx.spawn.y * tw + ctx.spawn.x, ei = ctx.exit.y * tw + ctx.exit.x;
     tiles[si] = T.STAIRS_UP;
@@ -289,7 +290,7 @@
       props: filled.props,
       variant,
       floorName: pick.floorName,
-      landmarks: ctx.landmarks.map(function (l) { return { id: l.id, name: l.name, x: l.x, y: l.y, w: l.w, h: l.h }; }),
+      landmarks: ctx.landmarks.map(function (l) { var o = { id: l.id, name: l.name, x: l.x, y: l.y, w: l.w, h: l.h }; if (l.gap) o.gap = l.gap; return o; }),
       act: ctx.act, cleansed: ctx.cleansed, camps: filled.camps || [],
       corruption,
       rift,

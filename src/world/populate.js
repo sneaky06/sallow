@@ -233,6 +233,29 @@
       k--;
     }
 
+    // ---- bargain shrine (R9): about one floor in three from depth 3, in the room furthest from both stairs ------------
+    if (depth >= 3 && ctx.crng.chance(0.34) && !ctx.isCore) {
+      const dExit = gen.flood(ctx, ctx.exit.x, ctx.exit.y);
+      let bestR = null, bs = -1;
+      for (const r of rooms) {
+        if (r.lm || r.type === 'start' || r.type === 'exit' || r.type === 'boss' || r.type === 'lockdown') continue;
+        const i = r.cy * w + r.cx;
+        if (dist[i] < 0 || dExit[i] < 0) continue;
+        const s = Math.min(dist[i], dExit[i]);
+        if (s > bs) { bs = s; bestR = r; }
+      }
+      if (bestR && bs >= 20) {
+        const old = props.find(function (p) { return p.type === 'shrine' && inRect(bestR, p.x, p.y, 0); });
+        const far = function (p) { const i = p.y * w + p.x; return Math.min(dist[i], dExit[i]) >= 20; };
+        if (old) { if (far(old)) { old.bargain = true; old.shrineKind = 'bargain'; } } else {
+          const p = centrepiece(bestR, 'shrine', { interact: 'shrine', used: false, light: 3, bargain: true, shrineKind: 'bargain' }) ||
+            solidIn(bestR, 'shrine', { interact: 'shrine', used: false, light: 3, bargain: true, shrineKind: 'bargain' }, false);
+          if (p && !far(p)) { props.splice(props.indexOf(p), 1); occ[p.y * w + p.x] = 0; }
+
+        }
+      }
+    }
+
     // ---- the rift core (final floor): a ring of rift crystals round the arena, the heart behind it ----------------
     if (ctx.isCore && arena && bossExit) {
       for (let k = 0; k < 8; k++) {
@@ -283,7 +306,7 @@
       const i = y * w + x, t = tiles[i];
       if (t !== T.FLOOR && t !== T.RUBBLE) return false;
       if (occ[i] || dist[i] < 10) return false;
-      for (const lm of ctx.landmarks) if (lm.id === 'hidden_cache' && inRect(lm, x, y, 1)) return false;
+      for (const lm of ctx.landmarks) if ((lm.id === 'hidden_cache' || lm.id === 'dash_gap') && inRect(lm, x, y, 1)) return false;
       return !inRect(startRoom, x, y, 2) && !inRect(arena, x, y, 1) && !inRect(bossExit, x, y, 1) && !inLockdown(x, y, 1);
     };
     const clearOf = function (x, y, gap) {

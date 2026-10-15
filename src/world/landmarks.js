@@ -120,10 +120,12 @@
         H.solidIn(r, 'chest', { interact: 'chest', used: false }, true);
       } },
     // Pitch: a sealed three-by-three closet behind a lone crate. Not a room: carved by stampCache.
+    dash_gap: { name: 'The Leap', themes: [], minDepth: 4, w: 0, rooms: 'normal' },
     hidden_cache: { name: 'Hidden Cache', themes: [], minDepth: 2, w: 0, rooms: 'normal' },
   };
   gen.LANDMARKS = LM;
 
+  const dryIntactOf = function (ctx) { return dryIntact(ctx); };
   const dryIntact = function (ctx) {
     const dist = gen.flood(ctx, ctx.spawn.x, ctx.spawn.y);
     let reach = 0, dry = 0;
@@ -202,6 +204,67 @@
       const bn = at(3, rng.chance(0.5) ? -1 : 1); lm.pts.push({ x: bn.x, y: bn.y, k: 'bones' });
       r.noLock = true;
       ctx.landmarks.push(lm);
+      return;
+    }
+  };
+
+
+  // World pitch (R9): the Leap. A one-tile corridor bored through the rock between two distant rooms, cut in the middle by a
+  // two-tile chasm gap. Nobody has to cross it (the floor stays connected without it) but a dash clears it, and the walk it
+  // saves is long. A niche beside the gap holds a chest for whoever explores the dead-end side. Stamped after the final
+  // orientation; validated like every landmark.
+  gen.stampDashGap = function (ctx) {
+    const rng = ctx.crng, w = ctx.w, h = ctx.h, tiles = ctx.tiles;
+    if (ctx.depth < 4 || ctx.isCore || ctx.theme === 'abyss' || !rng.chance(0.42)) return;
+    const cands = ctx.rooms.filter(function (r) { return !r.lm && (r.type === 'normal' || r.type === 'treasure' || r.type === 'elite' || r.type === 'shrine') && r.w >= 5 && r.h >= 5; });
+    if (cands.length < 2) return;
+    const D = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+    const inLm = function (x, y) { for (const l of ctx.landmarks) if (x >= l.x - 1 && y >= l.y - 1 && x < l.x + l.w + 1 && y < l.y + l.h + 1) return true; return false; };
+    const rock = function (x, y) { const t = gen.at(ctx, x, y); return t === T.WALL || t === T.VOID; };
+    for (let tr = 0; tr < 80; tr++) {
+      const A = rng.pick(cands), d = D[rng.int(0, 3)], dx = d[0], dy = d[1];
+      let sx, sy;
+      if (dx) { sx = dx > 0 ? A.x + A.w - 1 : A.x; sy = rng.int(A.y + 1, A.y + A.h - 2); } else { sy = dy > 0 ? A.y + A.h - 1 : A.y; sx = rng.int(A.x + 1, A.x + A.w - 2); }
+      if (tiles[sy * w + sx] !== T.FLOOR) continue;
+      const run = [];
+      let x = sx + dx, y = sy + dy, ok = false;
+      for (let k = 0; k < 18; k++, x += dx, y += dy) {
+        if (x < 2 || y < 2 || x > w - 3 || y > h - 3 || ctx.lock[y * w + x] || inLm(x, y)) break;
+        if (rock(x, y) && !ctx.prot[y * w + x]) {
+          if (DRY[gen.at(ctx, x - dy, y - dx)] || DRY[gen.at(ctx, x + dy, y + dx)]) break;       // would merge with something sideways
+          run.push({ x, y });
+          continue;
+        }
+        ok = DRY[tiles[y * w + x]] === 1 && tiles[y * w + x] === T.FLOOR && run.length >= 7 && run.length <= 16;
+        break;
+      }
+      if (!ok) continue;
+      const B = { x, y };
+      const dist = gen.flood(ctx, sx, sy);
+      if (dist[B.y * w + B.x] < run.length * 2 + 18) continue;      // must be a real shortcut
+      const mid = run.length >> 1, gap = [run[mid - 1], run[mid]];
+      const before = tiles.slice(), protBefore = ctx.prot.slice();
+      for (const p of run) {
+        tiles[p.y * w + p.x] = T.FLOOR; ctx.prot[p.y * w + p.x] = 1;
+        for (let oy = -1; oy <= 1; oy++) for (let ox = -1; ox <= 1; ox++) { const i = (p.y + oy) * w + p.x + ox; if (tiles[i] === T.VOID) tiles[i] = T.WALL; }
+      }
+      for (const p of gap) tiles[p.y * w + p.x] = T.CHASM;
+      ctx.prot[sy * w + sx] = 1; ctx.prot[B.y * w + B.x] = 1;
+      // niche for the chest, one step off the corridor next to the gap on the near side
+      const nb = run[mid - 2], side = rng.chance(0.5) ? 1 : -1, nx = nb.x + dy * side, ny = nb.y + dx * side;
+      const niche = rock(nx, ny) && rock(nx + dx, ny + dy) && rock(nx - dx, ny - dy) && rock(nx + dy * side, ny + dx * side);
+      const pts = [];
+      if (niche) {
+        tiles[ny * w + nx] = T.FLOOR; pts.push({ x: nx, y: ny, k: 'chest' });
+        for (let oy = -1; oy <= 1; oy++) for (let ox = -1; ox <= 1; ox++) { const i = (ny + oy) * w + nx + ox; if (tiles[i] === T.VOID) tiles[i] = T.WALL; }
+      }
+      pts.push({ x: nb.x - dx, y: nb.y - dy, k: 'bones' });
+      if (!dryIntactOf(ctx)) { tiles.set(before); ctx.prot.set(protBefore); continue; }
+      const xs = run.map(function (p) { return p.x; }).concat([sx, B.x, nx]), ys = run.map(function (p) { return p.y; }).concat([sy, B.y, ny]);
+      const x0 = Math.min.apply(null, xs), y0 = Math.min.apply(null, ys);
+      ctx.landmarks.push({ id: 'dash_gap', name: 'The Leap', x: x0, y: y0, w: Math.max.apply(null, xs) - x0 + 1, h: Math.max.apply(null, ys) - y0 + 1, pts, gap: gap.map(function (p) { return { x: p.x, y: p.y }; }) });
+      A.noLock = true;
+      for (const r of ctx.rooms) if (r.x <= B.x && r.y <= B.y && B.x < r.x + r.w && B.y < r.y + r.h) r.noLock = true;
       return;
     }
   };

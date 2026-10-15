@@ -238,13 +238,22 @@ window.G = { manifest: {} };
       if (R.wanted && v.layout !== R.wanted) R.layoutSwaps++;
       R.names[map.floorName] = 1;
       const w = map.w, h = map.h;
-      ok(Array.isArray(map.landmarks) && map.landmarks.length <= 3, 'landmarks array');
+      ok(Array.isArray(map.landmarks) && map.landmarks.length <= 4, 'landmarks array');
+      { const b = v.monsterBias; ok(b && Array.isArray(b.tags) && b.tags.length >= 1 && b.tags.every(function (s) { return typeof s === 'string'; }) && Array.isArray(b.monsterIds) && b.monsterIds.length >= 3 && b.monsterIds.every(function (s) { return /^[a-z_]+$/.test(s); }) && rng(b.weight, 0.3, 0.9), 'variant.monsterBias'); }
       for (const lm of map.landmarks || []) {
         ok(W._gen.LANDMARKS[lm.id] && lm.x >= 1 && lm.y >= 1 && lm.x + lm.w <= w - 1 && lm.y + lm.h <= h - 1 && lm.w > 0 && lm.h > 0 && typeof lm.name === 'string', 'landmark fields ' + lm.id);
         R.landmarks[lm.id] = (R.landmarks[lm.id] || 0) + 1;
         const inLm = function (q) { return q.x >= lm.x && q.y >= lm.y && q.x < lm.x + lm.w && q.y < lm.y + lm.h; };
         const chests = map.props.filter(function (q) { return q.type === 'chest' && inLm(q); }).length;
-        if (lm.id === 'hidden_cache') {
+        if (lm.id === 'dash_gap') {
+          R.dashGaps = (R.dashGaps || 0) + 1;
+          ok(Array.isArray(lm.gap) && lm.gap.length === 2 && lm.gap.every(function (g) { return map.tiles[g.y * w + g.x] === T.CHASM; }) && depth >= 4 && map.theme !== 'abyss', 'dash gap fields');
+          ok(chests <= 3, 'dash gap chests ' + chests);
+          const g0 = lm.gap[0], g1 = lm.gap[1], dx = g1.x - g0.x, dy = g1.y - g0.y;
+          const side = function (g, sx, sy) { return DRY[map.tiles[(g.y + sy) * w + g.x + sx]] === 1; };
+          ok(side(g0, -dx, -dy) && side(g1, dx, dy), 'dash gap ends are not walkable');
+          
+        } else if (lm.id === 'hidden_cache') {
           const crates = map.props.filter(function (q) { return q.secret === true && inLm(q); });
           ok(crates.length === 1 && crates[0].type === 'crate' && crates[0].interact === 'barrel' && crates[0].solid, 'cache needs one secret crate');
           ok(chests === 1, 'cache chest count ' + chests);
@@ -381,7 +390,7 @@ window.G = { manifest: {} };
       ok(borderWalk === 0, 'walkable tile on map border');
       ok(naked === 0, 'walkable tile next to VOID (' + naked + ')');
       ok(badDeep === 0, 'deep liquid without a shallow rim (' + badDeep + ')');
-      ok(map.theme === 'abyss' ? chasm > 200 : (chasm === 0 || (map.fissures || []).length > 0 || map.corruption >= 0.2), 'CHASM count ' + chasm + ' in ' + map.theme);
+      ok(map.theme === 'abyss' ? chasm > 200 : (chasm === 0 || (map.fissures || []).length > 0 || map.corruption >= 0.2 || map.landmarks.some(function (l) { return l.id === 'dash_gap'; })), 'CHASM count ' + chasm + ' in ' + map.theme);
       ok(!(liq[T.WATER] || liq[T.DEEP_WATER]) || !(liq[T.LAVA] || liq[T.DEEP_LAVA]), 'water and lava on one floor');
       for (const k in liq) R.liquid[map.theme + ':' + k] = (R.liquid[map.theme + ':' + k] || 0) + liq[k];
       if (down < 0) return;
@@ -462,6 +471,10 @@ window.G = { manifest: {} };
         if (p.solid) for (const j of [i - 1, i + 1, i - w, i + w]) ok(tiles[j] !== T.DOOR && tiles[j] !== T.STAIRS_DOWN && tiles[j] !== T.STAIRS_UP, 'solid ' + p.type + ' beside door/stairs');
         R.propTypes[p.type] = (R.propTypes[p.type] || 0) + 1;
       }
+      { const bs = map.props.filter(function (p) { return p.bargain; });
+        ok(bs.length <= 1 && (depth >= 3 || bs.length === 0), 'bargain shrines ' + bs.length);
+        for (const p of bs) { ok(p.type === 'shrine' && p.interact === 'shrine' && p.shrineKind === 'bargain' && p.used === false, 'bargain fields'); const de = flood(map, false, null, true, down); ok(Math.min(dryOpen.dist[p.y * w + p.x], de.dist[p.y * w + p.x]) >= 20, 'bargain shrine too close to the stairs'); }
+        if (depth >= 3) { R.bargainFloors = (R.bargainFloors || 0) + (bs.length ? 1 : 0); R.bargainTotal = (R.bargainTotal || 0) + 1; } }
       R.chests.push(chests);
       R.props.push(map.props.length);
 
@@ -877,6 +890,7 @@ window.G = { manifest: {} };
       lines.push('landmarks ' + JSON.stringify(R.landmarks) + '  chained-arena elite ' + R.arenaElite + '/' + R.arenaTotal + '  chest at moat/span ' + R.payoffChest + '/' + R.payoffTotal);
       lines.push('attempts needed ' + JSON.stringify(R.attempts) + '  fallback layout ' + R.fallbacks + '  forced layout swapped for the plain one ' + R.layoutSwaps + ' of ' + R.forced + '  distinct floor names ' + Object.keys(R.names).length);
       lines.push('corruption trend by 10-depth band: taint share ' + JSON.stringify(R.trend.taintShare) + '  fissures/map ' + JSON.stringify(R.trend.fissures) + '  growths+veins/map ' + JSON.stringify(R.trend.growthsAndVeins) + '  rift shrines ' + R.riftShrines + '  core floors ' + R.coreMaps);
+      lines.push('bargain shrines on ' + R.bargainFloors + '/' + R.bargainTotal + ' floors (depth 3+), dash gaps ' + R.dashGaps);
       lines.push(R.cleansedInfo + '  chute distance from centre: ' + stats(R.chuteDist || []));
       lines.push('rooms ' + JSON.stringify(R.roomTypes));
       lines.push('spawns ' + JSON.stringify(R.spawnKinds));

@@ -258,7 +258,7 @@
 
     // shrines go wrong: a hint to the game that these are bargains, not blessings
     for (const p of props) {
-      if (p.type === 'shrine' && p.interact && rng.chance(Math.min(0.9, c * 1.5))) { p.look = 'rift_shrine'; p.corrupt = lvl(); p.shrineKind = 'corrupt'; p.tint = rift.glow; }
+      if (p.type === 'shrine' && p.interact && !p.bargain && rng.chance(Math.min(0.9, c * 1.5))) { p.look = 'rift_shrine'; p.corrupt = lvl(); p.shrineKind = 'corrupt'; p.tint = rift.glow; }
     }
     if (c >= 0.3 && ctx.depth >= 4) {
       const cands = rng.shuffle(rooms.filter(function (r) { return r.type === 'normal' && !r.lm && r.w >= 5 && r.h >= 5; }));
@@ -269,7 +269,7 @@
     }
 
     // growths (solid, glowing) and veins (flat, walked over)
-    const spots = rooms.filter(function (r) { return r.type !== 'start' && r.type !== 'lockdown' && r.type !== 'exit' && (r.type !== 'boss' || ctx.isCore); });
+    const spots = rooms.filter(function (r) { return r.type !== 'start' && r.type !== 'lockdown' && r.type !== 'exit' && r.type !== 'boss'; });
     if (!spots.length) return;
     for (let k = Math.min(70, Math.floor(c * reach / 80 * (ctx.act === 'hellscape' || ctx.act === 'endless' ? 1.6 : 1))), guard = k * 6; k > 0 && guard > 0; guard--) {
       if (H.solidIn(spots[(rng.next() * spots.length) | 0], 'crystal', { light: 2, look: 'growth', corrupt: lvl(), tint: rift.glow }, rng.chance(0.5))) k--;

@@ -230,3 +230,28 @@ Status: tests/combat.html → 445/445, 0 console errors; real index.html driven 
 - **R8.10** `skill:learned { skillId, rank, auto }` on every learned rank (auto = auto-build).
 - **R8.11** Basic melee cleaves: everyone else in a 1.7-tile, ±0.85 rad arc takes 60% (half the main 120% swing). Eagle Eye rank 3+ →
   `bonus.pierce = 1`: basic shots pierce one foe. Melee/self aoe skills flash a 2.4-tile ring in their colour on cast.
+
+## Revision 9 additions (combat) — new file src/game/pillars.js (manifest: last)
+Status: tests/combat.html → 460/460, 0 console errors; real index.html floors 4–9 driven with everything live: 0 errors.
+
+- **Flow chain (R9.1).** Close Calls within 8 s chain. 3 → Flow: `G.state.timeScale = 0.35` for 0.45 s of game time + `flow_crit`
+  effect (next hit is a guaranteed crit). 4 → also every dash charge back. 5+ → also every skill cooldown reset ("FLOW ×n").
+  Event `flow:start { chain }`; `G.game.getFlow() → { chain, slow }`; `G.game.endFlow()`. timeScale returns to 1 by its timer, by a
+  real-time setTimeout fallback (covers pause), on `player:died` and on every `scene:changed`.
+- **Variant monster bias (R9.1).** spawnMapEntities reads `map.variant.monsterBias` (or `map.variant.monsters`):
+  `{ ids: { monsterId: mult } | [monsterId], arch: { melee: mult }, dtype: { fire: mult }, body: { wraith: mult } }` or a plain id
+  array (×3 each). Ids outside the theme pool join it (bosses, minions and event monsters are ignored). **World:** emit any of these.
+- **Shrine bargains (R9.1).** ~35% of dungeon shrines (deterministic per shrine; a world prop may force one with `prop.bargain = id`)
+  emit `shrine:offer { id, name, cost, reward }` instead of the buff and wait for `G.game.acceptBargain(id)` /
+  `G.game.declineBargain(id)` (declined = dark shrine). `G.game.getBargainOffer()`, `G.game.BARGAINS`, `G.game.bargain` (active deal,
+  cleared with the floor), event `shrine:accepted { id, name }`. Without G.ui the shrine stays an ordinary shrine.
+  Deals: Blood Tithe (−25% max life → every kill drops loot twice), Dry Vow (no health potions → +200% magic find), The Hunt (a
+  legendary is sent after you → its best drop is at least Legendary Elite), Glass Heart (double damage taken → +60% damage, +50% XP).
+- **The Scavenger (R9.1).** One floor in five from depth 4 (not boss floors). When a rare-or-better item lies on the ground he
+  announces it (`scavenger:race { entity, ground }`, toast, gold ring pulsing on the item) and runs for it at 80% of base player
+  speed. First to it wins. If he takes it, he flees for 14 s and then escapes with it. Kill him: the stolen items drop plus a
+  rare-floor stash. Entity `monsterId: 'scavenger'`, `stash: [items]`, `noLeash`. `G.game.spawnScavenger(map)` for tests.
+- **Ember Heat (our pitch).** 35% of kills shed an ember (`G.game.embers`, 4 s, spark pulses). Sweep through one (0.8 tiles) for +1
+  Heat (max 10): +4% damage and +5% magic find per stack (effect `heat` with `stacks`). Cools by one every 6 s without a pickup; a single
+  hit for > 8% of your life knocks half of it out. `G.game.heatStacks()`. Engine may draw embers like wisps; UI may show Heat stacks.
+- `game.lootBonus(monster) → { rolls, magicFind, floor? }` feeds every kill's dropLoot (bargains + Heat).

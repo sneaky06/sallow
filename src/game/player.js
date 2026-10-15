@@ -271,6 +271,7 @@
     const p = G.state.player;
     if (!p || p.dead || (kind !== 'hp' && kind !== 'mp')) return false;
     if (!(p.potions[kind] > 0)) { U.sfx('error'); return false; }
+    if (kind === 'hp' && game.bargain && game.bargain.noPotions) { warn(p, 'Your vow forbids it', '#d03a3a'); return false; }          // R9.1 Dry Vow
     if (ctl.potCd[kind] > 0) return false;
     if (kind === 'hp') {
       if (p.hp >= p.stats.hpMax) return false;
@@ -520,6 +521,7 @@
       }
       case 'shrine': {
         if (prop.used) return;
+        if (game.shrineBargain && game.shrineBargain(p, prop)) return;          // R9.1: some shrines offer a deal instead
         prop.used = true;
         const s = U.rng.pick(SHRINES);
         game.removeEffect(p, 'shrine');
@@ -903,5 +905,6 @@
     game.updateZones(dt);
     if (game.updateLockdown) game.updateLockdown(dt);
     if (game.updateEvents) game.updateEvents(dt);
+    if (game.updatePillars) game.updatePillars(dt);
   };
 })();

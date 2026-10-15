@@ -371,6 +371,7 @@
     game.addEffect(p, { id: 'close_call', t: 5, stacks: n, dealt: 15 * n });
     for (const id in p.cooldowns) if (p.cooldowns[id] > 0) p.cooldowns[id] = Math.max(0, p.cooldowns[id] - 1);
     U.text(p.x, p.y - 1.3, n > 1 ? 'CLOSE CALL ×' + n : 'CLOSE CALL', '#7fffd4', true);
+    if (game.onCloseCall) game.onCloseCall(p);          // R9.1 Flow chain
     U.fx('ring', p.x, p.y, { radius: 1.2, color: '#7fffd4', duration: 0.35 });
     U.sfx('swing');
   };
