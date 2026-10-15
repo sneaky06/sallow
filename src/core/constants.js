@@ -57,7 +57,7 @@
       // skill / UI icons
       'slash', 'whirl', 'fire', 'ice', 'bolt', 'poison', 'heal', 'buff', 'arrow', 'multishot', 'trap', 'skull', 'summon', 'leap', 'aura', 'star'],
     PROP_TYPES: ['chest', 'chest_open', 'barrel', 'crate', 'torch', 'shrine', 'pillar', 'bones', 'stash', 'portal',
-      'dungeon_entrance', 'waypoint', 'tree', 'bush', 'fountain', 'sign', 'stall', 'well', 'tombstone', 'crystal', 'campfire', 'gate', 'corpse'],
+      'dungeon_entrance', 'waypoint', 'tree', 'bush', 'fountain', 'sign', 'stall', 'well', 'tombstone', 'crystal', 'campfire', 'gate', 'corpse', 'chute', 'surface_crate'],
     NPC_ROLES: ['merchant', 'blacksmith', 'mystic', 'healer', 'elder', 'stashkeeper'],
     PROJECTILE_SHAPES: ['arrow', 'bolt', 'orb', 'fireball', 'shard', 'spit'],
     FX_TYPES: ['hit', 'slash', 'explosion', 'nova', 'heal', 'levelup', 'lootbeam', 'spark', 'smoke', 'blood', 'frost', 'poison', 'teleport', 'ring'],

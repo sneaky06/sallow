@@ -134,16 +134,19 @@
       G.emit('scene:changed', { scene: 'menu', depth: 0, map: null });
     },
 
-    // What the next respawn will cost — the death screen shows this.
-    // { retrievable: false, gold } = flat 10% gold (boss fight / locked room / town).
-    // { retrievable: true, gold, items } = all carried gold + the backpack stay on a corpse at the place of death.
-    // Equipped gear, belt potions and materials are always kept. A second death abandons an unclaimed corpse.
+    // What the next respawn will cost — the death screen shows this (R8.2).
+    // Any death in a dungeon leaves a corpse holding the whole backpack; returning raises your Echo to guard it.
+    // Gold: an ordinary death leaves all carried gold on the corpse too; a boss / sealed-room death (noRetrieve)
+    // costs a flat 10% instead and the rest stays in your pocket. Equipped gear, belt potions and materials are kept.
+    // { retrievable, gold /* on the corpse */, goldLost, items }
     getDeathPenalty() {
       const p = S.player;
-      if (!p) return { retrievable: false, gold: 0, items: 0 };
+      if (!p) return { retrievable: false, gold: 0, goldLost: 0, items: 0 };
       const d = lastDeath;
-      if (!d || d.noRetrieve || S.scene !== 'dungeon') return { retrievable: false, gold: Math.floor((p.gold || 0) * 0.1), items: 0 };
-      return { retrievable: true, gold: p.gold || 0, items: p.inventory.filter(Boolean).length };
+      const items = p.inventory.filter(Boolean).length;
+      if (!d || S.scene !== 'dungeon') return { retrievable: false, gold: 0, goldLost: Math.floor((p.gold || 0) * 0.1), items: 0 };
+      if (d.noRetrieve) return { retrievable: items > 0, gold: 0, goldLost: Math.floor((p.gold || 0) * 0.1), items: items };
+      return { retrievable: true, gold: p.gold || 0, goldLost: 0, items: items };
     },
 
     // Called by the death screen. Applies getDeathPenalty(), returns the player to town at full health.
@@ -151,21 +154,21 @@
       const p = S.player;
       if (!p) return;
       const pen = scenes.getDeathPenalty();
-      const lost = pen.gold;
       // Any death abandons an unclaimed corpse, including a boss or sealed-room death.
       if (S.flags.corpse) G.emit('ui:toast', { text: 'Your old remains are lost to the dark', color: '#c96a6a' });
       S.flags.corpse = null;
       if (pen.retrievable) {
-        S.flags.corpse = { depth: lastDeath.depth, seed: lastDeath.seed, x: lastDeath.x, y: lastDeath.y, gold: p.gold || 0, items: p.inventory.filter(Boolean) };
+        S.flags.corpse = { depth: lastDeath.depth, seed: lastDeath.seed, x: lastDeath.x, y: lastDeath.y, gold: pen.gold, items: p.inventory.filter(Boolean) };
         p.inventory = p.inventory.map(function () { return null; });
         G.emit('inventory:changed', {});
       }
+      const delta = pen.gold + pen.goldLost;
       lastDeath = null;
-      p.gold -= lost;
+      p.gold -= delta;
       S.flags.deaths++;
       S.flags.portalDepth = 0;
       G.game.revivePlayer();
-      G.emit('gold:changed', { gold: p.gold, delta: -lost });
+      G.emit('gold:changed', { gold: p.gold, delta: -delta });
       scenes.enterTown();
     },
   };

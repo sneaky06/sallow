@@ -769,3 +769,70 @@ regeneration, renames, harness upkeep) on the smallest model. Rounds are split a
 - Loot UI: items that would fill a missing collection slot get a small book mark on the cell and ground label, and are **never
   junk**; a "Send to Curator" action and an option to auto-register on reaching town.
 - This sits alongside the Matched bonus (R5.9), which is about *wearing* a family; collection is about *turning pieces in*.
+
+---
+
+# Revision 8 — lead dev playtest feedback (2026-10-15). Overrides anything above that conflicts.
+
+## R8.1 The chute (replaces in-dungeon salvaging)
+- **World:** every dungeon floor places one `chute` prop (solid, `interact: 'chute'`) on a walkable tile near the map's centre,
+  reachable, never in the boss arena or a lockdown room. Town gets a `surface_crate` prop (`interact: 'surface_crate'`) by the
+  rift fissure where sent items arrive. Core already added both prop types.
+- **Items:** `state.surface = []` (items sent up, arrive instantly, no size cap but sorted by arrival). `G.items.chuteSend(invIndex | [indices])`,
+  `G.items.surfaceTake(index)`, and the town actions on surface items: sell, salvage, register with the Curator, stash. **Salvage,
+  sell and Curator registration are only possible in town** (from the bag or the surface crate). Junk "auto" now means: auto-send to
+  the chute queue — junk is sent the next time the player uses a chute (one tap "Send junk").
+- **Game:** interacting with a chute emits `object:interact { type: 'chute' }` (generic forwarding already does this).
+- **UI:** chute panel (bag grid; tap to mark, "Send", "Send junk"); surface crate panel in town with the town actions. Remove the
+  "Send to Curator" and in-dungeon salvage buttons from the bag.
+- **Engine:** draw the chute (a rope-and-iron lift shaft / bucket chute down into the dark) and the surface crate.
+
+## R8.2 Death drops the bag; your ghost guards it (core done)
+Every dungeon death leaves a corpse holding the whole backpack (`getDeathPenalty() → { retrievable, gold /*on corpse*/, goldLost, items }`).
+Ordinary death: all carried gold goes on the corpse too. Boss / sealed-room death: lose 10% gold, keep the rest, the bag still drops.
+**Game:** when the player returns to the corpse's depth, the Echo (R6.2) now rises *at the corpse* on that first return and guards
+it; reclaiming requires killing it or slipping past to the corpse. A second death still abandons the old corpse.
+**UI:** death screen text from the new fields.
+
+## R8.3 Smaller loot popup
+The pile popup and pickup feed must never cover the play area the player needs: compact sheet anchored to a screen edge away from the
+stick, max ~35% of the short side, collapsible.
+
+## R8.4 Exploration % gets fuzzy with depth
+`G.game.getExplored() → { value, low, high, label }`: exact in the Shallows' first floors, then increasingly uncertain (the village
+never mapped the deep): show "~60%" then ranges like "40–70%", and in Hellscape "?" with a hint. Deterministic per floor (no flicker).
+
+## R8.5 Sticky sorting
+The chosen sort mode is applied automatically whenever items enter the bag/stash (`state.settings.autoSort: true` default). Double-tap
+or long-press the sort button to pick a mode; single tap re-sorts. A settings toggle turns auto-sort off.
+
+## R8.6 First-time tips (light tutorial)
+The first time the player meets something new (each rarity tier, sockets, gems/bloodstones, corrupted items, materials, tomes, the
+chute, the surface crate, Curator, relics, Fallen, events, Pallor, the Echo, shrines, lockdowns, dash, Close Call…), show a small
+dismissible card (one or two sentences, icon) that doesn't pause combat unless the player taps it. `state.flags.tipsSeen`, a
+"Tips" toggle in settings, a "Reset tips" button. Tips text as data.
+
+## R8.7 Out-of-class gear has a penalty
+Until cross-class perks exist: equipping a weapon type not in the class's `weaponTypes` (and armour weight the class doesn't favour, if
+the combat team agrees) applies an intrinsic debuff (lead default: −35% damage with that weapon, skills that need another weapon type
+disabled). Tooltip shows it in red; equipping asks for confirmation once per item; verdict treats it honestly (usually ▼).
+
+## R8.8 Clear grade timing
+The speed-clear grade and its bonus show on arriving at the next floor (as a banner there), not when entering the stairs room.
+
+## R8.9 Attack vs. loot on one button
+Problem: the attack button sometimes attacks when the player wants to loot. Team pitches; lead default to build: a context-aware
+action button — when a pile is within reach and no enemy is within melee range (or the player is moving toward the pile), it shows a
+loot icon and loots; otherwise it attacks. Tap on a pile always loots. Optional setting: auto-pickup Rare and better.
+
+## R8.10 Explain auto-learned skills
+When auto-build learns a skill for the first time, highlight it (skill button pulse + a tip card with name and one-line effect) instead
+of learning silently. Event: `skill:learned { skillId, rank, auto }`.
+
+## R8.11 Hitting several enemies
+Make multi-target hits obvious: basic melee attacks cleave in a short arc (main target full damage, others ~50%), ranged basic attacks
+can pierce once at higher ranks/with gear; every enemy hit gets its own hit flash and number. Skills already marked aoe should read as
+aoe (wider swing/impact fx).
+
+## R8.12 Depth label
+The HUD depth label uses the act name and floor name (e.g. "Hellscape · 28 · The Throat of the Deep"), not the old theme names.
