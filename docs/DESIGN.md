@@ -376,3 +376,53 @@ player — so delving deeper is always the better reward. Shallow farming stays 
 - **Writing pass:** the lead dev will rewrite every player-facing text (dialogue, UI labels, item names and descriptions). All text must
   be easy to find and edit without reading code: story text stays in `src/ui/story_data.js`; UI labels move into one table
   `src/ui/strings.js`; item, monster and skill names stay in their data tables. `docs/WRITING_GUIDE.md` lists every place text lives.
+
+### R16 — lead dev playtest batch (2026-10-15). Wave A = features and fixes; Wave B = balance session afterwards.
+**Map**
+1. **Left-behind loot markers:** when a pickup fails because the bag is full, the pile gets `pile.leftBehind = true` and a marker on the
+   minimap and full map until it's picked up or the floor is left (items sets the flag; engine draws; UI lists them).
+2. **Tap the map to identify:** tapping the minimap opens the full map; tapping a discovered thing there (stairs, chute, shrine, chest,
+   camp, corpse, marked pile, event, landmark, NPC) shows what it is. `G.engine.mapPick(sx, sy) → { kind, name, x, y } | null` on the map
+   canvas; UI shows a small label card. Only explored tiles.
+3. **Fog-of-war bug:** on some shallow floors the whole map shows unexplored areas. Find and fix (engine/world).
+
+**Loot, selling, salvage**
+4. **Chute capacity grows with the story:** the surface crate starts at **25** and rises through challenge quests (like loyalty) up to 300
+   (`G.items.surfaceSize()` = 25 + `state.flags.crateBonus`). Story writes the quests; UI wires the reward `crate: n`.
+5. **No auto-sell / auto-salvage on reaching town.** Selling needs a trader, salvaging needs the blacksmith (by hand, full price), except the
+   surface crate's bulk actions. Junk "auto" only queues junk for the chute.
+6. **Buyback is a collapsed dropdown** at the top of the Sell tab ("Buy back (4) ▾"), so the bag is visible without scrolling.
+7. **Loot filter like the sell filter:** the ground loot filter uses the same builder as selling (rarity, item level/Power, slots, upgrades,
+   sockets, sets, Curator-wanted, corrupted…) with presets. Filtered-out items are **not shown and cannot be picked up** until the filter
+   is loosened (gold, lore, quest items, Legendary tiers and sets always pass).
+8. **Sockets:** the blacksmith adds a socket to a chosen item for gold, price rising exponentially per socket up to **6**. A rare
+   **Socket Tool** drop lets the player add one anywhere; the chance it fails (destroying the tool, never the item) grows with the item's
+   rarity. `G.items.addSocket(target, { tool })`, `socketCost(item)`, `socketFailChance(item)`.
+9. **Requirements:** every item has a level requirement and stat requirements (Str/Dex/Int scaled by item level and weight class).
+   **Class armour:** each class gets its own armour lines whose stat requirement is the class's primary stat, so other classes rarely
+   meet it. Attribute points per level come back as a visible choice (auto-build still spends them when on). Off-class gear that meets
+   requirements still has the R8.7 weapon penalty unless a Crossroads licence lifts it.
+10. **Upgrade badge:** the Bag button shows a ▲ badge whenever the bag holds an upgrade for any slot.
+11. **Auto-compare:** selecting an item always shows it side by side with what's equipped in that slot (both rings for rings).
+
+**Combat and floors**
+12. **Packs grow with depth** toward the corruption's centre (pack size and density scale with depth and act).
+13. **Pathing:** fix monsters stuck on terrain/props (unstick logic, repath, nudge around solid props, never spawn wedged).
+14. **Class goals:** per-class achievements (finish a perk branch, put N points into a tree, class-flavoured feats — e.g. Warrior: stun
+    50 enemies with Shoulder Charge; Ranger: 100 kills from 8+ tiles; Sorcerer: shatter 50 frozen enemies; Necromancer: 1,000 minion
+    kills) with Marks, titles and cosmetic rewards. Combat tracks; story names them; UI shows them in the Journal.
+15. **Level design:** a mix of **linear** floors (clear path, set pieces along it) and **open** floors with more variation; **boss floors
+    become static set pieces** (fixed arena layout per boss, little exploration). Paths must read clearly (lit routes, clearer floor
+    contrast for walkable ground, door/opening markers).
+
+**Meta**
+16. **Stats everywhere + the inn:** track every lifetime stat we can (kills by type, damage dealt/taken, potions, distance walked, dashes,
+    gold by source, items by rarity found, deaths by cause, time played…). A town **inn** with a seat by the fire opens the full stats book.
+17. **Shorter save codes:** compress (strip derived data, deflate via CompressionStream where available, base64url) — aim for at least
+    5× shorter; old codes still import.
+
+**Wave B — balance session (after Wave A lands)**
+- The lead dev reports one-shotting everything from about level 20, including legendary monsters, and bosses dying in 3–4 hits.
+- Targets: normal monsters 3–5 hits at every depth with on-level gear; elites and legendary monsters real fights; bosses 30–60 s; enemies
+  hit harder throughout. Balance every class and every build style (single target, group, balanced) to comparable DPS. Fix item power
+  growth (weapon scaling, affix stacking, sockets, perks, Heat/Flow stacking) where that's the cause.
