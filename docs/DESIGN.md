@@ -360,3 +360,10 @@ full price (carrying items to a trader stays the only way to get 100%).
   in a dying town), with a goal tied to that trader (sell N items to them, bring them a material, gold spent with them, …).
 - **UI:** reward type `loyalty: { kind: 'sell'|'salvage', amount: 0.1 }`; the crate shows the current rate ("Bulk rate 60% · raise it
   by helping Orlen and Brakka") and the trader's panel shows their loyalty level.
+
+### R14 — depth drives difficulty, not player level (lead dev, 2026-10-15)
+Replaces the R6 out-level rule `monsterLevel = max(depth, playerLevel − 3)`. Monsters scale with **depth only** (lead default: no
+player-level scaling at all), and the depth curve gets steeper so the last floors are very challenging and the deepest reachable floor
+is where a strong player wants to be. Out-levelling a floor makes it easier but pays less: when the player is more than 5 levels above
+the floor's level, XP per kill falls off (−15% per level beyond 5, floor 10%) and item level / rarity of drops follow the floor, not the
+player — so delving deeper is always the better reward. Shallow farming stays possible for gold, materials and Curator pieces.
