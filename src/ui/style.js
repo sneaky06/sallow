@@ -81,7 +81,7 @@
 /* loot feed: right-hand side above the action cluster, never in the joystick zone */
 .ed-feed{position:absolute;right:8px;bottom:calc(18px + 160px * var(--bs));width:208px;font-size:11px;text-align:right;text-shadow:1px 1px 0 #000,-1px 0 0 #000,0 -1px 0 #000}
 .ed-feed div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:15px}
-.ed-feed div.myth{background:#08070a;border:1px solid #ff3b4e;padding:2px 4px;margin:2px 0;text-align:center;text-shadow:none}
+.ed-feed div.myth{background:#08070a;border:1px solid var(--rc,#ff3b4e);padding:2px 4px;margin:2px 0;text-align:center;text-shadow:none}
 .ed-feed div.tap{pointer-events:auto;cursor:pointer;min-height:44px;display:flex;align-items:center;justify-content:flex-end;gap:2px;background:#08070ae0;border:1px solid var(--good);padding:0 6px;margin:2px 0}
 .ed-mods{color:#ff7a5a}
 .ed-boss small{display:block;font-size:9px;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:.5px}
@@ -413,6 +413,80 @@
   .ed-tag{margin-bottom:12px}
   .ed-death{gap:8px}
 }
+/* ---------- Revision 7 ---------- */
+/* rarity glow (R7.1): --rc is the tier colour, --gl the strength; the cell's own border carries the colour, the shadow the glow */
+.ed-cell.rg1{box-shadow:inset 0 0 4px 0 var(--rc),0 0 3px 0 var(--rc)}
+.ed-cell.rg2{box-shadow:inset 0 0 6px 1px var(--rc),0 0 5px 1px var(--rc)}
+.ed-cell.rg25{box-shadow:inset 0 0 7px 1px var(--rc),0 0 6px 1px var(--rc)}
+.ed-cell.rg3{box-shadow:inset 0 0 9px 2px var(--rc),0 0 8px 2px var(--rc)}
+.ed-cell.rg4{box-shadow:inset 0 0 11px 3px var(--rc),0 0 10px 3px var(--rc);animation:ed-rift 2.6s ease-in-out infinite}
+@keyframes ed-rift{50%{box-shadow:inset 0 0 4px 1px var(--rc),0 0 3px 1px var(--rc)}}
+.ed-glow1{text-shadow:0 0 4px var(--rc),1px 1px 0 #000}
+.ed-glow2{text-shadow:0 0 6px var(--rc),1px 1px 0 #000}
+.ed-glow3{text-shadow:0 0 8px var(--rc),0 0 3px var(--rc),1px 1px 0 #000}
+.ed-glow4{text-shadow:0 0 10px var(--rc),0 0 4px var(--rc),1px 1px 0 #000;animation:ed-riftt 2.6s ease-in-out infinite}
+@keyframes ed-riftt{50%{text-shadow:0 0 3px var(--rc),1px 1px 0 #000}}
+.ed-dialog.tip .ed-tipname.ed-glow1,.ed-dialog.tip .ed-tipname.ed-glow2,.ed-dialog.tip .ed-tipname.ed-glow3,.ed-dialog.tip .ed-tipname.ed-glow4{background:var(--iron-lo)}
+/* socket pips (R7.3): top-left of a cell, one square per socket */
+.ed-cell .sk{position:absolute;left:2px;top:2px;display:flex;gap:1px;pointer-events:none}
+.ed-cell .sk b{display:block;width:5px;height:5px;border:1px solid #c9b8ff;background:#0008;box-shadow:0 0 0 1px #000}
+.ed-cell .sk b.f{background:#b65bff;border-color:#f0dcff}
+.ed-pips{display:inline-flex;gap:3px;vertical-align:middle;margin-left:6px}
+.ed-pips b{display:block;width:8px;height:8px;border:2px solid #5a1c6e;background:#0000}
+.ed-pips b.f{background:#8a3ab0}
+/* collection book mark (R7.11): a tiny teal book, bottom-right of a cell; .bk is also used inline in lines */
+.bk{display:inline-block;width:9px;height:8px;background:#2fb7a6;border:1px solid #000;box-shadow:inset 3px 0 0 #1a6f66;vertical-align:baseline;margin:0 3px 0 0}
+.ed-cell .bk{position:absolute;right:2px;bottom:2px;margin:0;pointer-events:none}
+/* Power headline (R7.2) */
+.ed-hl .pw{font-size:15px}
+.ed-hl small{flex-basis:100%;font-size:10px;font-weight:normal;color:#4a3d2a}
+/* Curator + Collection Book */
+.ed-prog{height:8px;background:#000;border:1px solid var(--iron-hi);margin:3px 0}
+.ed-prog i{display:block;height:100%;width:0;background:linear-gradient(#5fe0cf 0 2px,#2fb7a6 2px)}
+.ed-prog.done i{background:linear-gradient(#ffe88a 0 2px,#dfc06a 2px)}
+.ed-cur-act{display:grid;grid-template-columns:1fr 1fr;gap:4px;margin-bottom:8px}
+.ed-cur-act .ed-btn{min-height:48px}
+.ed-cur-act .wide{grid-column:1/3}
+.ed-pg{display:block;width:100%;text-align:left;padding:6px 8px!important;min-height:48px;background:var(--stone);border:1px solid #453e3a;margin-bottom:4px;pointer-events:auto}
+.ed-pg:active{background:#2a1416}
+.ed-pg .t{display:flex;justify-content:space-between;gap:6px}
+.ed-pg .t b{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ed-pg.done{border-color:var(--brass)}
+.ed-pg small{display:block;font-weight:normal;font-size:10px;color:var(--ash)}
+.ed-slots{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:4px;margin:6px 0}
+.ed-slot{display:flex;align-items:center;gap:6px;padding:4px 6px;min-height:44px;background:#09080a;border:1px dashed #4a433c;font-weight:normal;font-size:11px}
+.ed-slot.have{border:1px solid #2fb7a6;background:#0c1816}
+.ed-slot small{display:block;font-size:9px;color:var(--ash)}
+.ed-slot .ck{flex:none;width:16px;text-align:center;color:#5fe0cf}
+.ed-tier{display:flex;align-items:center;gap:6px;min-height:36px;font-weight:normal;font-size:11px;border-bottom:1px solid #2c2729}
+.ed-tier.on{color:var(--brass-hi)}.ed-tier span{flex:1}
+.ed-seg{display:flex;gap:2px;margin-bottom:6px}
+.ed-seg .ed-btn{flex:1;padding:2px 4px!important;font-size:11px}
+/* relics (R7.10) */
+.ed-relics{display:grid;grid-template-columns:1fr;gap:4px}
+@media (orientation:landscape){.ed-relics{grid-template-columns:1fr 1fr}}
+.ed-relic{display:flex;gap:8px;align-items:center;min-height:52px;padding:4px 6px;background:var(--stone);border:1px solid #453e3a;font-weight:normal;font-size:11px}
+.ed-relic .sil{flex:none;width:36px;height:36px;display:flex;align-items:center;justify-content:center;font-size:18px;background:#000;border:2px solid #3a3430;color:#3a3430}
+.ed-relic.have{border-color:var(--brass)}.ed-relic.have .sil{border-color:var(--brass-hi);color:var(--brass-hi);box-shadow:0 0 6px #dfc06a80}
+.ed-relic b{display:block;font-size:11px}.ed-relic small{display:block;font-size:10px;color:var(--ash)}
+.ed-relic.have small.fx{color:#9ae6b4}
+/* HUD: explored %, clear grade, timed event (R7.5) */
+.ed-expl{color:#9fb7c8;font-size:10px;margin-top:2px}
+.ed-expl i{display:inline-block;width:40px;height:5px;background:#000;border:1px solid #6a7d8a;margin-left:4px;vertical-align:middle}
+.ed-expl i u{display:block;height:100%;background:#7fb4d4;text-decoration:none}
+.ed-event{position:absolute;left:8px;top:max(calc(var(--trk-top,44px) + 52px),152px);width:min(176px,48vw);text-align:left;background:#08070af2;border:2px solid var(--ember);padding:4px 6px;display:none;
+  box-shadow:0 0 0 1px var(--iron-lo),0 0 0 2px var(--rust-lo)}
+.ed-event b{display:block;color:var(--ember);text-transform:uppercase;letter-spacing:1px;font-size:11px}
+.ed-event span{display:block;font-size:10px;font-weight:normal;color:var(--bone);margin-top:1px}
+@media (orientation:landscape){.ed-event{top:calc(var(--trk-top,44px) + 52px)}}
+.ed-event .bar{height:6px;background:#000;border:1px solid var(--iron-hi);margin-top:3px}
+.ed-event .bar i{display:block;height:100%;width:100%;background:var(--ember)}
+.ed-event.warn{border-color:var(--bad)}.ed-event.warn b{color:var(--bad)}.ed-event.warn .bar i{background:var(--bad)}
+.ed-event.ok{border-color:var(--brass)}.ed-event.ok b{color:var(--brass-hi)}
+.ed-feed div .bk{margin-right:3px}
+.ed-feed div.bkrow{border-color:#2fb7a6!important}
+.ed-feed div.rg3,.ed-feed div.rg4{padding-right:2px}
+
 @media (max-width:520px){.ed-ttl.opt{display:none}}
 @media (max-width:350px){.ed-topbtns{gap:1px}}
 `;

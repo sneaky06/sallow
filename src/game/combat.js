@@ -59,6 +59,7 @@
     const fx = t.effects;
     for (let i = 0; i < fx.length; i++) if (fx[i].taken) total *= Math.max(0.1, 1 + fx[i].taken / 100);
     if (isPlayer && t.bonus && t.bonus.dr) total *= 1 - t.bonus.dr / 100;
+    if (t.guard !== undefined && src && game.guardMult) total *= game.guardMult(t, src);          // R7: Brannoc's shield wall
     if (t.rarity === 'boss' && src && src.summon) total *= 0.5;          // minions alone cannot carry a boss fight (R4.3)
     else if (t.summon && src && src.rarity === 'boss') total *= 2.5;     // ...nor wall one off: bosses tear through summons
     let blocked = false;
@@ -191,6 +192,7 @@
     if (b.vsChilled && (game.getEffect(t, 'chill') || game.getEffect(t, 'freeze'))) scale *= 1 + b.vsChilled / 100;
     const shatter = type === 'fire' && b.shatterFire && game.getEffect(t, 'freeze');
     if (shatter) scale *= 1.5;
+    if (myth.ramping_fire && (type === 'fire' || st.fireDmg) && game.fireRamp) scale *= 1 + game.fireRamp(p);      // relic: Varr's ramping fire
     const crit = U.chance(st.critChance + (spec.crit || 0));
     if (crit) scale *= 1 + st.critDmg / 100;
     mult *= scale;

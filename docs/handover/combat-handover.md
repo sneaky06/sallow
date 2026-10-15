@@ -102,3 +102,53 @@ runMatrix reps 4 (48 runs, depths 1–20), potions per boss kill (hp+mana / hp o
 sorcerer 5.2 / 3.3, necromancer 2.5 / 2.2. 15 of 48 runs stopped at a boss (6 deaths): 7× depth 5, 4× depth 10, 3× depth 15, 1× depth 20 —
 mostly runs where the bot had equipped off-class weapons. Level at 20 ≈ 29–31 (XP ×1.8).
 Dials: game.HPM / game.DMM (monsters.js), boss share of DMM (0.7) and of HPM (0.5) in createMonster.
+
+## Revision 7 additions (combat) — new files src/game/campaign.js, src/game/events.js (manifest: after echo.js)
+Status: tests/combat.html → 418/418, 0 console errors.
+
+### R7.5 explored %, clear grade, timed events (events.js)
+- `G.game.getExplored()` → 0–100 (explored walkable tiles / walkable tiles; cached 0.5 s; town = 100).
+- Clear grade: on first coming within 2.5 tiles of a stairs-down tile. score = explored × min(1.3, par / time), par = 45 s + 1 s per
+  10 walkable tiles. S ≥ 0.85, A ≥ 0.65, B ≥ 0.45, C ≥ 0.25, else D. Reward: XP (12/8/5/3% of the level), dust/shards, and a chest
+  by the stairs (`prop.gradeFloor` = best item at least magic/rare/uncommon; none for D).
+  `G.game.getClearGrade()` → `{ grade, score, explored, time, par, depth }` once graded, else `{ grade: null, explored, time, par }`.
+  Event `floor:graded` with the same payload. `G.game.CLEAR_GRADES` is the table.
+- Timed events: 40% of non-boss floors from depth 2 roll one (deterministic from map.seed), starting 5 s after arrival.
+  `G.game.getEvent()` → `{ id, name, timer, goal, progress }` | null. Events `event:start` / `event:update` (4×/s) / `event:end`
+  (`+ success, reward`). `G.game.startEvent(id)` starts one now (dev/tests). `G.game.EVENTS[id] = { name, goal }`.
+  - `gauntlet` Run the Gauntlet: a beacon (torch prop, `event:'gauntlet'`) 16–26 tiles away; monsters spawn around you every 3.5 s;
+    reach it in time → rare-floor loot at the beacon.
+  - `keyhunt` Key Hunt: a locked vault chest (`event:'keyhunt'`) and 5 crates (barrels) around it, one holds the key; 60 s. Key found →
+    vault unlocks (timer stops). Timeout → vault `sealed` for good.
+  - `collapse` Cave-in (ours): 25 s of falling rocks (telegraphed circles) around you; survive → a cache (rare floor if never hit).
+  - `thief` The Magpie (ours): a fleeing goblin (`magpie: true`) that drops gold as it is hurt and vanishes after 20 s; kill it → rare loot.
+
+### R7 bosses (campaign.js)
+- `game.ACT_BOSSES = { 5 Gravelord, 10 Broodmother, 15 Tyrant, 20 Hollow Star, 25 boss_choir, 30 boss_world }`; from 35 the first
+  four repeat with a tier (35 = Gravelord II …). The UI's WORLD_BOSS_IDS already lists `boss_world`.
+- The Choir (25): every ~11 s it sings for 2.5 s with a 5.5-tile ring; inside at the end = stunned + burned. Deal 5% of its life
+  during the song to break it (it is stunned instead).
+- Oswin Marrow, the Hearthking (30): I swordsman (fan, sweep, charge). II (66%): root lashes (telegraphed lines), lingering root pools,
+  the Ember exposed every 12 s for 3 s (+100% damage taken; deal 8% in the window or he heals 6%). III (33%): becomes "The Ember"
+  (sprite body → demon), floor pulse alternating INWARD / OUTWARD every 7 s, and the Factor counts your dashes ("One. Two. Three." as
+  ui:toast) — on three the thing lands on you. Kill → `G.items.grantTome(1)`, `state.flags.worldBossKilled = true`. Title is UI's.
+- Hook for other teams' designs: `MONSTERS[id].special` → `G.game.SPECIAL[special](e, def, target, dist, dt, player)`; return true
+  to skip the default fight logic.
+
+### R7.6 the Fallen (campaign.js)
+- `G.game.FALLEN[adventurerId] = { depth, name, classId, story }`; monster defs `adv_<adventurerId>`. Entities: `fallen: true`,
+  `adventurerId`, rarity 'legendary', never leash. One per depth; never on boss floors; spawns in the room furthest from the stairs
+  each visit until slain (`state.flags.fallenSlain`, also skipped when `G.items.hasRelic(id)`); a toast on arrival, UI banners on sight.
+- Kill → `G.items.grantRelic(adventurerId)`; their raised adds die with them.
+- Built: Brannoc (fallen_2, 9) frontal shield (−85%, slow turn) + knockback charge that leaves him winded 1.6 s; Wren (fallen_4, 16)
+  strafing archer, snare lines, stops to count for 2.5 s every 10 s (+60% taken); Varr (fallen_8, 24) growing novas, bottles bursting
+  after 2.2 s, burns herself (1.2%/s); Crane (fallen_9, 28) raises corpses near him (2 / 4 s, ≤ 6), +8% dmg / −4% taken per servant,
+  +40% taken with nothing to raise, and a slowing shovel line.
+- Relic effects (read through `getRelicEffects` into `player.bonus.fx`): dash_shield_bash (dash ends in an 80% bash + 0.8 s stun),
+  dash_reload (free 150% shot on dash + map revealed on arrival), ramping_fire (+3% fire per second of fighting, max +45%),
+  extra_minion (+1 skeleton; your kills are never raised).
+
+### Bot check after R7 (2 reps, depths 1–20)
+Potions per boss kill (hp+mana / hp): warrior 5.2/3.3, ranger 5.7/4.0, sorcerer 6.4/5.1, necromancer 3.4/2.8 — same band as after the
+R6 difficulty pass. 7 of 24 runs walled (5× at the depth-5 boss). No deaths to Brannoc (9) or Wren (16) for most runs; level at 20 ≈ 32–34
+(grade XP adds ~2 levels by depth 20).

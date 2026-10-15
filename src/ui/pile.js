@@ -48,10 +48,12 @@
             if (take(g.id)) ui._sfx(gold ? 'gold' : 'loot');
             fill();
           } }, ui._icon(it.icon, 32),
-            h('span', { class: 'n', style: 'color:' + ui._rarityColor(it.rarity) },
+            h('span', { class: 'n ' + (gold ? '' : ui._glowText(it.rarity)), style: '--rc:' + ui._rarityColor(it.rarity) + ';color:' + ui._rarityColor(it.rarity) },
               v === 'up' ? h('b', { class: 'ed-good', text: '▲ ' }) : v === 'down' ? h('b', { class: 'ed-bad', text: '▼ ' }) : null,
+              !gold && ui._wanted(it) ? h('i', { class: 'bk', 'aria-label': 'Collection Book piece' }) : null,
               gold ? fmt(it.qty || 0) + ' gold' : (it.qty > 1 ? it.qty + ' ' : '') + (it.name || '?'),
-              !gold && C.RARITY[it.rarity] ? h('small', { text: C.RARITY[it.rarity].name + (it.slot ? ' · ' + it.slot : '') }) : null));
+              !gold && Array.isArray(it.sockets) && it.sockets.length ? '  ' + it.sockets.map(function (s) { return s ? '◆' : '◇'; }).join('') : null,
+              !gold && C.RARITY[it.rarity] ? h('small', { text: C.RARITY[it.rarity].name + (it.setId ? ' · Set' : '') + (it.slot ? ' · ' + it.slot : '') }) : null));
           if (!gold && (it.slot || it.type === 'gem')) {
             // look before taking: the tooltip, with Take as its action
             const info = h('button', { type: 'button', class: 'ed-btn ed-pinfo', 'aria-label': 'Look at ' + it.name, onclick: function (e) {

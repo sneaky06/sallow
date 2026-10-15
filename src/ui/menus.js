@@ -83,9 +83,9 @@
   G.on('scene:changed', function () { clearTimeout(deathTimer); });
 
   // ---------- pause / settings ----------
-  // Loot-filter choices: one entry per tier (legendary + mythic are a single "Legendary"), in table order. Sets are
-  // not a quality threshold of their own, so they are not offered as one.
-  function filterKeys() { return ui._tierKeys().filter(function (k) { return k !== 'set'; }); }
+  // Loot-filter choices: one entry per tier (legendary + mythic are a single "Legendary"), in table order. Set pieces are Legendary Elite drops,
+  // so there is no tier of their own to offer.
+  function filterKeys() { return ui._tierKeys(); }
 
   function toggleRow(label, note, value, fn) {
     return h('button', { type: 'button', class: 'ed-btn', 'aria-pressed': value === true ? 'true' : (value === false ? 'false' : null), onclick: function () { ui._sfx('click'); fn(); if (G.meta && G.meta.save) G.meta.save(); ui._refreshNow(); } },

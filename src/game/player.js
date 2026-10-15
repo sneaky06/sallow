@@ -398,6 +398,7 @@
       }
     }
     setAnim(p, 'walk', 0.2);
+    if (game.relicDash) game.relicDash(p, x0, y0);          // R7.10 relic dash powers
     if (game.noteStyle) game.noteStyle('dash');
     return true;
   };
@@ -492,6 +493,7 @@
         // spill toward the player so loot does not land under the (solid) chest
         const co = lootOpts(p, 'chest');
         if (prop.lockReward) co.floor = 'rare';            // lockdown prize: best item at least rare (opts.floor, R3.6)
+        if (prop.gradeFloor) co.floor = prop.gradeFloor;      // R7.5 speed-clear chest / event vault
         dropLoot(cx + Math.cos(p.facing + Math.PI) * 0.8, cy + Math.sin(p.facing + Math.PI) * 0.8, co);
         if (prop.lockReward) game.lockdownReward(p, cx + Math.cos(p.facing + Math.PI) * 0.8, cy + Math.sin(p.facing + Math.PI) * 0.8);
         G.emit('object:interact', { type: 'chest', prop: prop });
@@ -507,6 +509,7 @@
         U.sfx('hit');
         U.fx('smoke', cx, cy, { color: '#8a6a4a' });
         dropLoot(cx, cy, lootOpts(p, 'barrel'));
+        if (game.onBarrelBroken) game.onBarrelBroken(prop);      // R7.5 Key Hunt
         break;
       }
       case 'shrine': {
@@ -854,5 +857,6 @@
     game.updateProjectiles(dt);
     game.updateZones(dt);
     if (game.updateLockdown) game.updateLockdown(dt);
+    if (game.updateEvents) game.updateEvents(dt);
   };
 })();

@@ -8,12 +8,12 @@
   const THEME_NAMES = { town: 'Emberdeep', crypt: 'The Crypt', caves: 'Drowned Caves', inferno: 'The Inferno', abyss: 'The Abyss' };
   ui._themeName = function (depth) { return depth > 0 ? (THEME_NAMES[C.themeForDepth(depth)] || 'Dungeon') : (ui._townName ? ui._townName() : THEME_NAMES.town); };
 
-  // Monster tiers the target bar shows (R3.6). Colours come from the rarity table so Legendary matches the loot colour.
+  // Monster tiers the target bar shows (R3.6). Fixed colours: the R7.1 loot ladder reused blue / yellow / orange for items.
   const rc = function (k, fb) { return function () { return (C.RARITY[k] && C.RARITY[k].color) || fb; }; };
   const TIER = {
-    champion: { label: 'Champion', color: rc('magic', '#5b8cff'), mods: true },
-    rare: { label: 'Rare', color: rc('rare', '#ffe45b'), mods: true },
-    legendary: { label: 'Legendary', color: rc('legendary', '#ff8a2b'), mods: true },
+    champion: { label: 'Champion', color: function () { return '#5b8cff'; }, mods: true },
+    rare: { label: 'Rare', color: function () { return '#ffe45b'; }, mods: true },
+    legendary: { label: 'Legendary', color: function () { return '#ff8a2b'; }, mods: true },
     boss: { label: 'Boss', color: function () { return '#ff6a5a'; }, mods: true },
   };
   // R6.2 the Echo: a boss-style bar whatever rarity the game gives it
@@ -24,7 +24,7 @@
   let hud = null, visible = false;
   const el = { skills: [], cds: [], cdTxt: [], skIco: [] };
   // last values written to the DOM
-  const last = { hp: -1, hpT: -1, mp: -1, mpT: -1, xp: -1, area: '', gold: -1, potHp: -1, potMp: -1, attr: -1, sp: -1, portal: null, boss: -2, bossName: '', corpse: -2, sealed: null, lock: '', floor: '', pal: '' };
+  const last = { hp: -1, hpT: -1, mp: -1, mpT: -1, xp: -1, area: '', gold: -1, potHp: -1, potMp: -1, attr: -1, sp: -1, portal: null, boss: -2, bossName: '', corpse: -2, sealed: null, lock: '', floor: '', pal: '', expl: -2 };
   const slots = [];           // per skill slot: { id, mpCost, cooldown, cdStep, cdSec, nomana }
   let skDirty = true, questDirty = true, tick = 0, slow = 0, mmCtx = null, mmFailed = false;
   let goldFeed = null, goldFeedSum = 0, goldFeedT = 0;
@@ -51,7 +51,14 @@
     el.palFill = h('i');
     el.palTxt = h('span');
     el.pallor = h('div', { class: 'ed-pallor', style: 'display:none' }, h('div', { class: 'ed-palbar' }, el.palFill), el.palTxt);
-    el.area.append(el.areaTxt, el.goldTxt, el.floor, el.pallor);
+    // R7.5 explored % of the floor, under the depth label
+    el.explTxt = document.createTextNode('');
+    el.explBar = h('u');
+    el.expl = h('div', { class: 'ed-expl', style: 'display:none' }, el.explTxt, h('i', null, el.explBar));
+    el.area.append(el.areaTxt, el.goldTxt, el.floor, el.expl, el.pallor);
+    // R7.5 timed event: name, hint, timer (+ goal) and a draining bar; sits under the quest tracker
+    el.evName = h('b'); el.evTxt = h('span'); el.evTime = h('span'); el.evBar = h('i');
+    el.event = h('div', { class: 'ed-event' }, el.evName, el.evTxt, el.evTime, h('div', { class: 'bar' }, el.evBar));
     el.tracker = h('div', { class: 'ed-tracker ed-mv' });
     el.mm = h('canvas', { width: 80, height: 80 });
     mmCtx = el.mm.getContext('2d');
@@ -138,7 +145,7 @@
     hud = h('div', { class: 'ed-hud', style: 'display:none' },
       h('div', { class: 'ed-xp' }, el.xp), el.area, el.tracker, el.mmBtn,
       h('div', { class: 'ed-topbtns' }, el.bInv, el.bSkl, el.bQst, el.bMenu), el.bTp,
-      el.boss, el.lock, el.feed, el.vitals, el.skillBox, el.atk, el.dash);
+      el.event, el.boss, el.lock, el.feed, el.vitals, el.skillBox, el.atk, el.dash);
     layers.hud.appendChild(hud);
     ui._hudEl = hud;
     // movable pieces for the HUD editor, in the order they are listed there
@@ -169,6 +176,41 @@
     return { value: value, tier: tier, effects: (p && Array.isArray(p.effects)) ? p.effects : [] };
   }
   ui._pallorInfo = pallorInfo;
+
+  // ---------- explored % (R7.5) ----------
+  // Share of walkable tiles in map.explored. The game may publish its own figure through G.game.getExplored() (0..1, 0..100 or { pct });
+  // otherwise the walkable mask is built once per map and counted against map.explored.
+  let explTick = 0;
+  const walk = { map: null, mask: null, n: 0 };
+  ui._exploredPct = exploredPct;
+  function exploredPct() {
+    const m = S.map;
+    if (!m || S.scene !== 'dungeon') return -1;
+    if (G.game && typeof G.game.getExplored === 'function') {
+      try {
+        const g = G.game.getExplored();
+        const v = g && typeof g === 'object' ? (g.pct != null ? g.pct : g.value) : g;
+        if (typeof v === 'number' && isFinite(v)) return Math.max(0, Math.min(100, Math.round(v)));      // game.getExplored() is 0..100
+      } catch (err) { /* count it ourselves */ }
+    }
+    if (!m.explored || !m.w || !m.h) return -1;
+    if (walk.map !== m) {
+      const n = m.w * m.h, mask = new Uint8Array(n);
+      let cnt = 0;
+      const W = G.world;
+      for (let y = 0; y < m.h; y++) for (let x = 0; x < m.w; x++) {
+        let ok = true;
+        try { ok = W && W.isWalkable ? !!W.isWalkable(m, x, y) : true; } catch (err) { ok = true; }
+        if (ok) { mask[y * m.w + x] = 1; cnt++; }
+      }
+      walk.map = m; walk.mask = mask; walk.n = cnt;
+    }
+    if (!walk.n) return -1;
+    const ex = m.explored, mk = walk.mask;
+    let seen = 0;
+    for (let i = 0; i < mk.length; i++) if (mk[i] && ex[i]) seen++;
+    return Math.min(100, Math.floor(seen / walk.n * 100));
+  }
 
   // ---------- slow refreshers ----------
   function refreshSkills(p) {
@@ -235,7 +277,17 @@
     const fname = ui._floorName();
     const pal = pallorInfo();
     const palKey = pal ? pal.value + '|' + pal.tier : '';
-    if (fname !== last.floor || palKey !== last.pal) {
+    // explored % (R7.5): counted once a second, redrawn only when the whole number changes
+    let ex = last.expl;
+    if (++explTick >= 5 || last.expl === -2) { explTick = 0; ex = exploredPct(); }
+    let explChanged = false;
+    if (ex !== last.expl) {
+      explChanged = (ex < 0) !== (last.expl < 0);
+      last.expl = ex;
+      if (explChanged) el.expl.style.display = ex < 0 ? 'none' : 'block';
+      if (ex >= 0) { el.explTxt.nodeValue = 'Explored ' + ex + '%'; el.explBar.style.width = ex + '%'; }
+    }
+    if (fname !== last.floor || palKey !== last.pal || explChanged) {
       if ((fname !== '') !== (last.floor !== '')) el.floor.style.display = fname ? 'block' : 'none';
       if (fname !== last.floor) el.floor.textContent = fname;
       if ((palKey !== '') !== (last.pal !== '')) el.pallor.style.display = pal ? 'flex' : 'none';
@@ -408,6 +460,7 @@
 
     potionCd('hp', el.potHp); potionCd('mp', el.potMp);
     classAction();
+    if (ev.on || ev.hold > 0) eventTick(dt);
 
     // skill bar: ids are compared every frame, costs/cooldown lengths only when something changed
     const bar = p.skillBar;
@@ -469,28 +522,35 @@
       if (q) setTimeout(function () { q.remove(); }, 3000);
       return;
     }
-    // Legendary sub-tiers are named in the feed; a Mythic gets its own banner line and stays twice as long.
+    // R7.1: Legendary Elite / Mythic / Unique / Rift are named in the feed with their glow; the top four tiers get their own banner
+    // line and stay twice as long. Colour, glow strength and the rift pulse come from C.RARITY.
     const rar = C.RARITY[it.rarity];
-    const sub = rar && rar.sub ? rar.name.toUpperCase() : '';
-    const myth = it.rarity === 'mythic';
+    const glow = rar && +rar.glow || 0;
+    const sub = rar && (rar.sub || glow >= 2) ? rar.name.toUpperCase() : '';
+    const myth = glow >= 2.5;
     const v = ui._verdict ? ui._verdict(it) : null;
+    const want = ui._wanted ? ui._wanted(it) : false;                      // R7.11 fills a gap in the Collection Book
     const row = feed('', ui._rarityColor(it.rarity));
     if (!row) return;
-    if (myth) { row.className = 'myth'; row.textContent = sub + ': ' + it.name; }
-    else row.textContent = '+ ' + (it.qty > 1 ? it.qty + ' ' : '') + it.name + (sub ? '  [' + sub + ']' : '');
+    row.style.setProperty('--rc', ui._rarityColor(it.rarity));
+    if (ui._glowText(it.rarity)) row.className = ui._glowText(it.rarity);
+    const sockets = Array.isArray(it.sockets) && it.sockets.length ? '  ' + it.sockets.map(function (g) { return g ? '◆' : '◇'; }).join('') : '';
+    if (myth) { row.className += ' myth'; row.textContent = sub + ': ' + it.name + sockets; }
+    else row.textContent = '+ ' + (it.qty > 1 ? it.qty + ' ' : '') + it.name + sockets + (sub ? '  [' + sub + ']' : '');
     // R3.4 arrows; an upgrade line is a button that opens the item straight away (pick up -> compare -> equip in 2 taps)
     if (v === 'up' || v === 'down') row.insertBefore(h('b', { class: v === 'up' ? 'ed-good' : 'ed-bad', text: v === 'up' ? '▲ ' : '▼ ' }), row.firstChild);
-    if (v === 'up') {
-      row.className += ' tap';
+    if (want) row.insertBefore(h('i', { class: 'bk', 'aria-label': 'Collection Book piece' }), row.firstChild);
+    if (v === 'up' || want) {
+      row.className += ' tap' + (want && v !== 'up' ? ' bkrow' : '');
       row.addEventListener('click', function () {
         const p = S.player, i = p ? p.inventory.indexOf(it) : -1;
         if (i < 0) return;
         ui._sfx('click');
         ui.open('inventory');
-        ui._showItem(it, ui._invActions(it, i, 'inv'));
+        ui._showItem(it, ui._invActions(it, i, 'inv'));            // Send to Curator is the first action of a wanted piece
       });
     }
-    setTimeout(function () { row.remove(); }, myth ? 10000 : (v === 'up' ? 8000 : 5000));
+    setTimeout(function () { row.remove(); }, myth ? 10000 : (v === 'up' || want ? 8000 : 5000));
   });
   G.on('gold:changed', function (e) {
     if (!e || !(e.delta > 0) || !visible || ui.isOpen()) return;
@@ -551,7 +611,105 @@
     }, 700);
   });
 
+  // ---------- clear grade + timed events (R7.5) ----------
+  // Payloads are read defensively (field names are the combat team's): grade/rank, time/seconds, explored/pct, bonus/reward/text.
+  const GRADE_COL = { S: '#ffe45b', A: '#6fd36a', B: '#7fb4d4', C: '#c8c8c8', D: '#8f8470', F: '#8f8470' };
+  const clock = function (s) { s = Math.max(0, Math.ceil(+s || 0)); return Math.floor(s / 60) + ':' + ('0' + (s % 60)).slice(-2); };
+  const pctOf = function (v) { v = +v; return isFinite(v) ? Math.round(v > 0 && v < 1 ? v * 100 : v) : null; };      // the game sends 0..100
+  G.on('floor:graded', function (e) {
+    if (!e || !visible) return;
+    const g = String(e.grade != null ? e.grade : (e.rank != null ? e.rank : '')).toUpperCase();
+    if (!g) return;
+    const parts = [];
+    const t = e.time != null ? e.time : e.seconds;
+    if (t != null) parts.push(clock(t) + (e.par != null ? ' (par ' + clock(e.par) + ')' : ''));
+    const ex = pctOf(e.explored != null ? e.explored : e.pct);
+    if (ex != null) parts.push(ex + '% explored');
+    const b = e.text || e.bonus || e.reward;
+    if (b && typeof b === 'string') parts.push(b);
+    else if (b && typeof b === 'object') {
+      const bp = [];
+      if (b.xp) bp.push('+' + b.xp + ' XP');
+      if (b.gold) bp.push('+' + b.gold + ' gold');
+      if (b.materials || b.mats) bp.push('materials');
+      if (b.chest) bp.push('a chest by the stairs');
+      if (bp.length) parts.push(bp.join(', '));
+    }
+    ui._banner('Floor cleared: grade ' + g, parts.join('  ·  '), GRADE_COL[g.charAt(0)] || '#d8c9a3', 5);
+    ui._sfx(g.charAt(0) === 'S' || g.charAt(0) === 'A' ? 'quest' : 'click');
+  });
+
+  const ev = { on: false, total: 0, left: 0, goal: 0, have: 0, hold: 0, text: '', prog: '', name: '', key: '' };
+  function evPaint() {
+    const goal = ev.goal > 0 ? '  ' + Math.min(ev.have, ev.goal) + '/' + ev.goal : (ev.prog ? '  ' + ev.prog : '');
+    const key = Math.ceil(ev.left) + '|' + goal + '|' + ev.text;
+    if (key === ev.key) return;
+    ev.key = key;
+    el.evName.textContent = ev.name;
+    el.evTxt.textContent = ev.text;
+    el.evTxt.style.display = ev.text ? 'block' : 'none';
+    el.evTime.textContent = ev.total > 0 ? clock(ev.left) + goal : goal.trim();
+    el.evBar.style.width = (ev.total > 0 ? Math.max(0, Math.min(100, ev.left / ev.total * 100)) : (ev.goal > 0 ? Math.min(100, ev.have / ev.goal * 100) : 100)) + '%';
+    el.event.classList.toggle('warn', ev.total > 0 && ev.left <= 10 && ev.left > 0);
+  }
+  function evRead(e) {
+    if (!e) return;
+    const left = e.remaining != null ? e.remaining : e.timeLeft != null ? e.timeLeft : e.timer != null ? e.timer : e.time;
+    if (left != null && isFinite(+left)) { ev.left = Math.max(0, +left); if (!(ev.total > 0) || ev.left > ev.total) ev.total = Math.max(ev.total, ev.left); }
+    const total = e.duration != null ? e.duration : e.total != null ? e.total : e.limit;
+    if (total != null && +total > 0) ev.total = +total;
+    // game/events.js sends goal as a sentence and progress as a short string ('' or e.g. '2/5'); numbers are accepted too
+    const have = e.progress != null ? e.progress : e.count != null ? e.count : e.have;
+    if (typeof have === 'string') ev.prog = have;
+    else if (have != null && isFinite(+have)) ev.have = +have;
+    const goal = e.goal != null ? e.goal : e.target != null ? e.target : e.need;
+    if (typeof goal === 'string' && !isFinite(+goal)) ev.text = goal;
+    else if (goal != null && isFinite(+goal)) ev.goal = +goal;
+    const txt = e.text != null ? e.text : e.desc != null ? e.desc : e.hint;
+    if (typeof txt === 'string') ev.text = txt;
+    const nm = e.name != null ? e.name : e.title;
+    if (typeof nm === 'string' && nm) ev.name = nm;
+  }
+  G.on('event:start', function (e) {
+    if (!el.event) return;
+    ev.on = true; ev.total = 0; ev.left = 0; ev.goal = 0; ev.have = 0; ev.hold = 0; ev.text = ''; ev.prog = ''; ev.key = '';
+    ev.name = (e && (e.name || e.title)) || 'Timed event';
+    evRead(e);
+    el.event.className = 'ed-event';
+    el.event.style.display = 'block';
+    evPaint();
+    ui._sfx('door');
+  });
+  G.on('event:update', function (e) { if (ev.on) { evRead(e); evPaint(); } });
+  G.on('event:end', function (e) {
+    if (!el.event || !ev.on) return;
+    evRead(e);
+    const won = e && (e.success === true || e.won === true || e.ok === true || e.result === 'success' || e.result === 'won' || e.result === 'win');
+    const lost = e && (e.success === false || e.won === false || e.ok === false || e.result === 'fail' || e.result === 'failed' || e.result === 'lost');
+    ev.on = false;
+    ev.hold = 3;
+    el.evName.textContent = ev.name;
+    el.evTxt.style.display = 'block';
+    el.evTxt.textContent = (e && (e.message || (typeof e.text === 'string' && e.text))) || (won ? 'Done!' : lost ? 'Failed' : 'Over');
+    el.evTime.textContent = '';
+    el.event.className = 'ed-event' + (won ? ' ok' : lost ? ' warn' : '');
+    el.evBar.style.width = won ? '100%' : '0%';
+    ev.key = '';
+  });
+  // local countdown between updates; the game's own event:update values win whenever they arrive
+  function eventTick(dt) {
+    if (ev.on) {
+      if (!S.paused && ev.total > 0 && ev.left > 0) ev.left = Math.max(0, ev.left - dt);
+      evPaint();
+    } else if (ev.hold > 0) {
+      ev.hold -= dt;
+      if (ev.hold <= 0) el.event.style.display = 'none';
+    }
+  }
+
   G.on('scene:changed', function () {
+    ev.on = false; ev.hold = 0; if (el.event) el.event.style.display = 'none';
+    last.expl = -2; explTick = 0; walk.map = null;
     lock.room = null; lock.wave = 0; lock.t = 0;
     if (el.lock) el.lock.style.display = 'none';
     questDirty = true; skDirty = true; tick = 0; last.boss = -2; last.bossName = '';

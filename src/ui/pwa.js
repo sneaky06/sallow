@@ -4,7 +4,7 @@
   const G = window.G;
   const ui = G.ui;
 
-  ui._VERSION = '0.8.0';
+  ui._VERSION = '0.9.0';
 
   // state: 'unsupported' | 'pending' | 'ready' | 'partial'; status = what the worker cached; waiting = an update is downloaded
   const off = ui._offline = { state: 'pending', status: null, waiting: false, persisted: null };

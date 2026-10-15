@@ -5,6 +5,7 @@
   const game = G.game;
   const U = game.U, W = game.W, COL = game.COLORS;
   const M = game.MONSTERS;
+  game.SPECIAL = game.SPECIAL || {};          // R7: def.special → fn(e, def, t, d, dt, p) → true to skip the default fight logic
 
   const MAX_MONSTERS = 80;
   const ACTIVE_R2 = 17 * 17;        // monsters further than this from the player are not simulated at all
@@ -658,7 +659,7 @@
     }
     if (!t) { ai.st = 'sleep'; ai.wind = 0; ai.cast = null; relax(e, 'idle'); return; }
     const d = Math.hypot(t.x - e.x, t.y - e.y);
-    if (d > LEASH && e.rarity !== 'boss' && !e.lockdown) { ai.st = 'sleep'; ai.wind = 0; ai.path = null; relax(e, 'idle'); return; }   // leash: give up
+    if (d > LEASH && e.rarity !== 'boss' && !e.lockdown && !e.fallen) { ai.st = 'sleep'; ai.wind = 0; ai.path = null; relax(e, 'idle'); return; }   // leash: give up
 
     if (ai.wind > 0) {
       ai.wind -= dt * sm;
@@ -679,6 +680,7 @@
       }
     }
     if (e.affixes.length || e.frenzyAt > 0) { game.runModifiers(e, t, d, dt); if (e.dead) return; }
+    if (def.special && game.SPECIAL[def.special] && game.SPECIAL[def.special](e, def, t, d, dt, p)) return;      // R7: act bosses, the Fallen, event monsters
     if (e.rarity === 'legendary' && !e.seen && W.visible(e.x, e.y)) {      // R3.6: announce a legendary the first time it is seen
       e.seen = true;
       U.toast(e.name + ' — ' + e.affixes.join(', '), '#ff8a2b');

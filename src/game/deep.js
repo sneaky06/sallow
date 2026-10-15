@@ -241,7 +241,7 @@
   const WISP_T = 3;
 
   game.onDeepKill = function (t) {
-    if (t.risen || t.rarity === 'boss' || t.faction !== 'enemy') return;
+    if (t.risen || t.rarity === 'boss' || t.faction !== 'enemy' || game.fxOf(G.state.player).extra_minion) return;      // Crane's relic: your kills stay down
     const grave = t.affixes.indexOf('Gravewalker') >= 0;
     if (!grave && !(game.floorHas('echoes') && !t.bossAdd && !t.riftSpawn && U.rng.next() < 0.4)) return;
     wisps.push({ x: t.x, y: t.y, t: grave ? WISP_T : WISP_T + 0.5, pulse: 0, monsterId: t.monsterId, level: t.level, elite: t.rarity !== 'normal', name: t.name.split(',')[0], lockdown: !!t.lockdown });

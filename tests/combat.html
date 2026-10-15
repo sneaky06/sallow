@@ -568,7 +568,7 @@ window.startHarness = function () {
     }
     ok(!badMon.length, 'every monster descriptor valid (' + Object.keys(MO).length + ')', badMon.join('; '));
     ok(game.BOSS_ORDER.length === 4 && game.BOSS_ORDER.every(function (id, i) { return MO[id].boss && MO[id].theme === C.THEMES[i] && MO[id].phases.length >= 3; }), '4 bosses, one per theme, ≥ 3 phases each');
-    ok([5, 10, 15, 20].map(function (d) { return game.bossForDepth(d).id; }).join() === game.BOSS_ORDER.join() && game.bossForDepth(25).id === game.BOSS_ORDER[0] && game.bossForDepth(25).tier === 1,
+    ok([5, 10, 15, 20].map(function (d) { return game.bossForDepth(d).id; }).join() === game.BOSS_ORDER.join() && game.bossForDepth(25).id === 'boss_choir' && game.bossForDepth(30).id === 'boss_world' && game.bossForDepth(35).id === game.BOSS_ORDER[0] && game.bossForDepth(35).tier === 1,
       'boss per boss floor; bosses repeat with a tier beyond depth 20');
     ok(game.hpScale(200) > game.hpScale(100) && game.hpScale(100) > game.hpScale(50) && isFinite(game.hpScale(500)) && game.dmgScale(200) > game.dmgScale(100), 'level scaling keeps growing (depth 50 → 500)');
     ok(game.AFFIX_IDS.length >= 8, game.AFFIX_IDS.length + ' elite affixes');
@@ -1097,7 +1097,7 @@ window.startHarness = function () {
     // every monster type fights
     const errM = H.errors.length; let hurtBy = {};
     const oH = G.on('player:damaged', function (e) { if (e.source && e.source.monsterId) hurtBy[e.source.monsterId] = 1; });
-    const ids = Object.keys(MO).filter(function (id) { return MO[id].theme !== 'minion' && !MO[id].boss; });
+    const ids = Object.keys(MO).filter(function (id) { return MO[id].theme !== 'minion' && MO[id].theme !== 'event' && !MO[id].boss; });
     for (let i = 0; i < ids.length; i += 6) {
       p = fresh('warrior', true); p.stats.hpMax = p.hp = 1e7;
       ids.slice(i, i + 6).forEach(function (id, k) { const e = game.createMonster(id, p.x + 3, p.y - 3 + k * 1.2, 2); S.entities.push(e); });
@@ -2135,6 +2135,89 @@ ok(back.hp < 1e6 && front[0].hp < 1e6 && front[1].hp < 1e6, 'Whirlwind hits all 
     oRise(); oTx();
     const gE0 = p.gold, drops0 = H.drops; echo.hp = 1; game.playerHit(echo, { pct: 100, type: 'phys', skill: false });
     ok(echo.dead && p.gold === gE0 + 500 && !S.flags.echo && H.drops === drops0 + 1 && H.lastDrop.floor === 'rare', 'killing it returns the corpse gold through reclaimCorpse + a rare-or-better drop');
+
+    section('R7 act bosses and the Hearthking');
+    const tank = function (q) { game.addEffect(q, { id: 'test_tank', t: 1e6, mods: { hpMax: 1e7 } }); q.hp = q.stats.hpMax; };
+    p = fresh('warrior', true, 30); p = toLevel(p, 32); tank(p);
+    const hk = game.createBoss(30, p.x + 4, p.y); S.entities.push(hk);
+    ok(hk.monsterId === 'boss_world' && hk.name.indexOf('Hearthking') >= 0 && game.createBoss(25, 1, 1).monsterId === 'boss_choir', 'depth 25 → the Choir, depth 30 → ' + hk.name);
+    hk.ai.st = 'chase'; step(3);
+    hk.hp = Math.round(hk.stats.hpMax * 0.6); step(6);
+    const exposed = !!game.getEffect(hk, 'ember_exposed') || game.zones.some(function (z) { return z.color === '#a04040'; });
+    ok(hk.ai.phase === 1 && exposed, 'phase II: root lashes and the exposed Ember');
+    hk.hp = Math.round(hk.stats.hpMax * 0.3); const cnt = []; const oFc = G.on('ui:toast', function (e) { if (/Factor/.test(e.text)) cnt.push(e.text); }); step(1);
+    for (let i = 0; i < 3; i++) { p.x = hk.x - 6; p.y = hk.y; game.onPlayerMoved(true); G.input.move.x = -1; G.emit('input:classaction', {}); G.input.move.x = 0; step(4.6); }
+    oFc();
+    ok(hk.ai.phase === 2 && hk.sprite.body === 'demon' && hk.ai.lastInward !== undefined && cnt.length >= 3 && /Three/.test(cnt[2]), 'phase III: the body changes, the floor pulses INWARD/OUTWARD, the Factor counts your dashes', cnt.join(' '));
+    let tomes = 0; const tWas = G.items.grantTome; G.items.grantTome = function () { tomes++; return true; };
+    hk.hp = 1; game.playerHit(hk, { pct: 100, type: 'phys', skill: false }); G.items.grantTome = tWas;
+    ok(hk.dead && tomes === 1 && S.flags.worldBossKilled, 'the Hearthking drops a Tome of Insight');
+    p = fresh('sorcerer', true, 25); tank(p); const chB = game.createBoss(25, p.x + 3, p.y); S.entities.push(chB); chB.ai.st = 'chase';
+    let sung = false; step(14, function () { if (chB.ai.song) sung = true; });
+    ok(sung, 'the Choir sings (a ring to leave or a song to break)');
+
+    section('R7.6 the Fallen');
+    ok(['fallen_2', 'fallen_4', 'fallen_8', 'fallen_9'].every(function (id) { return game.FALLEN[id] && game.MONSTERS['adv_' + id] && game.fallenFor(game.FALLEN[id].depth) === id; }), 'Brannoc (9), Wren (16), Varr (24), Crane (28) are built');
+    const relics = []; const gWas = G.items.grantRelic; G.items.grantRelic = function (id) { relics.push(id); S.flags.relics = (S.flags.relics || []).concat([id]); return true; };
+    p = fresh('ranger', false, 9);
+    const br = S.entities.find(function (e) { return e.fallen; });
+    ok(br && br.adventurerId === 'fallen_2' && br.monsterId === 'adv_fallen_2' && br.rarity === 'legendary', 'entering depth 9: Brannoc waits there (fallen, adventurerId)');
+    S.entities = S.entities.filter(function (e) { return e === br; }); p.x = br.x + 3; p.y = br.y; game.onPlayerMoved(true); br.guard = 0; br.ai.st = 'chase';
+    const hf = br.hp; game.applyHit(br, { phys: 1000 }, { src: p }); const frontH = hf - br.hp; br.hp = hf;
+    p.x = br.x - 3; game.onPlayerMoved(true); br.guard = 0; game.applyHit(br, { phys: 1000 }, { src: p }); const back = hf - br.hp; br.hp = hf;
+    ok(frontH < back * 0.3, 'Brannoc shield: frontal hits mostly stopped (' + frontH + ' vs ' + back + ' from behind)');
+    p.x = br.x + 5; game.onPlayerMoved(true); tank(p); br.ai.rushCd = 0; let winded = false; step(3, function () { if (game.getEffect(br, 'winded')) winded = true; });
+    ok(winded, 'his charge leaves him winded (the flank window)');
+    br.hp = 1; br.guardDown = S.time + 9; game.playerHit(br, { pct: 100, type: 'phys', skill: false });
+    ok(br.dead && relics[0] === 'fallen_2' && S.flags.fallenSlain.indexOf('fallen_2') >= 0, 'killing him grants his relic and records him as slain');
+    G.scenes.enterDungeon(9);
+    ok(!S.entities.some(function (e) { return e.fallen; }), 'a slain Fallen stays slain');
+    G.scenes.enterDungeon(10);
+    ok(!S.entities.some(function (e) { return e.fallen; }), 'never on boss floors / other depths');
+    p = fresh('warrior', true, 24); tank(p); const iv = game.createFallen('fallen_8', p.x + 4, p.y, 24); S.entities.push(iv); iv.ai.st = 'chase'; const ivh = iv.hp; let late = false; step(6, function () { if (game.zones.some(function (z) { return z.delay > 1.5; })) late = true; });
+    ok(iv.hp < ivh && late, 'Varr burns herself and throws late-bursting bottles');
+    p = fresh('warrior', true, 28); tank(p); const cr = game.createFallen('fallen_9', p.x + 4, p.y, 28); S.entities.push(cr); cr.ai.st = 'chase';
+    const crCorpse = dummy(cr.x + 1, cr.y, 1); crCorpse.hp = 0; game.kill(crCorpse, p); step(4);
+    ok(S.entities.some(function (e) { return e.bossAdd === cr.id && e.risen && !e.dead; }) && game.getEffect(cr, 'crane_host'), 'Crane raises the corpses you leave and grows stronger');
+    p = fresh('ranger', true, 16); const wr = game.createFallen('fallen_4', p.x + 5, p.y, 16); S.entities.push(wr); wr.ai.st = 'chase'; wr.ai.countT = 0.1; let counted = false; step(2, function () { if (game.getEffect(wr, 'counting')) counted = true; });
+    ok(counted, 'Wren stops to count (and takes more damage)');
+    G.items.grantRelic = gWas;
+
+    section('R7.10 relic powers');
+    p = fresh('warrior', true); const reWas = G.items.getRelicEffects; G.items.getRelicEffects = G.items.getRelicEffects || function () { const o = {}; if ((S.flags.relics || []).indexOf('fallen_2') >= 0) o.dash_shield_bash = true; if ((S.flags.relics || []).indexOf('fallen_9') >= 0) o.extra_minion = true; return o; };
+    S.flags.relics = ['fallen_2', 'fallen_9']; game.recomputeStats(p);
+    const fxr = game.fxOf(p); const bash = dummy(p.x + 3.5, p.y, 1e6); G.input.move.x = 1; G.emit('input:classaction', {}); G.input.move.x = 0;
+    ok(fxr.dash_shield_bash && fxr.extra_minion && bash.hp < 1e6 && game.isStunned(bash), 'relic effects reach the game (getRelicEffects); Brannoc relic: the dash ends in a shield bash');
+    S.flags.relics = []; game.recomputeStats(p); G.items.getRelicEffects = reWas;
+
+    section('R7.5 explored, clear grade, timed events');
+    p = fresh('ranger', false, 3);
+    const e0 = game.getExplored(); S.map.explored.fill(1); S.time += 1;
+    ok(e0 >= 0 && e0 < 100 && game.getExplored() === 100, 'getExplored(): 0–100 over walkable tiles (' + e0 + '% at arrival)');
+    let graded = null; const oGr = G.on('floor:graded', function (e) { graded = e; });
+    let sd = null; for (let i = 0; i < S.map.tiles.length && !sd; i++) if (S.map.tiles[i] === C.TILE.STAIRS_DOWN) sd = { x: i % S.map.w, y: (i / S.map.w) | 0 };
+    S.entities = S.entities.filter(function (e) { return e.type !== 'monster'; });
+    const props0 = S.map.props.length; const sp2 = game.W.free(sd.x + 0.5, sd.y + 1.5, 2); p.x = sp2.x; p.y = sp2.y; game.onPlayerMoved(true); step(0.5); oGr();
+    ok(graded && 'SABCD'.indexOf(graded.grade) >= 0 && graded.explored === 100 && game.getClearGrade().grade === graded.grade && (graded.grade === 'D' || S.map.props.length === props0 + 1),
+      'reaching the stairs grades the floor (floor:graded ' + JSON.stringify(graded) + ') and puts a chest by them');
+    const evR = [], offs = [];
+    ['event:start', 'event:update', 'event:end'].forEach(function (n) { offs.push(G.on(n, function (e) { evR.push(n + ':' + e.id); })); });
+    const seenEv = {};
+    let rolled = 0; for (let d = 2; d < 30; d++) { if (d % 5 === 0) continue; p = fresh('warrior', false, d); tank(p); S.entities = S.entities.filter(function (e) { return e.type !== 'monster'; }); step(6); if (game.getEvent()) rolled++; }
+    for (const eid of ['gauntlet', 'keyhunt', 'collapse', 'thief']) {
+      p = fresh('warrior', false, 3); tank(p); S.entities = S.entities.filter(function (e) { return e.type !== 'monster'; }); step(6); if (game.getEvent()) { G.scenes.enterDungeon(4); S.entities = S.entities.filter(function (e) { return e.type !== 'monster'; }); step(0.1); } game.startEvent(eid);
+      const ev = game.getEvent();
+      if (!ev || seenEv[ev.id]) continue;
+      seenEv[ev.id] = 1;
+      if (ev.id === 'keyhunt') { const kc = S.map.props.find(function (pr) { return pr.key; }); game.onBarrelBroken(kc); seenEv.keyOk = S.map.props.some(function (pr) { return pr.event === 'keyhunt' && pr.interact === 'chest' && !pr.locked; }); }
+      if (ev.id === 'thief') { const th = S.entities.find(function (e) { return e.magpie; }); const d0t = Math.hypot(th.x - p.x, th.y - p.y); step(1); seenEv.thiefRuns = Math.hypot(th.x - p.x, th.y - p.y) > d0t; th.hp = 1; game.playerHit(th, { pct: 100, type: 'phys', skill: false }); step(0.1); seenEv.thiefDone = !game.getEvent(); }
+      if (ev.id === 'gauntlet') { const bc = S.map.props.find(function (pr) { return pr.event === 'gauntlet'; }); seenEv.gauntT = ev.timer; p.x = bc.x + 0.5; p.y = bc.y + 0.5; game.onPlayerMoved(true); step(0.3); seenEv.gauntOk = ev.timer > 10 && !game.getEvent(); }
+      if (ev.id === 'collapse') { step(26); seenEv.collapseOk = !game.getEvent(); }
+    }
+    offs.forEach(function (o) { o(); });
+    ok(seenEv.gauntlet && seenEv.keyhunt && seenEv.collapse && seenEv.thief && seenEv.keyOk && seenEv.thiefRuns && seenEv.thiefDone && seenEv.gauntOk && seenEv.collapseOk &&
+      evR.some(function (s) { return s.indexOf('event:start') === 0; }) && evR.some(function (s) { return s.indexOf('event:update') === 0; }) && evR.some(function (s) { return s.indexOf('event:end') === 0; }),
+      'timed events: Gauntlet, Key Hunt, Cave-in, The Magpie start, update and end (' + rolled + ' of 20 floors rolled one)', JSON.stringify(seenEv));
     oT(); H.mods = null;
   }
 
@@ -2421,7 +2504,7 @@ ok(back.hp < 1e6 && front[0].hp < 1e6 && front[1].hp < 1e6, 'Whirlwind hits all 
       let best = null;
       for (let k = 0, n = 0; k < 60 && n < 4; k++) {
         const it = I.rollItem({ level: lvl, slot: slot, rng: rng });
-        if (!it || (it.rarity !== 'common' && it.rarity !== 'magic' && it.rarity !== 'rare')) continue;
+        if (!it || (it.rarity !== 'common' && it.rarity !== 'uncommon' && it.rarity !== 'rare')) continue;
         if (slot === 'weapon' && (wt.indexOf(it.weaponType) < 0 || (p.classId !== 'warrior' && it.twoHanded && it.weaponType !== 'staff' && it.weaponType !== 'bow'))) continue;
         if (slot === 'offhand' && p.equipment.weapon && p.equipment.weapon.twoHanded) break;
         n++;
@@ -2476,7 +2559,7 @@ ok(back.hp < 1e6 && front[0].hp < 1e6 && front[1].hp < 1e6, 'Whirlwind hits all 
     const lvlFor = opts.lvlFor || function (d) { return Math.min(60, Math.round(d * 1.15 + 1)); };
     const pad = function (s, n) { s = String(s); return s + ' '.repeat(Math.max(1, n - s.length)); };
     const f1 = function (v) { return !isFinite(v) ? '∞' : v < 10 ? v.toFixed(1) : String(Math.round(v)); };
-    const lines = ['Hits to kill (basic attack / main skill) and seconds to die standing still — balanced auto-build at the expected level, real items (best of 4 rolls per slot, common–rare)',
+    const lines = ['Hits to kill (basic attack / main skill) and seconds to die standing still — balanced auto-build at the expected level, real items (best of 4 rolls per slot, common–uncommon–rare)',
       pad('depth', 7) + pad('lvl', 5) + pad('class', 13) + pad('normal', 12) + pad('champion', 12) + pad('rare', 12) + pad('pack(5)', 9) + pad('ranged(4)', 10) + 'hp / weapon dps'];
     const rows = [];
     for (const d of depths) {

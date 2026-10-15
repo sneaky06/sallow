@@ -91,6 +91,9 @@
     }
     bonus.fx = {};
     if (fx) for (const k in fx) if (fx[k]) bonus.fx[k] = true;
+    if (G.items && G.items.getRelicEffects) {          // R7.10: relic powers of the Fallen use the same switchboard as mythic effects
+      try { const rf = G.items.getRelicEffects(); for (const k in rf) if (rf[k]) bonus.fx[k] = true; } catch (err) { /* items not loaded */ }
+    }
     if (bonus.fx.hoarder) { bonus.hoard = Math.min(60, Math.floor((p.gold || 0) / 100)); st.dmgPct += bonus.hoard; }
 
     st.str += p.attrs.str; st.dex += p.attrs.dex; st.int += p.attrs.int; st.vit += p.attrs.vit;

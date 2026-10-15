@@ -11,8 +11,11 @@
     blacksmith:  { title: 'Blacksmith',   line: 'Steel does not lie. Show me what you carry.',             tabs: [['buy', 'Buy'], ['forge', 'Forge'], ['sell', 'Sell']] },
     mystic:      { title: 'Mystic',       line: 'The veil is thin tonight. Will you wager against it?',    tabs: [['gamble', 'Gamble'], ['enchant', 'Reroll'], ['buy', 'Buy'], ['sell', 'Sell']] },
     healer:      { title: 'Healer',       line: 'Sit. Bleed quietly. This will only take a moment.',       tabs: [['heal', 'Heal']] },
-    elder:       { title: 'Elder',        line: 'The deep remembers every name. Make it remember yours.',  tabs: [['quests', 'Quests']] },
+    // R7.10: the Relics tab appears once the player holds a relic (and stays after the combine)
+    elder:       { title: 'Elder',        line: 'The deep remembers every name. Make it remember yours.',  tabs: [['quests', 'Quests'], ['relics', 'Relics', function () { return ui._relicsCount && ui._relicsCount() > 0; }]] },
     stashkeeper: { title: 'Stash Keeper', line: 'What you leave with me, the dark cannot take.',           tabs: [['stash', 'Stash']] },
+    // R7.11: the Curator keeps the Collection Book (curator.js)
+    curator:     { title: 'Curator',      line: 'Every piece in its place. Show me what you carry.',       tabs: [['hand', 'Hand in'], ['book', 'Book']] },
   };
   const NPC_SPRITE = {
     merchant: { body: 'humanoid', color: '#8a6a3a', accent: '#d8c9a3', scale: 1 },
@@ -21,6 +24,7 @@
     healer: { body: 'caster', color: '#d8d8e8', accent: '#d0202c', scale: 1 },
     elder: { body: 'humanoid', color: '#5a5a6a', accent: '#d8c9a3', scale: 1 },
     stashkeeper: { body: 'humanoid', color: '#3a5a4a', accent: '#ffd94a', scale: 1 },
+    curator: { body: 'humanoid', color: '#2a6a62', accent: '#9ae6d8', scale: 1 },
   };
   const GAMBLE_SLOTS = [['weapon', 'Weapon', 'sword'], ['offhand', 'Offhand', 'shield'], ['helm', 'Helm', 'helm'], ['chest', 'Armor', 'armor'],
     ['gloves', 'Gloves', 'gloves'], ['boots', 'Boots', 'boots'], ['belt', 'Belt', 'belt'], ['amulet', 'Amulet', 'amulet'], ['ring', 'Ring', 'ring']];
@@ -107,7 +111,7 @@
 
   // R5.8: "Sell all ≤ White / Blue / Yellow" — one tap, then a confirm that names the count and the gold.
   // Never touches sets, Legendary, gems, lore or locked items (the items module enforces it; the preview shows it).
-  const MASS = ['common', 'magic', 'rare'];
+  const MASS = ['common', 'uncommon', 'rare'];
   function massPreview(r) {
     if (G.items && G.items.previewSellAtOrBelow) { try { return G.items.previewSellAtOrBelow(r) || { count: 0, gold: 0 }; } catch (err) { return null; } }
     return null;
@@ -125,7 +129,7 @@
     };
     const what = pv ? pv.count + ' item' + (pv.count === 1 ? '' : 's') + ' for ' + fmt(pv.gold || 0) + ' gold' : 'everything ' + name + ' or below';
     ui._confirm('Sell ' + what + '?', 'Sell', go,
-      { note: (pv && pv.gems > 0 ? pv.gems + ' socketed gems will be ground to dust. ' : '') + 'Locked items, sets and Legendary items are kept. You can buy items back until you next go down.' });
+      { note: (pv && pv.gems > 0 ? pv.gems + ' socketed gems will be ground to dust. ' : '') + 'Locked items, set pieces, Legendary items and Collection Book pieces are kept. You can buy items back until you next go down.' });
   }
   function massRow() {
     if (!G.items || !G.items.sellAtOrBelow) return null;
@@ -153,8 +157,10 @@
       h('div', { class: 'ed-inv' },
         h('div', { class: 'ed-dollwrap' }, ui._doll(p, function (slot, item) {
           const u = ui._upgradeInfo(item);
-          return { acts: [{ label: 'Upgrade', cls: 'gold', disabled: u.blocked, fn: function () { if (call('upgrade', slot) === false) ui._sfx('error'); } }]
-            .concat(ui._unsocketActions(item, slot)), info: u.line ? [u.line] : [] };
+          const acts = [{ label: 'Upgrade', cls: 'gold', disabled: u.blocked, fn: function () { if (call('upgrade', slot) === false) ui._sfx('error'); } }];
+          const cl = ui._cleanseAction(item, slot), info = u.line ? [u.line] : [];
+          if (cl) { acts.push(cl); info.push({ text: cl.info, bad: cl.bad }); }
+          return { acts: acts.concat(ui._unsocketActions(item, slot)), info: info };
         })),
         ui._invGrid(p, 'forge', 'blacksmith', function (it) { return !!it.slot || it.type === 'gem'; })));
   }
@@ -299,7 +305,10 @@
       const it = stash[i] || null;
       if (it) used++;
       grid.appendChild(ui._cell(it, { arrow: true, onTap: function (item) {
-        ui._showItem(item, [{ label: 'Withdraw', cls: 'gold', fn: function () { if (call('stashWithdraw', i) === false) ui._sfx('error'); } }]);
+        const acts = [{ label: 'Withdraw', cls: 'gold', fn: function () { if (call('stashWithdraw', i) === false) ui._sfx('error'); } }];
+        const cur = ui._curatorAction(item, i, 'stash');          // R7.11 hand a stashed piece in without withdrawing it
+        if (cur) acts.unshift(cur);
+        ui._showItem(item, acts);
       } }));
     }
     return h('div', { class: 'ed-body' },
@@ -327,7 +336,7 @@
       if (!p) return ui._frame(def.title, null, h('div', { class: 'ed-body' }));
       // reopen on the tab used last time at this vendor (session only) — most visits repeat the last errand
       // R7.7 town revival: some services open with later acts (story_data.js TOWN)
-      const tabs = def.tabs.filter(function (t) { return !ui._serviceOpen || ui._serviceOpen(role, t[0]); });
+      const tabs = def.tabs.filter(function (t) { return (!ui._serviceOpen || ui._serviceOpen(role, t[0])) && (!t[2] || t[2]()); });
       if (view.tab && !tabs.some(function (t) { return t[0] === view.tab; })) view.tab = null;
       if (!view.tab) view.tab = lastTab[role] && tabs.some(function (t) { return t[0] === lastTab[role]; }) ? lastTab[role] : tabs[0][0];
       lastTab[role] = view.tab;
@@ -339,8 +348,12 @@
       else if (view.tab === 'heal') body = healTab(p);
       else if (view.tab === 'enchant') body = enchantTab(p);
       else if (view.tab === 'quests') body = h('div', { class: 'ed-body' }, questList(true));
+      else if (view.tab === 'relics') body = ui._relicsBody();
+      else if (view.tab === 'hand') body = ui._handInBody(view);
+      else if (view.tab === 'book') body = ui._bookBody(view);
       else body = stashBody(p);
-      const right = view.tab === 'stash' ? stashSort() : null;
+      const right = view.tab === 'stash' ? stashSort()
+        : view.tab === 'book' && view.page ? [ui._btn('◀ Pages', function () { view.page = null; ui._refreshNow(); })] : null;
       const sub = h('div', { class: 'ed-npc' }, ui._portrait((ent && ent.sprite) || NPC_SPRITE[role], 48),
         h('div', { style: 'flex:1;min-width:0' }, h('b', { class: 'ed-ember', text: (ent && ent.name) || def.title }), h('p', { text: '"' + ((ui._townLine && ui._townLine(role)) || def.line) + '"' })),
         ui._goldEl(p.gold || 0));

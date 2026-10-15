@@ -109,7 +109,9 @@
 
     S.player = p;
     S.flags = flags;
+    meta._applyStashBonus(flags);
     S.stash = fit(data.stash, C.STASH_SIZE);
+    if (G.items && G.items.migrateState) { try { G.items.migrateState(); } catch (err) { console.error('[meta migrateState]', err); } }     // R7.1: old rarity keys
     S.seed = (data.seed >>> 0) || 1;
     S.time = +data.time || 0;
     if (data.settings && typeof data.settings === 'object') {
@@ -122,6 +124,18 @@
     if (G.bumpId) G.bumpId(Math.max(maxId(p, 0), maxId(S.stash, 0), maxId(flags.corpse, 0)));
     return true;
   };
+
+  // R7.11 Collection Book milestones add stash rows (10 cells each): the stash size is C.STASH_SIZE everywhere (items + ui),
+  // so raising it is the whole job. Never lowers it; the base is whatever the constants said when this file loaded.
+  const STASH_BASE = C.STASH_SIZE;
+  meta._applyStashBonus = function (flags) {
+    const f = flags || S.flags;
+    const rows = f && f.collection && typeof f.collection === 'object' ? Math.max(0, f.collection.stash | 0) : 0;
+    C.STASH_SIZE = STASH_BASE + Math.min(rows, 20) * 10;
+    if (Array.isArray(S.stash)) while (S.stash.length < C.STASH_SIZE) S.stash.push(null);
+  };
+  G.on('collection:tier', function () { meta._applyStashBonus(); });
+  G.on('scene:changed', function () { meta._applyStashBonus(); });
 
   meta.hasSave = function () { return !!read(); };
 

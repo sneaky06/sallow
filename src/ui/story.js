@@ -346,7 +346,11 @@
           ui._icon({ shape: 'scroll', color: '#d9cba3', accent: '#8f8470' }, 32), h('span', { class: 'n', text: pg.title })));
       });
       if (!have.length) pages.appendChild(h('div', { class: 'ed-note', text: 'Torn pages turn up in chests and on the strongest monsters.' }));
-      return ui._frame('Journal', null, h('div', { class: 'ed-body' }, h('div', { class: 'ed-list' }, story, pages)));
+      // R7.10 / R7.11: the Relics and the Collection Book are one tap from the journal, wherever the player is
+      const right = [];
+      if (ui._relicsBody && G.items && G.items.RELICS) right.push(ui._btn('Relics', function () { ui.open('relics'); }));
+      if (ui._bookBody && G.items && G.items.collection) right.push(ui._btn('Book', function () { ui.open('collection'); }));
+      return ui._frame('Journal', { right: right }, h('div', { class: 'ed-body' }, h('div', { class: 'ed-list' }, story, pages)));
     },
   });
 })();
