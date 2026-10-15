@@ -129,14 +129,57 @@
     el.atkIco = ui._icon({ shape: 'slash', color: '#ffb0a0', accent: '#b3202a' }, 48);
     el.atkTxt = document.createTextNode('Attack');
     el.atk = h('button', { type: 'button', class: 'ed-atk ed-mv', 'aria-label': 'Attack' }, el.atkIco, el.atkTxt);
+    // R8.14: in LOOT mode a tap takes the whole pile next to you (best first, whatever fits) without a popup; press-and-hold opens the
+    // popup to choose item by item. Anything else is the normal attack button.
+    let lootHold = null;
+    const nearPile = function () {
+      const p = S.player;
+      if (!p || S.scene === 'town' || !G.items || !(G.game && typeof G.game.getActionMode === 'function')) return null;
+      let mode = 'attack';
+      try { mode = G.game.getActionMode(); } catch (err) { mode = 'attack'; }
+      if (mode !== 'loot') return null;
+      let best = null, bd = 1e9;
+      for (const g of (S.groundItems || [])) {
+        if (!g || !g.item || g.item.type === 'gold') continue;
+        const d = Math.hypot(g.x - p.x, g.y - p.y);
+        if (d <= 2.6 && d < bd) { bd = d; best = g; }
+      }
+      return best;
+    };
+    const lootAll = function (g) {
+      let r = null;
+      if (g.pileId != null && typeof G.items.pickupPile === 'function') { try { r = G.items.pickupPile(g.pileId); } catch (err) { console.error('[ui pickupPile]', err); } }
+      else { try { r = { taken: G.items.pickup(g.id) ? 1 : 0, left: 0 }; } catch (err) { r = { taken: 0, left: 0 }; } }
+      if (r && r.taken > 0) ui._sfx('loot'); else ui._sfx('error');
+      if (r && r.left > 0) ui.toast(r.taken > 0 ? 'Your bag is full. ' + r.left + ' left on the ground.' : 'Your bag is full.', '#a89f8f');
+      if (ui._closePile) ui._closePile();
+    };
     el.atk.addEventListener('pointerdown', function (e) {
       e.preventDefault();
       try { el.atk.setPointerCapture(e.pointerId); } catch (err) { /* synthetic pointer */ }
+      const lg = nearPile();
+      if (lg) {
+        el.atk.classList.add('on');
+        const hold = { g: lg, fired: false, t: 0 };
+        hold.t = setTimeout(function () {
+          hold.fired = true;
+          if (lg.pileId != null && ui._openPile) { ui._sfx('click'); ui._openPile(lg.pileId); } else lootAll(lg);
+        }, 450);
+        lootHold = hold;
+        return;
+      }
       G.input.attackHeld = true;
       el.atk.classList.add('on');
       G.emit('input:attack', {});
     });
-    const release = function () { G.input.attackHeld = false; el.atk.classList.remove('on'); };
+    const release = function (e) {
+      if (lootHold) {
+        const hold = lootHold; lootHold = null;
+        clearTimeout(hold.t);
+        if (!hold.fired && e && e.type === 'pointerup') lootAll(hold.g);
+      }
+      G.input.attackHeld = false; el.atk.classList.remove('on');
+    };
     ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(function (t) { el.atk.addEventListener(t, release); });
     window.addEventListener('blur', release);
 

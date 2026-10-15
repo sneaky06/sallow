@@ -43,12 +43,19 @@
       view.marked = {};
       ui._refreshNow();
     };
-    const send = ui._btn('Send' + (marked.length ? ' (' + marked.length + ')' : ''), function () { doSend(marked); }, marked.length ? 'gold' : '');
-    if (!marked.length) send.disabled = true;
-    const sj = ui._btn('Send junk' + (junk.length ? ' (' + junk.length + ')' : ''), function () { doSend(junk); }, junk.length ? 'gold' : '');
-    if (!junk.length) sj.disabled = true;
+    // R8.13: the crate up top holds a fixed number of items; a full one refuses everything
+    const size = (G.items && G.items.SURFACE_SIZE) || C.SURFACE_SIZE || 20;
+    const used = surface().filter(Boolean).length;
+    let space = size - used;
+    if (G.items && typeof G.items.surfaceSpace === 'function') { try { space = G.items.surfaceSpace() | 0; } catch (err) { /* keep ours */ } }
+    const full = space <= 0;
+    const send = ui._btn('Send' + (marked.length ? ' (' + Math.min(marked.length, Math.max(space, 0)) + ')' : ''), function () { doSend(marked.slice(0, Math.max(space, 0))); }, marked.length && !full ? 'gold' : '');
+    if (!marked.length || full) send.disabled = true;
+    const sj = ui._btn('Send junk' + (junk.length && !full ? ' (' + Math.min(junk.length, space) + ')' : ''), function () { doSend(junk); }, junk.length && !full ? 'gold' : '');
+    if (!junk.length || full) sj.disabled = true;
     return { body: h('div', { class: 'ed-body' },
-      h('div', { class: 'ed-note', style: 'margin-bottom:6px', text: view.look ? 'Looking: tap an item to inspect it.' : 'Tap items to mark them, then Send. They arrive at the surface crate in town, instantly.' }),
+      h('div', { class: 'ed-kv', style: 'margin-bottom:4px' }, h('span', { text: 'Crate up top' }), h('b', { class: full ? 'ed-bad' : (space <= 3 ? 'ed-gold' : null), text: used + ' / ' + size + (full ? '  FULL' : '') })),
+      h('div', { class: 'ed-note', style: 'margin-bottom:6px', text: full ? 'The crate is full. Sell or salvage things up top, or drop what is not worth keeping.' : (marked.length > space ? 'Only ' + space + ' more fit.' : view.look ? 'Looking: tap an item to inspect it.' : 'Tap items to mark them, then Send. They arrive at the surface crate in town, instantly.') }),
       grid), foot: [send, sj, ui._btn(view.look ? 'Mark' : 'Look', function () { view.look = !view.look; ui._refreshNow(); }, view.look ? 'on' : ''),
       ui._btn('Clear', function () { view.marked = {}; ui._refreshNow(); })] };
   }

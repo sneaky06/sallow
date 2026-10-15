@@ -201,7 +201,9 @@
 .ed-pinfo{flex:none;width:44px;padding:0!important}
 .ed-pilesheet{position:absolute;left:0;right:0;margin:0 auto;top:var(--sat);width:min(340px,96vw);max-height:max(35vmin,152px);display:flex;flex-direction:column;background:#0d0b0ff2;border:2px solid var(--iron-hi);box-shadow:0 0 0 1px var(--iron-lo),0 4px 0 #0008;pointer-events:auto}
 .ps-head{flex:none;display:flex;gap:4px;align-items:center;padding:2px;background:var(--iron-lo)}
-.ps-fold{background:none;border:0;flex:1;min-width:0;min-height:44px;padding:0 6px!important;text-align:left;color:var(--brass-hi);text-transform:uppercase;font-size:11px;pointer-events:auto}
+.ps-take{flex:1;min-height:52px;font-size:14px;letter-spacing:1px}
+.ps-head{border-top:1px solid var(--iron-hi)}
+.ps-fold{background:none;border:0;flex:none;max-width:34%;min-width:0;min-height:44px;padding:0 6px!important;text-align:left;color:var(--brass-hi);text-transform:uppercase;font-size:11px;pointer-events:auto}
 .ps-list{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;touch-action:pan-y}
 .ed-pilesheet .ed-row{min-height:44px}
 .ed-pile .ed-row{padding-right:0!important}

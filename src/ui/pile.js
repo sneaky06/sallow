@@ -54,7 +54,7 @@
     sheetAt = g0 ? { x: g0.x, y: g0.y } : null;
     sheetPile = pileId;
     const head = h('div', { class: 'ps-head' }), list = h('div', { class: 'ps-list' });
-    sheet = h('div', { class: 'ed-pilesheet' + (sheetCollapsed ? ' collapsed' : '') }, head, list);
+    sheet = h('div', { class: 'ed-pilesheet' + (sheetCollapsed ? ' collapsed' : '') }, list, head);
     sheetLayer.appendChild(sheet);
     const fill = function () {
       if (!sheet || sheetPile !== pileId) return;
@@ -67,11 +67,11 @@
         if (r && r.left > 0 && r.taken > 0) ui.toast('Your bag is full. ' + r.left + ' left on the ground.', '#a89f8f');
         ui._sfx(r && !r.taken ? 'error' : 'loot');
         fill();
-      }, 'gold');
+      }, 'gold ps-take');
       const fold = h('button', { type: 'button', class: 'ps-fold', 'aria-label': sheetCollapsed ? 'Show pile' : 'Hide pile', 'aria-expanded': sheetCollapsed ? 'false' : 'true',
         onclick: function () { ui._sfx('click'); sheetCollapsed = !sheetCollapsed; sheet.classList.toggle('collapsed', sheetCollapsed); fill(); } },
         (sheetCollapsed ? '▸ ' : '▾ ') + 'Pile · ' + items.length);
-      head.replaceChildren(fold, takeAll, ui._btn('X', closeSheet, 'ed-x'));
+      head.replaceChildren(fold, ui._btn('X', closeSheet, 'ed-x'), takeAll);          // R8.14: big Take all last = bottom-right, the action-button side
       if (sheetCollapsed) { list.replaceChildren(); return; }
       list.replaceChildren.apply(list, items.map(function (g) {
         const it = g.item, gold = it.type === 'gold';

@@ -600,19 +600,24 @@
   I.getSurface = function () { return surface(); };
 
   // Send bag items up. index | [indices]. Gold, potions and materials never occupy cells, so only real items can be sent. -> count sent
+  I.SURFACE_SIZE = (C.SURFACE_SIZE | 0) || 20;      // R8.13: the crate up top holds at most this many items
+  I.surfaceSpace = function () { return Math.max(0, I.SURFACE_SIZE - surface().length); };
+
   I.chuteSend = function (indices) {
     const p = P();
     if (!p) return 0;
     const list = Array.isArray(indices) ? indices : [indices];
     const sf = surface();
-    let n = 0;
+    let n = 0, refused = false;
     for (const i of list) {
       const it = p.inventory[i];
       if (!it) continue;
+      if (sf.length >= I.SURFACE_SIZE) { refused = true; break; }
       p.inventory[i] = null;
       sf.push(it);
       n++;
     }
+    if (refused) D.fail('The crate up top is full');
     if (n) {
       G.emit('sfx', { name: 'click' });
       G.emit('surface:changed', { count: sf.length });
@@ -622,19 +627,25 @@
   };
 
   // "Send junk": every bag item that I.isJunk (junk rules, never locked / wanted / protected items) goes up. -> { count }
+  function junkIndices() {
+    const p = G.state.player, out = [];
+    if (p && p.inventory) for (let i = 0; i < p.inventory.length; i++) if (p.inventory[i] && I.isJunk(p.inventory[i])) out.push(i);
+    return out;
+  }
+  // Only what fits goes up, best value first. -> { count, left } (left = junk that did not fit)
   I.sendJunk = function () {
     const p = P();
-    const idx = [];
-    if (p) for (let i = 0; i < p.inventory.length; i++) if (p.inventory[i] && I.isJunk(p.inventory[i])) idx.push(i);
-    const count = I.chuteSend(idx);
+    const idx = p ? junkIndices() : [];
+    idx.sort(function (a, b) { return sellValue(p.inventory[b]) - sellValue(p.inventory[a]); });
+    const fit = idx.slice(0, I.surfaceSpace());
+    const count = I.chuteSend(fit);
     if (count) D.toast('Sent ' + count + ' junk item' + (count > 1 ? 's' : '') + ' up the chute', '#8fb4ff');
-    return { count: count };
+    if (idx.length > count) D.fail('The crate up top is full');
+    return { count: count, left: idx.length - count };
   };
   I.previewSendJunk = function () {
-    const p = G.state.player;
-    let n = 0;
-    if (p && p.inventory) for (const it of p.inventory) if (it && I.isJunk(it)) n++;
-    return { count: n };
+    const n = junkIndices().length;
+    return { count: Math.min(n, I.surfaceSpace()), left: Math.max(0, n - I.surfaceSpace()) };
   };
 
   // Take a surface item into the bag (works anywhere). -> bool
