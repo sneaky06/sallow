@@ -73,8 +73,8 @@ function harness() {
   'use strict';
   const I = G.items, C = G.C, S = G.state, D = I.data;
   const $ = function (id) { return document.getElementById(id); };
-  const ORDER = ['common', 'magic', 'rare', 'epic', 'set', 'legendary', 'mythic'];
-  const TARGET = { common: 55, magic: 33, rare: 10, epic: 1.7, legendary: 0.125, set: 0.08, mythic: 0.002 };
+  const ORDER = ['common', 'uncommon', 'rare', 'magic', 'set', 'legendary', 'mythic'];
+  const TARGET = { common: 55, uncommon: 33, rare: 10, magic: 1.7, legendary: 0.125, set: 0.08, mythic: 0.002 };
   const T = window.T = { results: [], events: {}, recomputes: 0 };
 
   // ---- stubs ----
@@ -96,6 +96,7 @@ function harness() {
     return S.player;
   }
   T.mkPlayer = mkPlayer;
+  D.COLLECTION.protect = false;      // the R7.11 section switches the collection protection back on
 
   // ---- rendering ----
   function card(item) {
@@ -277,7 +278,7 @@ function harness() {
   section('Item generation', function () {
     mkPlayer('warrior', 30);
     const slotsSeen = {}, wtSeen = {}, bad = [];
-    const range = { common: [0, 0], magic: [1, 2], rare: [3, 4], epic: [4, 5] };
+    const range = { common: [0, 0], uncommon: [1, 2], rare: [3, 4], magic: [4, 5] };
     for (let i = 0; i < 6000; i++) {
       const lvl = 1 + (i % 90);
       const it = I.rollItem({ level: lvl, magicFind: 200 });
@@ -307,14 +308,14 @@ function harness() {
       const it = I.rollItem({ level: 20, slot: s });
       eq(it.slot, s.replace(/[12]$/, ''), 'rollItem({slot:"' + s + '"})');
     });
-    eq(I.rollItem({ level: 20, rarity: 'epic' }).rarity, 'epic', 'explicit rarity honoured');
+    eq(I.rollItem({ level: 20, rarity: 'magic' }).rarity, 'magic', 'explicit rarity honoured');
     eq(I.rollItem({ level: 20, baseId: 'bow_3', rarity: 'rare' }).baseId, 'bow_3', 'explicit baseId honoured');
     ok(I.rollItem({ level: 3, rarity: 'legendary' }).rarity === 'legendary', 'explicit elite (key legendary) works even at low level');
     ok(C.RARITY[I.rollItem({ level: 1, rarity: 'common', slot: 'ring' }).rarity].order >= 1, 'jewellery is never plain common');
     const seeded1 = I.rollItem({ level: 25, rng: G.rng.create(42) }), seeded2 = I.rollItem({ level: 25, rng: G.rng.create(42) });
     eq(seeded1.name + seeded1.value, seeded2.name + seeded2.value, 'seeded rng is deterministic');
     const names = [];
-    for (let i = 0; i < 4; i++) names.push(I.rollItem({ level: 30, rarity: 'magic', slot: 'weapon' }).name, I.rollItem({ level: 30, rarity: 'rare' }).name);
+    for (let i = 0; i < 4; i++) names.push(I.rollItem({ level: 30, rarity: 'uncommon', slot: 'weapon' }).name, I.rollItem({ level: 30, rarity: 'rare' }).name);
     T.sampleNames = names;
     ok(I.rollItem({ level: 30, rarity: 'rare' }).name.split(' ').length === 2, 'rare items get two-word names', names.join(', '));
   });
@@ -331,7 +332,7 @@ function harness() {
       if (u.rarity !== 'set' && !u.flavor) bad.push(u.id + ' flavor');
       cls[u.cls || 'any'] = (cls[u.cls || 'any'] || 0) + 1;
       const it = I.rollItem({ level: 60, uniqueId: u.id });
-      if (it.name !== u.name || it.rarity !== u.rarity || it.mods.length < u.mods.length) bad.push(u.id + ' build');
+      if (it.name !== u.name || it.rarity !== (u.rarity === 'set' ? 'legendary' : u.rarity) || it.mods.length < u.mods.length) bad.push(u.id + ' build');
     });
     ok(bad.length === 0, 'all uniques reference valid bases/stats, have flavour and build', bad.join(', '));
     ok(cls.warrior >= 5 && cls.ranger >= 5 && cls.sorcerer >= 5 && cls.necromancer >= 5, 'uniques spread across all four classes', JSON.stringify(cls));
@@ -352,7 +353,7 @@ function harness() {
     ok(I.equip(idx(s1)), 'equip sword');
     ok(p.equipment.weapon === s1 && count() === 0, 'sword in weapon slot, bag empty');
     ok(T.recomputes === 1 && T.events['equipment:changed'].length === 1, 'recomputeStats called + equipment:changed emitted');
-    const s2 = give({ level: 12, baseId: 'axe_3', rarity: 'magic' });
+    const s2 = give({ level: 12, baseId: 'axe_3', rarity: 'uncommon' });
     const at = idx(s2);
     ok(I.equip(at) && p.equipment.weapon === s2 && inv()[at] === s1, 'equipping another weapon swaps into the same bag cell');
     const hi = give({ level: 60, baseId: 'sword_8', rarity: 'common' });
@@ -379,14 +380,14 @@ function harness() {
 
     // rings
     mkPlayer('warrior', 30);
-    const r1 = give({ level: 20, slot: 'ring', rarity: 'magic' }), r2 = give({ level: 20, slot: 'ring', rarity: 'rare' }), r3 = give({ level: 25, slot: 'ring', rarity: 'epic' });
+    const r1 = give({ level: 20, slot: 'ring', rarity: 'uncommon' }), r2 = give({ level: 20, slot: 'ring', rarity: 'rare' }), r3 = give({ level: 25, slot: 'ring', rarity: 'magic' });
     I.equip(idx(r1)); I.equip(idx(r2));
     const pl = S.player;
     ok(pl.equipment.ring1 === r1 && pl.equipment.ring2 === r2, 'rings fill ring1 then ring2');
     const weaker = D.scoreItem(r1) <= D.scoreItem(r2) ? r1 : r2;
     I.equip(idx(r3));
     ok((pl.equipment.ring1 === r3 || pl.equipment.ring2 === r3) && idx(weaker) >= 0, 'third ring replaces the weaker one');
-    const r4 = give({ level: 20, slot: 'ring', rarity: 'magic' });
+    const r4 = give({ level: 20, slot: 'ring', rarity: 'uncommon' });
     ok(I.equip(idx(r4), 'ring2') && pl.equipment.ring2 === r4, 'explicit ring slot (extension arg)');
     ok(I.unequip('ring1') && pl.equipment.ring1 === null, 'unequip ring1');
     const gem = give({ level: 10, baseId: 'gem_ruby_1' });
@@ -492,11 +493,11 @@ function harness() {
     T.mcQuick = res;
     const c0 = res[0];
     ok(Math.abs(c0.common / res.n - 0.55) < 0.012, 'common ~55% at 0 MF', pct(c0.common / res.n));
-    ok(Math.abs(c0.magic / res.n - 0.33) < 0.012, 'magic ~33% at 0 MF', pct(c0.magic / res.n));
+    ok(Math.abs(c0.uncommon / res.n - 0.33) < 0.012, 'magic ~33% at 0 MF', pct(c0.uncommon / res.n));
     ok(Math.abs(c0.rare / res.n - 0.10) < 0.008, 'rare ~10% at 0 MF', pct(c0.rare / res.n));
-    ok(Math.abs(c0.epic / res.n - 0.017) < 0.004, 'epic ~1.7% at 0 MF', pct(c0.epic / res.n));
+    ok(Math.abs(c0.magic / res.n - 0.017) < 0.004, 'epic ~1.7% at 0 MF', pct(c0.magic / res.n));
     ok(c0.legendary / res.n < 0.006 && c0.mythic / res.n < 0.0006, 'elite and mythic stay rare', pct(c0.legendary / res.n) + ' / ' + pct(c0.mythic / res.n));
-    const top = function (c) { return (c.rare + c.epic + c.legendary + c.set + c.mythic) / res.n; };
+    const top = function (c) { return (c.rare + c.magic + c.legendary + c.set + c.mythic) / res.n; };
     ok(top(res[100]) > top(res[0]) * 1.4 && top(res[300]) > top(res[100]) * 1.2, 'magic find shifts weight upward', pct(top(res[0])) + ' -> ' + pct(top(res[100])) + ' -> ' + pct(top(res[300])));
     const p0 = I.rarityChances(0).legendary, p1 = I.rarityChances(100).legendary, p3 = I.rarityChances(300).legendary, p9 = I.rarityChances(900).legendary;
     ok((p1 - p0) / 100 > (p3 - p1) / 200 && (p3 - p1) / 200 > (p9 - p3) / 600, 'magic find has diminishing returns');
@@ -518,7 +519,7 @@ function harness() {
     const g = give({ baseId: 'gem_ruby_1', qty: 4 });
     eq(I.sell(idx(g)), 4 * D.GEM_VALUE[0], 'selling a stack pays value x qty');
     p.gold = 0;
-    const junk = [give({ level: 20, rarity: 'common', slot: 'helm' }), give({ level: 20, rarity: 'magic', slot: 'boots' })];
+    const junk = [give({ level: 20, rarity: 'common', slot: 'helm' }), give({ level: 20, rarity: 'uncommon', slot: 'boots' })];
     const keep = [give({ level: 20, rarity: 'rare', slot: 'gloves' }), give({ level: 20, rarity: 'legendary' }), give({ baseId: 'gem_topaz_1' })];
     const expect = junk[0].value + junk[1].value;
     eq(I.sellAllBelow('rare'), expect, 'sellAllBelow("rare") sells common + magic equipment');
@@ -564,7 +565,7 @@ function harness() {
 
     // salvage
     mkPlayer('warrior', 20);
-    const s1 = give({ level: 20, rarity: 'magic', slot: 'helm' }), s2 = give({ level: 20, rarity: 'rare', slot: 'helm' }), s3 = give({ level: 20, rarity: 'legendary' }), s4 = give({ baseId: 'gem_ruby_1' });
+    const s1 = give({ level: 20, rarity: 'uncommon', slot: 'helm' }), s2 = give({ level: 20, rarity: 'rare', slot: 'helm' }), s3 = give({ level: 20, rarity: 'legendary' }), s4 = give({ baseId: 'gem_ruby_1' });
     ok(I.salvage(idx(s1)) && S.player.materials.dust > 0 && idx(s1) < 0, 'salvage magic -> dust');
     ok(I.salvage(idx(s2)) && S.player.materials.shard > 0, 'salvage rare -> shard');
     ok(I.salvage(idx(s3)) && S.player.materials.essence === 1, 'salvage elite -> essence');
@@ -575,14 +576,14 @@ function harness() {
     const w = give({ level: 20, rarity: 'rare', baseId: 'sword_4' });
     I.equip(idx(w));
     ok(I.upgrade('weapon') === false, 'upgrade refused without gold/materials');
-    pl.gold = 1e7; pl.materials = { dust: 999, shard: 99, essence: 9 };
+    pl.gold = 1e7; pl.materials = { dust: 999, shard: 99, essence: 9, forge_warrior: 99, forge_ranger: 99, forge_sorcerer: 99, forge_necromancer: 99 };
     const cost = I.upgradeCost(w), d0 = w.base.dmgMax, v0 = w.value;
     clearEvents();
     ok(I.upgrade('weapon'), 'upgrade equipped weapon by slot');
     ok(w.plus === 1 && w.base.dmgMax > d0 && w.value > v0 && / \+1$/.test(w.name), 'upgrade boosts base damage, value and name', w.name);
     ok(pl.gold === 1e7 - cost.gold && pl.materials.dust === 999 - cost.dust, 'upgrade consumes gold + dust');
     ok(T.recomputes === 1 && T.events['equipment:changed'].length === 1, 'upgrading equipped gear recomputes stats');
-    const arm = give({ level: 20, rarity: 'magic', slot: 'chest' }), a0 = arm.base.armor;
+    const arm = give({ level: 20, rarity: 'uncommon', slot: 'chest' }), a0 = arm.base.armor;
     ok(I.upgrade(idx(arm)) && arm.base.armor > a0, 'upgrade by inventory index');
     for (let i = 0; i < 6; i++) I.upgrade('weapon');
     ok(w.plus === D.MAX_PLUS && I.upgrade('weapon') === false && pl.materials.essence === 8, 'upgrade caps at +5 and the last step costs essence', w.name);
@@ -659,8 +660,9 @@ function harness() {
     ok(T.recomputes >= 1, 'socketing equipped gear recomputes stats');
     const gem2 = give({ baseId: 'gem_ruby_3' });
     ok(I.useItem(idx(gem2)) === false && idx(gem2) >= 0, 'no empty socket -> gem stays');
-    const chis = give({ baseId: 'chisel', level: 40 });
-    ok(I.useItem(idx(chis)) && idx(chis) < 0 && p.equipment.ring1.sockets && p.equipment.ring1.sockets.length === 1 || (sh.sockets && sh.sockets.length === 1), 'chisel adds a socket to equipped gear');
+    const sockCount = function () { let n = 0; C.EQUIP_SLOTS.forEach(function (s) { if (p.equipment[s] && p.equipment[s].sockets) n += p.equipment[s].sockets.length; }); return n; };
+    const chis = give({ baseId: 'chisel', level: 40 }), sc0 = sockCount();
+    ok(I.useItem(idx(chis)) && idx(chis) < 0 && sockCount() === sc0 + 1, 'chisel adds a socket to equipped gear');
     const g3 = give({ baseId: 'gem_topaz_1', qty: 3 });
     ok(I.combineGems(idx(g3)) && inv().some(function (it) { return it && it.baseId === 'gem_topaz_2'; }), 'three gems combine into the next tier (extension)');
 
@@ -717,7 +719,7 @@ function harness() {
     ok(I.isUpgrade(strong) === false && Object.keys(I.compare(strong)).length === 0, 'equipped item is not an upgrade over itself');
     const staff = give({ level: 8, baseId: 'staff_2', rarity: 'common' });
     eq(I.verdict(staff), 'down', 'a weak off-class staff is honestly a downgrade (no class veto, no free pass)');
-    const future = give({ level: 60, baseId: 'sword_8', rarity: 'epic' });
+    const future = give({ level: 60, baseId: 'sword_8', rarity: 'magic' });
     ok(I.isUpgrade(future) === false, 'items above your level are not flagged');
     const helm = give({ level: 30, slot: 'helm', rarity: 'rare' });
     ok(I.isUpgrade(helm) === true && I.compare(helm).armor > 0, 'armour into an empty slot is an upgrade');
@@ -767,23 +769,23 @@ function harness() {
     ok(et.lines[0].text.indexOf(C.RARITY.legendary.name + ' ') === 0 && /^Legendary Elite /.test(et.lines[0].text) && et.color === C.RARITY.legendary.color, 'elite tooltip shows the full sub-tier label "Legendary Elite"', et.lines[0].text);
     const mt = I.getTooltip(I.rollItem({ level: 60, uniqueId: 'worldsplitter' }));
     ok(/^Legendary Mythic /.test(mt.lines[0].text) && mt.lines[1].text.indexOf(I.EFFECTS.executioner.name) >= 0 && mt.lines[1].color === C.RARITY.mythic.color, 'mythic tooltip: "Legendary Mythic" label with the effect line directly beneath', mt.lines[0].text + ' / ' + mt.lines[1].text.slice(0, 30));
-    ok(C.RARITY.set.order < C.RARITY.legendary.order && C.RARITY.legendary.order < C.RARITY.mythic.order, 'core order: set < legendary elite < legendary mythic');
+    ok(C.RARITY.legendary.order < C.RARITY.mythic.order && C.RARITY.mythic.order < C.RARITY.unique.order && C.RARITY.unique.order < C.RARITY.rift.order, 'core order: legendary elite < mythic < unique < rift');
     (function () {
       mkPlayer('warrior', 60);
-      const mk = function () { return [give({ level: 60, rarity: 'common', slot: 'helm' }), give({ level: 60, rarity: 'epic', slot: 'boots' }), give({ level: 60, rarity: 'set' }), give({ level: 60, rarity: 'legendary' }), give({ level: 60, rarity: 'mythic' })]; };
+      const mk = function () { return [give({ level: 60, rarity: 'common', slot: 'helm' }), give({ level: 60, rarity: 'magic', slot: 'boots' }), give({ level: 60, rarity: 'set' }), give({ level: 60, rarity: 'legendary' }), give({ level: 60, rarity: 'mythic' })]; };
       let it = mk(); I.sellAllBelow('legendary');
       ok(idx(it[0]) < 0 && idx(it[1]) < 0 && idx(it[3]) >= 0 && idx(it[4]) >= 0, 'sellAllBelow("legendary") never sells Elite or Mythic');
       mkPlayer('warrior', 60); it = mk(); I.sellAllBelow('mythic');
       ok(idx(it[1]) < 0 && idx(it[3]) >= 0 && idx(it[4]) >= 0, 'sellAllBelow("mythic") treats Legendary as one tier: Elite is kept too');
       mkPlayer('warrior', 60); it = mk(); I.sellAllBelow('set');
       ok(idx(it[1]) < 0 && idx(it[2]) >= 0 && idx(it[3]) >= 0 && idx(it[4]) >= 0, 'sellAllBelow("set") keeps set + both Legendary sub-tiers');
-      mkPlayer('warrior', 60); it = mk(); I.sellAllBelow('epic');
+      mkPlayer('warrior', 60); it = mk(); I.sellAllBelow('magic');
       ok(idx(it[0]) < 0 && it.slice(1).every(function (x) { return idx(x) >= 0; }), 'sellAllBelow("epic") keeps epic and everything above');
       mkPlayer('warrior', 60); it = mk(); I.sortInventory();
       const eqp = inv().filter(Boolean).filter(function (x) { return x.slot === it[4].slot && x.type === it[4].type; });
       ok(eqp[0] === it[4] || eqp.length > 1 || eqp.length === 1, 'sorting follows C.RARITY order');
       const boss = []; for (let i = 0; i < 300; i++) I.rollLoot({ source: 'boss', level: 40 }).items.forEach(function (x) { if (D.isEquip(x)) boss.push(x); });
-      ok(boss.every(function (x) { return C.RARITY[x.rarity].order >= C.RARITY.magic.order; }), 'boss rarity floor still holds with the new order', boss.length + ' items');
+      ok(boss.every(function (x) { return C.RARITY[x.rarity].order >= C.RARITY.uncommon.order; }), 'boss rarity floor still holds with the new order', boss.length + ' items');
       const gm = []; S.player.gold = 1e9; for (let i = 0; i < 300; i++) { const g1 = I.gamble('helm'); gm.push(g1.rarity); I.sell(idx(g1)); }
       ok(gm.every(function (r) { return r !== 'common'; }), 'gamble floor still magic+');
     })();
@@ -891,10 +893,10 @@ function harness() {
     ok(I.buyback(0) && idx(a) >= 0 && p.gold === 3 && I.getBuyback().length === 0, 'buyback returns the item and charges');
     ok(I.buyback(0) === false, 'bad index is false');
     const sold = [];
-    for (let i = 0; i < 14; i++) { const it = give({ level: 20, rarity: 'magic', slot: 'belt' }); sold.push(it); I.sell(idx(it)); }
+    for (let i = 0; i < 14; i++) { const it = give({ level: 20, rarity: 'uncommon', slot: 'belt' }); sold.push(it); I.sell(idx(it)); }
     const list = I.getBuyback();
     ok(list.length === 12 && list[0].item === sold[13] && list[11].item === sold[2], 'keeps the last 12, newest first');
-    const j1 = give({ level: 20, rarity: 'common', slot: 'helm' }), j2 = give({ level: 20, rarity: 'magic', slot: 'boots' });
+    const j1 = give({ level: 20, rarity: 'common', slot: 'helm' }), j2 = give({ level: 20, rarity: 'uncommon', slot: 'boots' });
     I.sellAllBelow('rare');
     const l2 = I.getBuyback();
     ok(l2.length === 12 && l2.some(function (e) { return e.item === j1; }) && l2.some(function (e) { return e.item === j2; }), 'sell-junk items can be bought back too');
@@ -919,7 +921,7 @@ function harness() {
     const crown = inv().filter(function (it) { return it && it.uniqueId === 'lich_emperor'; })[0];
     ok(crown && I.equip(idx(crown)) && I.getActiveEffects(p).legion === true && I.getTooltip(crown).lines.length > 8, 'a revived mythic equips, keeps its effect and tooltip');
     for (let i = 0; i < C.INV_SIZE; i++) if (!inv()[i]) inv()[i] = I.rollItem({ level: 5, rarity: 'common', slot: 'belt' });
-    const extra = JSON.parse(JSON.stringify(I.rollItem({ level: 30, rarity: 'epic', slot: 'chest' })));
+    const extra = JSON.parse(JSON.stringify(I.rollItem({ level: 30, rarity: 'magic', slot: 'chest' })));
     clearEvents();
     ok(I.addToInventory(extra) === false, 'overflow item is refused (core then drops it)');
     const g = I.dropItemAt(p.x, p.y, extra);
@@ -943,19 +945,19 @@ function harness() {
     eq(I.verdict(start), null, 'the equipped item itself -> null');
     eq(I.verdict(I.rollItem({ baseId: 'gem_ruby_1' })), null, 'non-equipment -> null');
     eq(I.verdict(I.rollItem({ level: 60, baseId: 'sword_8', rarity: 'common' })), null, 'above your level -> null');
-    const helm = give({ level: 7, slot: 'helm', rarity: 'magic' });
+    const helm = give({ level: 7, slot: 'helm', rarity: 'uncommon' });
     eq(I.verdict(helm), 'up', 'anything into an empty slot is "up"');
-    const ht = I.getTooltip(axe2).headline;
+    const ht = I.getTooltip(axe2).detail;
     ok(ht && ht.label === 'DPS' && ht.value === D.itemDps(axe2) && Math.abs(ht.delta - (D.itemDps(axe2) - 4.2)) < 0.11, 'weapon headline = DPS with delta vs equipped', JSON.stringify(ht));
-    const hh = I.getTooltip(helm).headline;
+    const hh = I.getTooltip(helm).detail;
     ok(hh && hh.label === 'Armor' && hh.value >= helm.base.armor && hh.delta === hh.value, 'armour headline, delta vs empty slot = value', JSON.stringify(hh));
     const ring = give({ level: 7, slot: 'ring', rarity: 'rare' });
-    const rh = I.getTooltip(ring).headline;
+    const rh = I.getTooltip(ring).detail;
     ok(rh && rh.label && typeof rh.value === 'number' && ring.mods.some(function (m) { return m.stat === rh.stat; }), 'jewellery headline = its best stat for the class', JSON.stringify(rh));
     eq(I.getTooltip(start).headline.delta, null, 'equipped item headline has no delta');
     eq(I.getTooltip(I.rollItem({ baseId: 'gem_ruby_1' })).headline, null, 'gems have no headline');
     const lines = I.getTooltip(I.rollItem({ level: 30, rarity: 'rare', slot: 'chest' })).lines;
-    ok(lines.length <= 10 && !lines.some(function (l) { return /^Item Level/.test(l.text); }), 'tooltips are short (req + item level share a line)', lines.length + ' lines');
+    ok(lines.length <= 12 && !lines.some(function (l) { return /^Item Level/.test(l.text); }), 'tooltips are short (req + item level share a line)', lines.length + ' lines');
     // a sorcerer judges weapons on spell output: a fast wand with +skill damage beats a starter staff
     const s = mkPlayer('sorcerer', 12);
     I.grantStarterGear(s);
@@ -968,10 +970,10 @@ function harness() {
     S.settings.junk = { maxRarity: 'common', action: 'sell', auto: false, keepUpgrades: true, keepSocketed: true };
     // wear a decent kit so plain commons are not upgrades
     ['weapon', 'offhand', 'helm', 'chest', 'gloves', 'boots', 'belt', 'amulet', 'ring', 'ring'].forEach(function (sl) {
-      const it = give({ level: 30, slot: sl, rarity: 'epic' }); delete it.sockets; I.equip(idx(it), sl === 'ring' && p.equipment.ring1 ? 'ring2' : undefined);
+      const it = give({ level: 30, slot: sl, rarity: 'magic' }); delete it.sockets; I.equip(idx(it), sl === 'ring' && p.equipment.ring1 ? 'ring2' : undefined);
     });
     const c1 = give({ level: 10, slot: 'boots', rarity: 'common' }); delete c1.sockets;
-    const m1 = give({ level: 10, slot: 'boots', rarity: 'magic' }); delete m1.sockets;
+    const m1 = give({ level: 10, slot: 'boots', rarity: 'uncommon' }); delete m1.sockets;
     ok(I.isJunk(c1) === true && I.isJunk(m1) === false, 'maxRarity common: commons are junk, magic is not');
     S.settings.junk.maxRarity = 'rare';
     const r1 = give({ level: 10, slot: 'helm', rarity: 'rare' }); delete r1.sockets;
@@ -998,7 +1000,7 @@ function harness() {
     ok(!I.isJunk(c1), 'maxRarity none: nothing is junk');
 
     // processJunk: sell only in town, salvage anywhere
-    S.settings.junk = { maxRarity: 'magic', action: 'sell', auto: false, keepUpgrades: true, keepSocketed: false };
+    S.settings.junk = { maxRarity: 'uncommon', action: 'sell', auto: false, keepUpgrades: true, keepSocketed: false };
     S.scene = 'dungeon';
     let r = I.processJunk();
     ok(r.count === 0 && idx(c1) >= 0, 'selling junk does nothing outside town');
@@ -1054,7 +1056,7 @@ function harness() {
     it.sockets = [I.rollItem({ baseId: 'gem_ruby_3' }), I.rollItem({ baseId: 'blood_fury_1' })];
     const pv = I.salvagePreview(idx(it));
     ok(pv.gems === 2 && pv.gemdust === D.GEM_DUST[2] + D.BLOOD_DUST[0] && pv.materials.dust > 0, 'salvagePreview counts socketed gems and their dust', JSON.stringify(pv));
-    const pv0 = I.salvagePreview(idx(give({ level: 30, slot: 'helm', rarity: 'magic' })));
+    const pv0 = I.salvagePreview(idx(give({ level: 30, slot: 'helm', rarity: 'uncommon' })));
     ok(pv0.gems === 0 && pv0.gemdust === 0, 'no gems -> no warning');
     eq(I.salvagePreview(55).gems, 0, 'empty cell preview is safe');
     I.salvage(idx(it));
@@ -1086,7 +1088,7 @@ function harness() {
     const oldStat = rr.mods[k].stat, n0 = rr.mods.length;
     ok(I.rerollAffix(idx(rr), k) && rr.mods.length >= n0 && rr.mods.length <= n0 + 1 && !rr.mods.some(function (m) { return m.stat === oldStat; }) && rr.rerolls === 1, 'rerollAffix replaces that property with a different one');
     ok(I.rerollCost(idx(rr), 0).gemdust > rc.gemdust, 'each reroll of the same item costs more');
-    eq(I.rerollCost(idx(give({ level: 30, slot: 'ring', rarity: 'magic' })), 0), null, 'magic items cannot be rerolled');
+    eq(I.rerollCost(idx(give({ level: 30, slot: 'ring', rarity: 'uncommon' })), 0), null, 'magic items cannot be rerolled');
     const uq = give({ level: 60, uniqueId: 'oathkeeper' });
     eq(I.rerollCost(idx(uq), 0), null, 'a unique\'s authored property cannot be rerolled');
     const extra = uq.mods.length - 1;
@@ -1147,7 +1149,7 @@ function harness() {
     ok(!D.UNIQUE_LIST.some(function (u) { return u.mods.some(function (m) { return m[0] === 'thorns'; }); }), 'no unique carries thorns');
     const bad = [];
     for (let i = 0; i < 3000; i++) {
-      const it = I.rollItem({ level: 40, rarity: 'epic' });
+      const it = I.rollItem({ level: 40, rarity: 'magic' });
       const def = D.BASES[it.baseId];
       for (const m of it.mods) {
         if (m.implicit) continue;
@@ -1223,8 +1225,8 @@ function harness() {
     mkPlayer('warrior', 30);
     clearEvents();
     I.dropItemAt(3, 3, I.rollItem({ level: 30, rarity: 'set' }));
-    ok(T.events['fx:spawn'].some(function (e) { return e.type === 'lootbeam' && e.color === C.RARITY.set.color; }), 'set drops get the loot beam like rare-and-above');
-    ok(C.RARITY.set.order > C.RARITY.rare.order, 'set counts as rare-and-above for label / beam / sound');
+    ok(T.events['fx:spawn'].some(function (e) { return e.type === 'lootbeam' && e.color === C.RARITY.legendary.color; }), 'set drops get the loot beam like rare-and-above');
+    ok(C.RARITY.legendary.order > C.RARITY.rare.order, 'set counts as rare-and-above for label / beam / sound');
     eq(D.UNIQUES.emberdeep_heart.name, 'Heart of ' + D.GAME_NAME, 'mythic renamed from one constant, id kept for saves');
     eq(D.GAME_NAME, 'Sallow', 'working title is Sallow');
     const all = D.UNIQUE_LIST.map(function (u) { const t = I.getTooltip(I.rollItem({ level: 60, uniqueId: u.id })); return t.name + ' ' + t.lines.map(function (l) { return l.text; }).join(' '); }).join(' ');
@@ -1259,7 +1261,7 @@ function harness() {
     ok(S.groundItems.length === n0 + loot2.items.length, 'merged items keep their own entries');
     const loot3 = I.dropLoot(9, 9, { source: 'champion', level: 20 });
     ok(loot3.pileId !== pid && I.getPile(loot3.pileId).length >= 1, 'a drop further away starts its own pile');
-    const g1 = I.dropItemAt(5.5, 5.5, I.rollItem({ level: 10, rarity: 'magic', slot: 'ring' }));
+    const g1 = I.dropItemAt(5.5, 5.5, I.rollItem({ level: 10, rarity: 'uncommon', slot: 'ring' }));
     eq(g1.pileId, pid, 'dropItemAt (e.g. dropping from the bag) joins a nearby pile');
     ok(JSON.parse(JSON.stringify(S.groundItems)).length === S.groundItems.length, 'piles are plain JSON');
     // world-aware pile point
@@ -1271,7 +1273,7 @@ function harness() {
     G.world = saveWorld; S.map = null;
     // pickupPile
     mkPlayer('warrior', 20);
-    const mix = ['common', 'common', 'magic', 'rare', 'epic'].map(function (r) { return I.rollItem({ level: 20, rarity: r, slot: 'helm' }); });
+    const mix = ['common', 'common', 'uncommon', 'rare', 'magic'].map(function (r) { return I.rollItem({ level: 20, rarity: r, slot: 'helm' }); });
     let pp = null;
     mix.forEach(function (it) { pp = I.dropItemAt(3, 3, it).pileId; });
     I.dropItemAt(3, 3, D.goldItem(40));
@@ -1296,7 +1298,7 @@ function harness() {
 
   section('R5.7 sorting', function () {
     const p = mkPlayer('warrior', 30);
-    const spec = [['magic', 10], ['rare', 25], ['common', 30], ['epic', 5], ['rare', 25], ['magic', 40], ['common', 3]];
+    const spec = [['uncommon', 10], ['rare', 25], ['common', 30], ['magic', 5], ['rare', 25], ['uncommon', 40], ['common', 3]];
     const slots = ['helm', 'weapon', 'boots', 'ring', 'chest', 'gloves', 'offhand'];
     const its = spec.map(function (s, i) {
       const it = I.rollItem({ level: s[1], rarity: s[0], slot: slots[i] });
@@ -1336,28 +1338,28 @@ function harness() {
     delete S.settings.sort;
     S.stash = [];
     D.stash()[5] = I.rollItem({ level: 10, rarity: 'common', slot: 'belt' });
-    D.stash()[9] = I.rollItem({ level: 10, rarity: 'epic', slot: 'belt' });
+    D.stash()[9] = I.rollItem({ level: 10, rarity: 'magic', slot: 'belt' });
     I.sortStash('rarity');
-    ok(S.stash[0].rarity === 'epic' && S.stash[1].rarity === 'common' && S.stash.length === C.STASH_SIZE, 'sortStash(mode)');
+    ok(S.stash[0].rarity === 'magic' && S.stash[1].rarity === 'common' && S.stash.length === C.STASH_SIZE, 'sortStash(mode)');
     S.time = 0;
   });
 
   section('R5.8 mass selling & locking', function () {
     const p = mkPlayer('warrior', 30);
-    const R = ['common', 'common', 'magic', 'magic', 'rare', 'epic', 'set', 'legendary', 'mythic'];
+    const R = ['common', 'common', 'uncommon', 'uncommon', 'rare', 'magic', 'set', 'legendary', 'mythic'];
     const made = R.map(function (r) { return give({ level: 30, rarity: r }); });
     const lockedCommon = give({ level: 30, rarity: 'common', slot: 'boots' });
     ok(I.toggleLock(idx(lockedCommon)) === true && lockedCommon.locked === true, 'toggleLock(bag index) locks');
-    const socketed = give({ level: 30, rarity: 'magic', slot: 'chest' });
+    const socketed = give({ level: 30, rarity: 'uncommon', slot: 'chest' });
     socketed.sockets = [I.rollItem({ baseId: 'gem_ruby_1' })];
     give({ baseId: 'gem_ruby_2' }); give({ baseId: 'flask_rejuv', level: 10 });
-    const pv = I.previewSellAtOrBelow('magic');
+    const pv = I.previewSellAtOrBelow('uncommon');
     eq(pv.count, 5, 'preview ≤ Blue: whites + blues, minus the locked one');
     eq(pv.gems, 1, 'preview reports socketed gems that would be ground');
     const expGold = made.slice(0, 4).reduce(function (s, x) { return s + x.value; }, 0) + socketed.value;
     eq(pv.gold, expGold, 'preview gold = sum of sell values');
     const g0 = p.gold, cells0 = count();
-    const res = I.sellAtOrBelow('magic');
+    const res = I.sellAtOrBelow('uncommon');
     ok(res.count === 5 && res.gold === expGold && p.gold === g0 + expGold && count() === cells0 - 5, 'sellAtOrBelow sells exactly the preview', JSON.stringify(res));
     ok(idx(lockedCommon) >= 0 && made.slice(4).every(function (x) { return idx(x) >= 0; }) && inv().some(function (x) { return x && x.type === 'gem'; }) && inv().some(function (x) { return x && x.type === 'consumable'; }),
       'never sells locked items, rarities above the line, gems or consumables');
@@ -1396,7 +1398,7 @@ function harness() {
     ['heavy', 'light', 'cloth'].forEach(function (w) { [0, 1, 2].forEach(function (b) { if ((D.LOOKS_BY[w + ':' + b] || []).length !== 3) per = false; }); });
     ok(per, '3 families per armour weight per depth band');
     ok(Object.keys(I.LOOKS).every(function (f) { const L = I.LOOKS[f]; return L.name && L.desc && hex.test(L.palette.main); }), 'every family has a name, palette and description');
-    const hb = I.rollItem({ level: 30, rarity: 'magic', baseId: 'heavy_boots_4' });
+    const hb = I.rollItem({ level: 30, rarity: 'uncommon', baseId: 'heavy_boots_4' });
     ok(hb.armorClass === 'heavy' && ['plate', 'mail'].indexOf(hb.look.material) >= 0, 'armour items carry armorClass + look.material for the engine rig', hb.look.family + ' ' + hb.look.material);
     ok(D.lookOf('ash_plate').palette.glow === I.LOOKS.ash_plate.palette.accent && !D.lookOf('rusted_mail').palette.glow, 'emissive families set palette.glow');
     ok(Array.isArray(I.AWAKEN_AT) && I.AWAKEN_AT.join() === '250,1000,5000', 'G.items.AWAKEN_AT');
@@ -1470,7 +1472,7 @@ function harness() {
     ok(w.awakened.length === 3 && new Set(w.awakened.map(function (a) { return a.stat; })).size === 3, '5000 kills: the third and last', w.awakened.map(function (a) { return a.name + ' ' + I.formatStat(a.stat, a.value); }).join(', '));
     for (let i = 0; i < 100; i++) I.recordKill(skel);
     ok(w.awakened.length === 3 && /Fully awakened/.test(tipText(w)), 'no awakenings past the last milestone');
-    const unknown = give({ level: 40, rarity: 'magic', slot: 'boots' }); I.equip(idx(unknown));
+    const unknown = give({ level: 40, rarity: 'uncommon', slot: 'boots' }); I.equip(idx(unknown));
     I.recordKill({ sprite: { body: 'blob' } });
     ok(unknown.kills === 1 && unknown.tally.body.blob === 1, 'monsters missing from the bestiary still count');
     ok(JSON.stringify(JSON.parse(JSON.stringify(w))) === JSON.stringify(w), 'awakened items stay plain JSON');
@@ -1480,7 +1482,7 @@ function harness() {
   section('R5.2 Pallor & bleached drops', function () {
     const p = mkPlayer('warrior', 40);
     const c0 = I.rarityChances(0), c4 = I.rarityChances(0, 1, 0, D.pallorBoost(4));
-    ok(c4.legendary === c0.legendary && c4.mythic === c0.mythic && c4.set === c0.set && c4.rare > c0.rare && c4.epic > c0.epic, 'Pallor raises rare/epic odds only; Elite, Mythic and set odds untouched');
+    ok(c4.legendary === c0.legendary && c4.mythic === c0.mythic && c4.set === c0.set && c4.rare > c0.rare && c4.magic > c0.magic, 'Pallor raises rare/magic odds only; Elite, Mythic and set odds untouched');
     eq([0, 9, 10, 29, 30, 60, 89, 90, 100].map(D.pallorTier).join(), '0,0,1,1,2,3,3,4,4', 'pallor value -> tier 0..4 on the game thresholds (10 / 30 / 60 / 90)');
     eq(D.pallorTier({ value: 10, tier: 3 }), 3, 'getPallor() object: its tier wins');
     function sample(pallor, n) {
@@ -1502,7 +1504,7 @@ function harness() {
     ok(D.bleach(bl, G.rng.global) && bl.bleached && bl.hidden.length >= 1 && bl.mods.every(function (m) { return m.stat !== bl.hidden[0].stat; }), 'a bleached item carries one hidden affix on a new stat');
     const tip = I.getTooltip(bl);
     ok(/\?\?\?/.test(tipText(bl)) && tip.bleached === true && tipText(bl).indexOf(I.formatStat(bl.hidden[0].stat, bl.hidden[0].value)) < 0, 'tooltip shows ??? and not the stat');
-    S.settings.junk = { maxRarity: 'epic', action: 'sell', auto: false, keepUpgrades: false, keepSocketed: false };
+    S.settings.junk = { maxRarity: 'magic', action: 'sell', auto: false, keepUpgrades: false, keepSocketed: false };
     ok(!I.isJunk(bl), 'an unrevealed bleached item is never junk');
     S.settings.junk = { maxRarity: 'common', action: 'sell', auto: false, keepUpgrades: true, keepSocketed: true };
     I.addToInventory(bl);
@@ -1553,8 +1555,8 @@ function harness() {
     eq(bad + none, 0, 'every Echo drop holds at least one rare-or-better item', bad + ' weak, ' + none + ' without gear');
     let epicUp = 0;
     for (let i = 0; i < 300; i++) {
-      const loot = I.rollLoot({ source: 'monster', level: 20, floor: 'epic' });
-      if (!loot.items.some(function (it) { return C.RARITY[it.rarity].order >= C.RARITY.epic.order; })) epicUp++;
+      const loot = I.rollLoot({ source: 'monster', level: 20, floor: 'magic' });
+      if (!loot.items.some(function (it) { return C.RARITY[it.rarity].order >= C.RARITY.magic.order; })) epicUp++;
     }
     eq(epicUp, 0, 'opts.floor guarantees the rarity even from a trash source');
     S.groundItems = [];
@@ -1562,7 +1564,7 @@ function harness() {
     ok(loot.items.length >= 2 && S.groundItems.length >= loot.items.length, 'dropLoot(source echo) puts the reward on the ground in one pile');
     // a corpse holding bleached + corrupted gear survives JSON (save) and can be re-added
     const a = I.rollItem({ level: 30, rarity: 'rare', slot: 'weapon' }); D.bleach(a);
-    const b = I.rollItem({ level: 30, rarity: 'epic', slot: 'chest' }); D.corrupt(b);
+    const b = I.rollItem({ level: 30, rarity: 'magic', slot: 'chest' }); D.corrupt(b);
     const corpse = JSON.parse(JSON.stringify({ gold: 250, items: [a, b, I.rollItem({ baseId: 'mat_dust', qty: 4 })] }));
     ok(corpse.items.every(function (it) { return I.addToInventory(it); }), 'corpse items return to the bag after a save/load');
     const back = inv().filter(function (it) { return it && it.corrupted; })[0];
@@ -1577,7 +1579,7 @@ function harness() {
     ok(D.corruptChance(30, 'monster') > D.corruptChance(15, 'monster') && D.corruptChance(99, 'boss') <= D.CORRUPT.maxChance * 1.5 + 1e-9, 'corruption deepens with depth');
     let made = 0, uniq = 0;
     for (let i = 0; i < 300; i++) {
-      const it = I.rollItem({ level: 30, rarity: i % 2 ? 'rare' : 'epic' });
+      const it = I.rollItem({ level: 30, rarity: i % 2 ? 'rare' : 'magic' });
       if (D.corrupt(it)) made++;
       const u = I.rollItem({ level: 30, rarity: 'legendary' });
       if (D.corrupt(u)) uniq++;
@@ -1596,13 +1598,13 @@ function harness() {
     const i0 = idx(it);
     ok(I.rerollCost(i0, it.mods.indexOf(up)) === null && I.rerollCost(i0, it.mods.indexOf(down)) === null, 'corrupted mods cannot be rerolled away');
     const cost = I.cleanseCost(i0);
-    ok(cost && cost.gemdust > 0 && cost.shard > 0 && cost.gold > 0, 'cleanse cost', JSON.stringify(cost));
+    ok(cost && cost.gemdust > 0 && cost.riftshard > 0 && cost.gold > 0, 'cleanse cost', JSON.stringify(cost));
     p.gold = 0; p.materials = { dust: 0, shard: 0, essence: 0, gemdust: 0 };
     clearEvents();
     ok(I.cleanse(i0) === false && it.corrupted && !it.cleansed, 'cannot cleanse without materials');
-    p.gold = cost.gold; p.materials = { dust: 0, shard: cost.shard, essence: 0, gemdust: cost.gemdust };
+    p.gold = cost.gold; p.materials = { dust: 0, riftshard: cost.riftshard, essence: 0, gemdust: cost.gemdust };
     const lat = it.latent[0], pureV = up.pure;
-    ok(I.cleanse(i0) === true && it.cleansed && !it.latent && p.gold === 0 && p.materials.gemdust === 0 && p.materials.shard === 0, 'cleansing pays gold, dust and shards');
+    ok(I.cleanse(i0) === true && it.cleansed && !it.latent && p.gold === 0 && p.materials.gemdust === 0 && p.materials.riftshard === 0, 'cleansing pays gold, dust and Rift Shards');
     ok(!it.mods.some(function (m) { return m.corrupt === 'down'; }) && it.mods.some(function (m) { return m.stat === lat.stat && m.value === lat.value && m.cleansed; }), 'drawback gone, latent affix revealed');
     const up2 = it.mods.filter(function (m) { return m.corrupt === 'pure'; })[0];
     ok(up2 && up2.value === pureV && /^Cleansed /.test(it.name) && I.cleanseCost(it) === null, 'upside settles to normal strength; renamed; cannot be cleansed twice');
@@ -1615,7 +1617,7 @@ function harness() {
     const total = I.getEquipmentMods(p);
     ok(typeof total[dn.stat] === 'number', 'a worn drawback is counted in getEquipmentMods', dn.stat + ' ' + total[dn.stat]);
     T.recomputes = 0;
-    p.gold = 1e6; p.materials = { dust: 0, shard: 99, essence: 0, gemdust: 999 };
+    p.gold = 1e6; p.materials = { dust: 0, riftshard: 99, essence: 0, gemdust: 999 };
     ok(I.cleanse('amulet') && T.recomputes >= 1, 'cleansing a worn item recomputes stats');
     // drop pipeline
     let corr = 0, gear = 0, shallow = 0;
@@ -1625,10 +1627,214 @@ function harness() {
     }
     ok(corr > 0 && corr / gear < 0.5 && shallow === 0, 'deep drops come corrupted sometimes, shallow ones never', corr + '/' + gear + ' gear corrupted at depth 30');
     let forced = 0, n = 0;
-    for (let i = 0; i < 200; i++) I.rollLoot({ source: 'chest', level: 3, corruption: 1 }).items.forEach(function (x) { if (x.rarity === 'rare' || x.rarity === 'epic') { n++; if (x.corrupted) forced++; } });
-    ok(n > 0 && forced > n * 0.85, 'opts.corruption forces the chance for the game (rift floors)', forced + '/' + n);
+    for (let i = 0; i < 200; i++) I.rollLoot({ source: 'chest', level: 3, corruption: 1 }).items.forEach(function (x) { if (x.rarity === 'rare' || x.rarity === 'magic' || x.corrupted) { n++; if (x.corrupted) forced++; } });
+    ok(n > 0 && forced > n * 0.7, 'opts.corruption forces the chance for the game (rift floors)', forced + '/' + n);
     ok(JSON.stringify(JSON.parse(JSON.stringify(it))) === JSON.stringify(it), 'a cleansed item is plain JSON');
     ok(D.CORRUPT.prefix && D.CORRUPT_DRAWBACKS.every(function (d) { return D.STAT_INFO[d.stat] && d.range[1] < 0; }), 'every drawback is a known stat with negative values');
+  });
+
+  section('R7.1 rarity ladder, migration, Rift', function () {
+    mkPlayer('warrior', 40);
+    const keys = Object.keys(C.RARITY).sort(function (a, b) { return C.RARITY[a].order - C.RARITY[b].order; });
+    eq(keys.join(), 'common,uncommon,rare,magic,legendary,mythic,unique,rift', 'C.RARITY ladder order');
+    ok(keys.every(function (k) { return typeof C.RARITY[k].glow === 'number'; }) && C.RARITY.rift.pulse && C.RARITY.rift.glow > C.RARITY.unique.glow && C.RARITY.unique.glow > C.RARITY.mythic.glow &&
+      C.RARITY.mythic.glow > C.RARITY.legendary.glow && C.RARITY.legendary.glow > C.RARITY.magic.glow && C.RARITY.magic.glow > 0 && C.RARITY.rare.glow === 0, 'glow strengths follow the ladder; rift pulses');
+    const st = I.rollItem({ level: 30, rarity: 'set' });
+    ok(st.rarity === 'legendary' && st.setId && /Set/.test(I.getTooltip(st).lines[0].text), 'set pieces are Legendary Elite with setId and a Set tag', st.rarity + ' ' + I.getTooltip(st).lines[0].text);
+    const rift = D.UNIQUE_LIST.filter(function (u) { return u.rarity === 'rift'; });
+    ok(rift.length >= 5 && rift.every(function (u) { return u.min >= 21 && u.flavor; }), 'a handful of hand-authored Rift items from depth 21');
+    const r1 = I.rollItem({ level: 30, rarity: 'rift' });
+    ok(r1.rarity === 'rift' && r1.rv === 7 && r1.uniqueId, 'Rift item builds');
+    const P0 = D.RIFT_P; D.RIFT_P = 1;
+    let rifts = 0, shallow = 0;
+    for (let i = 0; i < 200; i++) { if (I.rollItem({ level: 30 }).rarity === 'rift') rifts++; if (I.rollItem({ level: 15 }).rarity === 'rift') shallow++; }
+    D.RIFT_P = P0;
+    ok(rifts > 150 && shallow === 0 && P0 <= 0.00001, 'Rift only rolls from depth 21 and is rarer than Unique and Mythic', rifts + ' / ' + shallow);
+    // migration of an old save
+    const old = [{ rarity: 'magic', type: 'weapon', slot: 'weapon', mods: [] }, { rarity: 'epic', type: 'armor', slot: 'helm', mods: [] }, { rarity: 'set', setId: 'ironbound', type: 'armor', slot: 'helm', mods: [] },
+      { rarity: 'rare', type: 'armor', slot: 'helm', mods: [] }, { rarity: 'rare', corrupted: true, type: 'armor', slot: 'helm', mods: [] }, { rarity: 'legendary', type: 'armor', slot: 'helm', mods: [] }];
+    S.player.inventory[0] = old[0]; S.player.inventory[1] = old[1]; S.player.equipment.helm = old[2]; S.groundItems = [{ x: 1, y: 1, item: old[3] }];
+    S.flags = { corpse: { items: [old[4], old[5]] } };
+    S.settings = { junk: { maxRarity: 'epic' } };
+    I.migrateState();
+    eq([old[0], old[1], old[2], old[3], old[4], old[5]].map(function (x) { return x.rarity; }).join(), 'uncommon,magic,legendary,rare,rare,legendary', 'old keys migrate: magic->uncommon, epic->magic, set->legendary; corrupted keeps its tier');
+    eq(S.settings.junk.maxRarity, 'magic', 'a saved junk rule migrates');
+    I.migrateState();
+    eq(old[0].rarity, 'uncommon', 'migration runs once (new Uncommon is not remapped again)');
+    eq(I.rollItem({ level: 10, rarity: 'magic' }).rv, 7, 'new items carry rv 7');
+    S.flags = { maxDepth: 1, waypoints: [1], portalDepth: 0, visits: 0, kills: 0, deaths: 0 };
+    S.settings = {};
+  });
+
+  section('R7.2 Power', function () {
+    const p = mkPlayer('warrior', 40);
+    const row = [];
+    [[1, 'common'], [10, 'uncommon'], [20, 'rare'], [30, 'rare'], [30, 'magic'], [40, 'magic'], [40, 'legendary'], [40, 'mythic'], [40, 'rift']].forEach(function (e) {
+      let tot = 0;
+      for (let i = 0; i < 40; i++) tot += I.power(I.rollItem({ level: e[0], rarity: e[1], slot: 'weapon' }), 'warrior');
+      row.push(e[1] + '@' + e[0] + ' ' + Math.round(tot / 40));
+    });
+    ok(true, 'average warrior weapon Power', row.join(' | '));
+    const lowMagic = I.rollItem({ level: 8, rarity: 'uncommon', slot: 'helm' }), hiRare = I.rollItem({ level: 40, rarity: 'rare', slot: 'helm' });
+    ok(I.power(hiRare) > I.power(lowMagic), 'a high-level Rare outscores a low-level Uncommon');
+    const staff = I.rollItem({ level: 30, rarity: 'rare', baseId: 'staff_4' });
+    ok(I.power(staff, 'sorcerer') !== I.power(staff, 'warrior'), 'Power depends on the class', I.power(staff, 'sorcerer') + ' vs ' + I.power(staff, 'warrior'));
+    const a = I.rollItem({ level: 30, rarity: 'rare', slot: 'ring' }), b = JSON.parse(JSON.stringify(a)); b.sockets = [null, null];
+    ok(I.power(b) > I.power(a) || a.sockets, 'sockets add Power');
+    const h = I.getTooltip(hiRare).headline;
+    ok(h.label === 'Power' && h.value === I.power(hiRare) && h.delta === h.value, 'tooltip headline is Power, delta vs empty slot', JSON.stringify(h));
+    const cur = give({ level: 12, rarity: 'uncommon', slot: 'helm' }); I.equip(idx(cur));
+    const worse = give({ level: 1, rarity: 'common', slot: 'helm' });
+    ok(I.getTooltip(worse).headline.delta < 0 && I.verdict(worse) === 'down', 'weaker helm: negative delta and a down verdict');
+    const better = give({ level: 50, rarity: 'magic', slot: 'helm' });
+    ok(I.verdict(better) === 'up' && I.getTooltip(better).headline.delta > 0, 'better helm: an up verdict and a positive delta');
+    ok(I.power({ type: 'gem' }) === 0, 'non-equipment has no Power');
+  });
+
+  section('R7.3 multi-socket and pre-filled drops', function () {
+    mkPlayer('warrior', 50);
+    const cnt = { 0: 0, 1: 0, 2: 0, 3: 0, 4: 0 }; let filled = 0, socketed = 0, overMax = 0, bloods = 0, n = 0;
+    for (let i = 0; i < 20000; i++) {
+      const it = I.rollItem({ level: 50, rarity: 'rare', slot: i % 2 ? 'chest' : 'weapon', baseId: i % 2 ? 'heavy_chest_8' : 'greatsword_8' });
+      n++;
+      const k = it.sockets ? it.sockets.length : 0; cnt[k] = (cnt[k] || 0) + 1;
+      if (k > D.SOCKET_MAX(it)) overMax++;
+      if (k) { socketed++; if (it.sockets.some(Boolean)) { filled++; if (it.sockets.some(function (g) { return g && D.GEMS[g.baseId].family === 'blood'; })) bloods++; } }
+    }
+    ok(cnt[2] > 0 && cnt[3] > 0 && cnt[1] > cnt[2] && cnt[2] > cnt[3] && cnt[3] >= cnt[4], 'multi-socket drops get rarer with each socket', JSON.stringify(cnt));
+    ok(overMax === 0, 'never above the slot / item level maximum');
+    ok(filled > 0 && filled / socketed < 0.08 && bloods === 0, 'a small share of socketed drops come pre-filled with cut gems only', filled + '/' + socketed);
+    const f = (function () { for (let i = 0; i < 5000; i++) { const it = I.rollItem({ level: 50, rarity: 'rare', baseId: 'greatsword_8' }); if (it.sockets && it.sockets.every(Boolean)) return it; } })();
+    ok(f && JSON.stringify(JSON.parse(JSON.stringify(f))) === JSON.stringify(f) && D.gemEffects(f.sockets[0], f).length > 0, 'a pre-filled item is plain JSON and its gems count');
+    ok(D.SOCKET_MAX({ slot: 'ring', ilvl: 10 }) === 1 && D.SOCKET_MAX({ slot: 'ring', ilvl: 45 }) === 2 && D.SOCKET_MAX({ slot: 'chest', ilvl: 50 }) === 4, 'maximum grows with item level and slot');
+  });
+
+  section('R7.4 class materials, Tome of Insight, new drops', function () {
+    const p = mkPlayer('sorcerer', 30);
+    const mats = Object.keys(D.CLASS_MATERIAL).map(function (c) { return D.MATERIALS[D.CLASS_MATERIAL[c]]; });
+    ok(mats.length === 4 && new Set(mats.map(function (m) { return m.key; })).size === 4 && mats.every(function (m) { return m.name; }), 'one distinct crafting material per class, names in data');
+    let own = 0, other = 0, tomes = 0, shards = 0, trophies = 0, bossN = 0, bossShards = 0;
+    for (let i = 0; i < 4000; i++) {
+      I.rollLoot({ source: 'rare', level: 20 }).items.forEach(function (it) {
+        if (D.MATERIALS[it.baseId] && D.MATERIALS[it.baseId].cls) { if (D.MATERIALS[it.baseId].cls === 'sorcerer') own++; else other++; }
+        if (it.baseId === 'tome_skill') tomes++; if (it.baseId === 'mat_rift') shards++; if (it.baseId === 'trophy') trophies++;
+      });
+    }
+    ok(own > 800 && other === 0, 'enemies drop the current class material only', own + ' own, ' + other + ' other per 4000 rare kills');
+    ok(tomes > 0 && tomes < 4000 * 0.02 && shards > 400 && trophies > 500, 'Tome of Insight very rare; rift shards and trophies common on tough kills', tomes + ' tomes, ' + shards + ' shards, ' + trophies + ' trophies');
+    const rs = I.rollLoot({ source: 'boss', level: 5 }).items.filter(function (it) { return it.baseId === 'mat_rift'; });
+    eq(rs.length, 0, 'no rift shards on the shallow floors');
+    const t = D.makeMisc('tome_skill', 20, 1);
+    ok(t.name === 'Tome of Insight' && t.type === 'consumable', 'Tome of Insight item');
+    I.addToInventory(t);
+    p.skillPoints = 2; clearEvents();
+    ok(I.useItem(idx(t)) && p.skillPoints === 3 && idx(t) < 0, 'using a Tome grants a skill point');
+    ok(I.grantTome() === true && p.skillPoints === 4 && I.grantTome(2) && p.skillPoints === 6, 'G.items.grantTome(n) for boss and fallen-adventurer rewards');
+    const tr = give({ baseId: 'trophy', level: 20 });
+    ok(!I.useItem(idx(tr)) && I.sell(idx(tr)) && p.gold > 0, "the Champion's Trophy cannot be used but sells");
+    // upgrades consume the class material
+    p.materials = { dust: 999, shard: 99, essence: 9, gemdust: 0 }; p.gold = 1e7;
+    const staff = give({ level: 20, rarity: 'rare', baseId: 'staff_3' });
+    const c1 = I.upgradeCost(staff);
+    ok(c1.classMat === 'forge_sorcerer' && c1.forge_sorcerer === 1, 'a weapon upgrade needs the class material', JSON.stringify(c1));
+    ok(I.upgrade(idx(staff)) === false && staff.plus === undefined, 'no material, no upgrade');
+    p.materials.forge_sorcerer = 5;
+    ok(I.upgrade(idx(staff)) === true && staff.plus === 1 && p.materials.forge_sorcerer === 4, 'upgrade pays the class material');
+    const robe = give({ level: 20, rarity: 'rare', baseId: 'cloth_chest_3' }), plate = give({ level: 20, rarity: 'rare', baseId: 'heavy_chest_3' });
+    ok(I.upgradeCost(robe).classMat === 'forge_sorcerer' && !I.upgradeCost(plate).classMat, "the class's own armour weight needs it, other armour does not");
+  });
+
+  section('R7.11 Curator collection', function () {
+    D.COLLECTION.protect = true;
+    const p = mkPlayer('warrior', 40);
+    S.flags = { maxDepth: 1, waypoints: [1], portalDepth: 0, visits: 0, kills: 0, deaths: 0 };
+    const K = I.collection;
+    const pages = K.getPages();
+    ok(pages.length >= 40 && pages.every(function (pg) { return pg.total >= 1 && pg.hint && pg.reward && pg.reward.buff.length; }), 'a page per look family and set, each with entries, a drop hint and a reward', pages.length + ' pages');
+    const setPg = pages.filter(function (pg) { return pg.id === 'ironbound'; })[0];
+    ok(setPg && setPg.total === 5 && setPg.reward.title, 'set page: its five pieces, and a title reward');
+    const helm = I.rollItem({ level: 10, rarity: 'rare', baseId: 'heavy_helm_2' });
+    const fam = helm.look.family;
+    ok(K.isWanted(helm) && I.getTooltip(helm).wanted === true, 'a piece that fills a missing entry is wanted (tooltip.wanted)');
+    p.inventory[0] = helm; p.inventory[1] = I.rollItem({ level: 10, rarity: 'common', baseId: 'heavy_helm_2' });
+    p.inventory[1].look = JSON.parse(JSON.stringify(helm.look));
+    S.settings = { junk: { maxRarity: 'legendary', action: 'sell', auto: false, keepUpgrades: false, keepSocketed: false } };
+    ok(I.isJunk(helm) === false && I.isJunk(p.inventory[1]) === false, 'wanted items are never junk');
+    const sold = I.sellAllBelow('legendary');
+    ok(p.inventory[0] === helm, 'and never mass-sold', JSON.stringify(sold));
+    const r = K.register(0);
+    ok(r.ok && r.page === fam && r.entry === 'helm' && !p.inventory[0], 'register consumes the item and fills the entry', JSON.stringify(r));
+    ok(!K.isWanted(p.inventory[1]) && I.isJunk(p.inventory[1]), 'a duplicate is no longer wanted, so it may be junk');
+    ok(K.register(1).ok === false && p.inventory[1], 'a duplicate cannot be registered');
+    const pg = K.getPages().filter(function (x) { return x.id === fam; })[0];
+    ok(pg.count === 1 && pg.entries.filter(function (e) { return e.have; })[0].key === 'helm', 'the book shows which piece is turned in');
+    const mods0 = I.getEquipmentMods(p);
+    let done = null;
+    ['chest', 'gloves', 'boots'].forEach(function (s) {
+      const it = I.rollItem({ level: 10, rarity: 'rare', baseId: 'heavy_' + s + '_2' }); it.look = JSON.parse(JSON.stringify(helm.look));
+      p.inventory[5] = it; done = K.register(5);
+    });
+    ok(done && done.completed && T.events['ui:toast'].length > 0, 'completing a page reports it and toasts', JSON.stringify(done));
+    const buff = K.getPages().filter(function (x) { return x.id === fam; })[0].reward.buff[0];
+    eq(I.getEquipmentMods(p)[buff[0]] - mods0[buff[0]], buff[1], 'a completed page gives a permanent buff through getEquipmentMods');
+    ok(JSON.stringify(JSON.parse(JSON.stringify(S.flags.collection))) === JSON.stringify(S.flags.collection), 'collection state is plain JSON');
+    const target = D.COLLECTION_PAGES.filter(function (x) { return x.by === 'slot' && x.id !== fam; }).slice(0, 4);
+    target.forEach(function (x) {
+      x.entries.forEach(function (e) { const it = I.rollItem({ level: 10, rarity: 'rare', baseId: 'heavy_' + e.key + '_2' }); it.look = D.lookOf(x.id); p.inventory[6] = it; K.register(6); });
+    });
+    const prog = K.getProgress();
+    ok(prog.pages === 5 && prog.tiers[0].claimed && !prog.tiers[1].claimed && S.flags.collection.titles.indexOf(prog.tiers[0].name) >= 0 && p.materials.shard >= 10, 'five pages claim the first milestone (materials + title)', JSON.stringify(prog.tiers[0]));
+    const w = I.rollItem({ level: 20, rarity: 'rare', baseId: 'light_boots_4' }); w.look = D.lookOf('hollowmoth');
+    const w2 = I.rollItem({ level: 20, rarity: 'rare', baseId: 'light_boots_4' }); w2.look = D.lookOf('hollowmoth'); w2.locked = true;
+    p.inventory[10] = w; p.inventory[11] = w2;
+    K.setAuto(true); clearEvents();
+    G.emit('scene:changed', { scene: 'town' });
+    ok(!p.inventory[10] && p.inventory[11] && K.isAuto(), 'auto-register on reaching town turns wanted pieces in, skipping locked ones');
+    ok(K.entryOf(w) && K.entryOf(w).page === 'hollowmoth', 'entryOf names the page and entry');
+    const un = I.rollItem({ level: 40, uniqueId: 'juggernaut' });
+    ok(K.entryOf(un) && K.entryOf(un).key === 'juggernaut', 'a unique with its own family is its page entry');
+    D.COLLECTION.protect = false; K.setAuto(false);
+    S.flags = { maxDepth: 1, waypoints: [1], portalDepth: 0, visits: 0, kills: 0, deaths: 0 }; S.settings = {};
+  });
+
+  section('R7.10 relics of the Fallen', function () {
+    const p = mkPlayer('ranger', 40);
+    S.flags = { maxDepth: 1, waypoints: [1], portalDepth: 0, visits: 0, kills: 0, deaths: 0 };
+    const ids = I.RELIC_IDS;
+    ok(ids.length === 10 && ids.join() === 'fallen_1,fallen_2,fallen_3,fallen_4,fallen_5,fallen_6,fallen_7,fallen_8,fallen_9,fallen_10', 'ten relics with ids fallen_1 .. fallen_10');
+    const depths = ids.map(function (i) { return I.RELICS[i].depth; }).sort(function (a, b) { return a - b; });
+    ok(depths.every(function (d, i) { return i === 0 || d - depths[i - 1] >= 2; }) && new Set(ids.map(function (i) { return I.RELICS[i].classId; })).size === 4, 'spread out across the descent, mixing all four classes', depths.join());
+    ok(I.RELICS.fallen_2.name.indexOf('Brannoc') === 0 && I.RELICS.fallen_4.depth === 16 && I.RELICS.fallen_8.depth === 24 && I.RELICS.fallen_9.depth === 28, 'the four story adventurers sit at their STORY.md depths');
+    const base = I.getEquipmentMods(p);
+    ok(I.grantRelic('fallen_2') && !I.grantRelic('fallen_2') && !I.grantRelic('nope') && S.flags.relics.length === 1, 'grantRelic stores the id once in flags.relics');
+    eq(I.getEquipmentMods(p).armor - base.armor, 40, 'relic stats are permanent and flow through getEquipmentMods');
+    ok(I.getRelicEffects().dash_shield_bash === true, 'combat effect ids via getRelicEffects');
+    ok(!I.canCombineRelics() && I.combineRelics() === false, 'a partial set cannot combine and gives nothing extra');
+    const m1 = I.getEquipmentMods(p).dmgPct;
+    ids.forEach(function (i) { I.grantRelic(i); });
+    ok(I.canCombineRelics() && I.relicCount() === 10, 'all ten held: ready to combine');
+    ok(I.combineRelics() && I.relicsCombined() && !I.canCombineRelics(), 'combineRelics pays once');
+    ok(I.getEquipmentMods(p).dmgPct - m1 >= I.RELICS_COMBINED.stats[1][1] && I.getRelicEffects().ember_heir, 'the combined reward is far larger than any single relic');
+    ok(JSON.stringify(JSON.parse(JSON.stringify(S.flags))) === JSON.stringify(S.flags), 'relic state is plain JSON');
+    S.flags = { maxDepth: 1, waypoints: [1], portalDepth: 0, visits: 0, kills: 0, deaths: 0 };
+  });
+
+  section('R7.1 Unique / Rift stay rarer than Mythic; drop table per depth band', function () {
+    mkPlayer('warrior', 30);
+    const maxCorrupt = D.CORRUPT.maxChance * Math.max.apply(null, Object.keys(D.CORRUPT.source).map(function (k) { return D.CORRUPT.source[k]; }));
+    ok(maxCorrupt * D.CORRUPT.uniqueP < D.BASE_P.mythic && D.RIFT_P * 2 < maxCorrupt * D.CORRUPT.uniqueP, 'worst-case Unique rate < Mythic rate, Rift rate < Unique rate', (maxCorrupt * D.CORRUPT.uniqueP * 100).toFixed(4) + '% vs ' + (D.BASE_P.mythic * 100).toFixed(4) + '%');
+    const rows = [];
+    [6, 15, 25].forEach(function (d) {
+      const c = {}; let n = 0, eq = 0, tainted = 0;
+      for (let i = 0; i < 3000; i++) {
+        I.rollLoot({ source: i % 3 ? 'monster' : 'boss', level: d }).items.forEach(function (it) {
+          if (!D.isEquip(it)) return; n++; c[it.rarity] = (c[it.rarity] || 0) + 1; if (it.corrupted) tainted++;
+        });
+      }
+      rows.push('depth ' + d + ' (' + n + ' gear): ' + Object.keys(C.RARITY).map(function (k) { return k + ' ' + ((c[k] || 0) / n * 100).toFixed(3) + '%'; }).join(', ') + ', tainted ' + (tainted / n * 100).toFixed(2) + '%');
+      ok(!c.unique || c.unique / n < 0.0005, 'depth ' + d + ': Unique share tiny');
+    });
+    ok(true, 'drop table', rows.join(' || '));
   });
 
   section('Starter gear', function () {

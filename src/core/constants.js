@@ -20,15 +20,17 @@
     THEMES: ['crypt', 'caves', 'inferno', 'abyss'],
     BOSS_EVERY: 5,          // boss floor every N depths; clearing it unlocks a waypoint at depth+1
 
+    // R7.1 rarity ladder, most common first. `glow` 0-4 = glow strength on ground items and inventory cells; `pulse` = slow pulsing.
+    // Legendary Elite and Mythic share tier 'legendary'. Set pieces are Legendary Elite with item.setId (green "Set" tag); R6 corrupted items are 'unique'.
     RARITY: {
-      common:    { order: 0, name: 'Common',    color: '#c8c8c8' },
-      magic:     { order: 1, name: 'Magic',     color: '#5b8cff' },
-      rare:      { order: 2, name: 'Rare',      color: '#ffe45b' },
-      epic:      { order: 3, name: 'Epic',      color: '#b65bff' },
-      // Legendary is ONE tier with two sub-tiers. Keys stay 'legendary' (Elite) and 'mythic'; group by .tier in filters and lists.
-      legendary: { order: 5, name: 'Legendary Elite',  color: '#ff8a2b', tier: 'legendary', sub: 'Elite' },
-      set:       { order: 4, name: 'Set',       color: '#3ddc6a' },
-      mythic:    { order: 6, name: 'Legendary Mythic', color: '#ff3b4e', tier: 'legendary', sub: 'Mythic' },
+      common:    { order: 0, name: 'Common',    color: '#c8c8c8', glow: 0 },
+      uncommon:  { order: 1, name: 'Uncommon',  color: '#4ddc6a', glow: 0 },
+      rare:      { order: 2, name: 'Rare',      color: '#5b8cff', glow: 0 },
+      magic:     { order: 3, name: 'Magic',     color: '#b65bff', glow: 1 },
+      legendary: { order: 4, name: 'Legendary Elite',  color: '#ffe45b', glow: 2, tier: 'legendary', sub: 'Elite' },
+      mythic:    { order: 5, name: 'Legendary Mythic', color: '#ff8a2b', glow: 2.5, tier: 'legendary', sub: 'Mythic' },
+      unique:    { order: 6, name: 'Unique',    color: '#ff3b3b', glow: 3 },
+      rift:      { order: 7, name: 'Rift',      color: '#ff6aa8', glow: 4, pulse: true },
     },
 
     EQUIP_SLOTS: ['weapon', 'offhand', 'helm', 'chest', 'gloves', 'boots', 'belt', 'amulet', 'ring1', 'ring2'],

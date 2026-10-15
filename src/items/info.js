@@ -80,8 +80,17 @@
     return out;
   }
 
+  // Equipment totals plus permanent bonuses (collection pages, fallen-adventurer relics): D.PERM_MODS = [fn() -> { stat: value }].
+  D.PERM_MODS = [];
   I.getEquipmentMods = function (pl) {
-    return modsOf((pl && pl.equipment) || {});
+    const m = modsOf((pl && pl.equipment) || {});
+    if (pl && pl === G.state.player) {
+      for (const fn of D.PERM_MODS) {
+        const add = fn();
+        for (const k in add) m[k] = (m[k] || 0) + add[k];
+      }
+    }
+    return m;
   };
 
   function weaponOf(eq) {
@@ -177,6 +186,37 @@
     return out;
   };
 
+  // ---- Power (R7.2) ----
+  // One number per equippable item for a class: K x the class-weighted stat score (weapon DPS, base armour, every counted
+  // affix incl. implicit, awakened and revealed ones; unrevealed hidden affixes and corrupted drawbacks count as they are) plus
+  // item level x slot weight, sockets (filled more than empty) and effect / set value.
+  D.POWER = { K: 0.35, ilvl: 3, slot: { weapon: 1.4, chest: 1.2, offhand: 1, helm: 1, gloves: 0.9, boots: 0.9, belt: 0.8, amulet: 1.3, ring: 1.2 },
+    socketEmpty: 4, socketFilled: 14, effect: 60, setPiece: 20, plus: 0.04 };
+  function extrasPower(item) {
+    const P = D.POWER;
+    let v = (item.ilvl || 1) * P.ilvl * (P.slot[item.slot] || 1);
+    for (const g of item.sockets || []) v += g ? P.socketFilled : P.socketEmpty;
+    v += (item.effects ? item.effects.length : 0) * P.effect + (item.setId ? P.setPiece : 0);
+    return v;
+  }
+  I.power = function (item, classId) {
+    if (!isEquip(item)) return 0;
+    const p = G.state.player;
+    const prof = classId ? D.classProfile({ classId: classId }) : D.classProfile(p);
+    const raw = scoreItem(item, prof) * D.POWER.K * (1 + D.POWER.plus * (item.plus || 0)) + extrasPower(item);
+    return Math.max(0, Math.round(raw));
+  };
+  function powerEq(eq, prof) {
+    let extras = 0;
+    for (const s of C.EQUIP_SLOTS) {
+      const it = eq[s];
+      if (!it) continue;
+      extras += extrasPower(it) + (it.plus ? scoreItem(it, prof) * D.POWER.plus * it.plus : 0);
+    }
+    // scoreEq already includes set bonuses (modsOf)
+    return scoreEq(eq, prof) * D.POWER.K + extras;
+  }
+
   // ---- verdict (R3.4) ----
   // Offence of a whole equipment map for this player, mirroring src/game's damage roll: weapon + flat damage, x %damage
   // (gear + the class's primary stat), x crit, x speed; casters also x skill damage. Non-gear contributions (attributes,
@@ -215,7 +255,7 @@
       if (b > a * 1.05) return 'up';
       if (b < a * 0.95) return 'down';
     }
-    const before = scoreEq(eq, prof), after = scoreEq(plan.eq, prof);
+    const before = powerEq(eq, prof), after = powerEq(plan.eq, prof);      // R7.2: the verdict compares Power
     // filling an empty slot needs no margin; replacing something needs a 1% swing so near-identical items read 'same'
     const tol = plan.out.length ? Math.max(0.5, Math.abs(before) * 0.01) : 0.01;
     return after > before + tol ? 'up' : after < before - tol ? 'down' : 'same';
@@ -247,7 +287,7 @@
   }
 
   // One number to lead a tooltip with: weapon DPS, armour, or the item's best stat for this class; delta vs what it replaces.
-  function headline(item) {
+  function detailLine(item) {
     if (!isEquip(item)) return null;
     const p = G.state.player;
     const prof = D.classProfile(p);
@@ -279,6 +319,25 @@
     return h;
   }
 
+  // R7.2 headline: "Power 412 ▲ +37". delta = this item's Power minus the Power of everything it would displace (null when worn).
+  function headline(item) {
+    if (!isEquip(item)) return null;
+    const p = G.state.player;
+    const v = I.power(item);
+    let delta = null;
+    if (p && p.equipment) {
+      let worn = false;
+      for (const s of C.EQUIP_SLOTS) if (p.equipment[s] === item) worn = true;
+      if (!worn) {
+        const plan = D.planEquip(p.equipment, item, D.classProfile(p));
+        let old = 0;
+        for (const o of plan.out) old += I.power(o);
+        delta = v - old;
+      }
+    }
+    return { label: 'Power', value: v, delta: delta, pct: false };
+  }
+
   // ---- text ----
   I.statLabel = function (stat) { return (D.STAT_INFO[stat] || [stat])[0]; };
   I.formatStat = function (stat, value) {
@@ -292,7 +351,7 @@
     if (item.type === 'lore') return 'Lore Page';
     if (!def) return r.name + ' ' + (item.type === 'gem' ? 'Gem' : item.type === 'material' ? 'Material' : 'Consumable');
     const named = item.name.replace(/ \+\d+$/, '') !== def.name;
-    return r.name + ' ' + (D.TYPE_NAME[def.family] || def.family) + (named && (item.uniqueId || item.rarity === 'rare' || item.rarity === 'epic') ? ' — ' + def.name : '');
+    return r.name + (item.setId ? ' · ' + D.MISC_NAMES.setTag : '') + ' ' + (D.TYPE_NAME[def.family] || def.family) + (named && (item.uniqueId || item.rarity === 'rare' || item.rarity === 'magic' || item.rarity === 'unique') ? ' — ' + def.name : '');
   }
 
   I.getTooltip = function (item) {
@@ -304,8 +363,10 @@
     const p = G.state.player;
     let worn = false;
     if (p && p.equipment) for (const s of C.EQUIP_SLOTS) if (p.equipment[s] === item) worn = true;
-    tip.headline = headline(item);       // R3.4: { label, value, delta, pct } — delta vs equipped, null if nothing to compare
+    tip.headline = headline(item);       // R7.2: { label: 'Power', value, delta, pct: false } — delta vs what it would replace, null if nothing to compare
+    tip.detail = detailLine(item);       // the old R3.4 headline (DPS / armour / best stat), kept for a second line
     tip.locked = !!item.locked;          // R5.8: the UI draws the lock toggle from this
+    tip.wanted = !!(D.isWanted && D.isWanted(item));      // R7.11: fills a missing Collection Book entry (UI draws a book mark)
     tip.bleached = !!(item.bleached && item.hidden);
 
     lines.push({ text: typeLine(item), color: COL.grey });

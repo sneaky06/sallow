@@ -1,1 +1,1 @@
-G.manifest.items = ['bases.js', 'affixes.js', 'uniques.js', 'looks.js', 'generate.js', 'info.js', 'inventory.js', 'economy.js', 'pallor.js', 'corrupt.js', 'awaken.js'];
+G.manifest.items = ['bases.js', 'affixes.js', 'uniques.js', 'looks.js', 'generate.js', 'info.js', 'inventory.js', 'economy.js', 'rarity.js', 'pallor.js', 'corrupt.js', 'collection.js', 'relics.js', 'awaken.js'];

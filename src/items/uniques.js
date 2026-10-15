@@ -163,6 +163,27 @@
     [['goldFind', 100, 150], ['dmgPct', 30, 45], ['str', 30, 45], ['dex', 30, 45], ['int', 30, 45], ['hpMax', 180, 260], ['armor', 120, 180]],
     'A dragon sleeps on its gold for a reason.', { effect: 'hoarder', rand: 2, sockets: 1, color: '#b8862a', accent: '#ff3b4e' });
 
+  // ---- Rift items (R7.1): the rarest drops, item level 21+, stats only, one per archetype. Names are placeholders for the story team. ----
+  const R = 'rift';
+  U('rift_maw', 'Maw of the Rift', R, 'greatsword', 'warrior', 21,
+    [['dmgPct', 220, 300], ['critDmg', 120, 180], ['attackSpeed', 24, 34], ['lifeSteal', 7, 10], ['str', 60, 85], ['allSkills', 3, 4]],
+    'It has been chewing since before the town.', { rand: 2, sockets: 2, color: '#ff6aa8', accent: '#2a0a1a' });
+  U('rift_thread', 'Thread of the Deep', R, 'bow', 'ranger', 21,
+    [['dmgPct', 190, 260], ['critChance', 20, 28], ['critDmg', 140, 200], ['attackSpeed', 28, 38], ['dex', 60, 85], ['moveSpeed', 12, 18]],
+    'Drawn tight across a mile of nothing.', { rand: 2, sockets: 2, color: '#ff6aa8', accent: '#2a0a1a' });
+  U('rift_lantern', 'Lantern of the Hollow Star', R, 'staff', 'sorcerer', 21,
+    [['skillDmgPct', 150, 210], ['fireDmg', 100, 160], ['coldDmg', 100, 160], ['lightningDmg', 100, 160], ['castSpeed', 28, 38], ['allSkills', 4, 5], ['cdr', 14, 20]],
+    'It does not give light. It gives sight.', { rand: 2, sockets: 2, color: '#ff6aa8', accent: '#2a0a1a' });
+  U('rift_vestment', 'Vestment of the Ninth Hour', R, 'cloth_chest', 'necromancer', 21,
+    [['skillDmgPct', 70, 100], ['poisonDmg', 90, 140], ['int', 60, 85], ['mpMax', 260, 380], ['hpMax', 240, 340], ['resAll', 18, 26]],
+    'Worn by the last gravedigger, and by what he dug up.', { rand: 2, sockets: 2, color: '#ff6aa8', accent: '#2a0a1a' });
+  U('rift_bulwark', 'Bulwark of Nothing', R, 'shield', 'warrior', 21,
+    [['armor', 260, 380], ['block', 16, 22], ['resAll', 22, 32], ['hpRegen', 24, 38], ['hpMax', 220, 320], ['vit', 40, 60]],
+    'It stops everything, including light.', { rand: 2, sockets: 2, color: '#ff6aa8', accent: '#2a0a1a' });
+  U('rift_signet', 'Signet of the Heartbeat', R, 'ring', null, 21,
+    [['dmgPct', 40, 60], ['critChance', 8, 12], ['lifeOnKill', 60, 90], ['magicFind', 40, 60], ['allSkills', 2, 3], ['resAll', 12, 18]],
+    'You hear it before you see it.', { rand: 2, sockets: 1, color: '#ff6aa8', accent: '#2a0a1a' });
+
   // ---- Sets: five pieces each, bonuses at 2 / 3 / 4 equipped (cumulative) ----
   D.SETS = {};
   D.SET_MIN_ILVL = 12;

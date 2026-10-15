@@ -12,7 +12,7 @@
   D.MAX_PLUS = 5;                                  // blacksmith upgrade cap
   // R4.6: the game's player-facing name lives here only (core may override with G.C.GAME_NAME). Ids never change.
   D.GAME_NAME = (G.C && G.C.GAME_NAME) || 'Sallow';
-  D.MISC_NAMES = { gold: 'Gold', lorePage: 'Torn Page' };   // player-facing names that are not items in a table (R6.2 naming pass)
+  D.MISC_NAMES = { gold: 'Gold', lorePage: 'Torn Page', setTag: 'Set' };   // player-facing names that are not items in a table (R6.2 naming pass)
 
   // Scaling curves (level -> budget). Bases keep scaling with ilvl past the last tier for deep floors.
   // weapon DPS budget: the mild exponent keeps pace with src/game monster HP (x1.06 per level) so hits-to-kill stays ~4-7
@@ -173,11 +173,13 @@
     return out;
   };
 
+  // R7.3: how many sockets an item can ever hold: by slot, growing with item level. Chisel and drops both stop here.
   D.SOCKET_MAX = function (item) {
     if (!item || !item.slot) return 0;
-    if (item.slot === 'weapon') return item.twoHanded ? 2 : 1;
-    if (item.slot === 'chest') return 2;
-    return 1;
+    const l = item.ilvl || 1;
+    if (item.slot === 'chest' || (item.slot === 'weapon' && item.twoHanded)) return 2 + (l >= 25 ? 1 : 0) + (l >= 45 ? 1 : 0);
+    if (item.slot === 'weapon' || item.slot === 'offhand' || item.slot === 'helm') return 1 + (l >= 30 ? 1 : 0) + (l >= 50 ? 1 : 0);
+    return 1 + (l >= 40 ? 1 : 0);
   };
 
   // ---- gems ---------------------------------------------------------------------------------------------
@@ -201,7 +203,7 @@
   D.BLOOD_ILVL = [15, 35, 55];
   D.BLOOD_VALUE = [120, 400, 1200];
   D.BLOOD_DUST = [30, 80, 200];
-  D.BLOOD_RARITY = ['rare', 'epic', 'epic'];
+  D.BLOOD_RARITY = ['rare', 'magic', 'magic'];
   D.BLOOD_KINDS = {
     fury:   { name: 'Bloodstone of Fury',   color: '#c81e2e', w: ['critDmg', [28, 44, 90]],      a: ['str', [12, 20, 44]],       j: ['attackSpeed', [4, 7, 12]], x: ['armor', [-10, -25, -60]] },
     hunger: { name: 'Bloodstone of Hunger', color: '#8a1030', w: ['lifeSteal', [4, 6, 10]],      a: ['hpMax', [44, 80, 200]],    j: ['lifeOnKill', [6, 14, 30]], x: ['mpMax', [-10, -20, -40]] },
@@ -234,16 +236,25 @@
   D.CONSUMABLES = {
     potion_hp:   { name: 'Health Potion', icon: { shape: 'potion', color: '#e0303a', accent: '#ffd0d0' }, desc: 'Goes straight to your belt.', value: function (l) { return 3 + l; } },
     potion_mp:   { name: 'Mana Potion',   icon: { shape: 'potion', color: '#3a6ae0', accent: '#d0e0ff' }, desc: 'Goes straight to your belt.', value: function (l) { return 3 + l; } },
-    flask_rejuv: { name: 'Rejuvenation Flask', rarity: 'magic', icon: { shape: 'potion', color: '#b65bff', accent: '#ffe45b' }, desc: 'Use: fully restores Life and Mana.', value: function (l) { return 15 + l * 3; } },
-    tome_xp:     { name: 'Tome of Insight', rarity: 'magic', icon: { shape: 'tome', color: '#3a8a6a', accent: '#ffe45b' }, desc: 'Use: grants a burst of experience.', value: function (l) { return 50 + l * 10; } },
+    flask_rejuv: { name: 'Rejuvenation Flask', rarity: 'uncommon', icon: { shape: 'potion', color: '#b65bff', accent: '#ffe45b' }, desc: 'Use: fully restores Life and Mana.', value: function (l) { return 15 + l * 3; } },
+    tome_xp:     { name: 'Tome of Lessons', rarity: 'uncommon', icon: { shape: 'tome', color: '#3a8a6a', accent: '#ffe45b' }, desc: 'Use: grants a burst of experience.', value: function (l) { return 50 + l * 10; } },
     chisel:      { name: "Jeweler's Chisel", rarity: 'rare', icon: { shape: 'key', color: '#c8d0e0', accent: '#b65bff' }, desc: 'Use: cuts a new socket into an equipped item.', value: function (l) { return 150 + l * 15; } },
+    tome_skill:  { name: 'Tome of Insight', rarity: 'legendary', icon: { shape: 'tome', color: '#e8d8a0', accent: '#b65bff' }, desc: 'Use: grants one skill point.', value: function (l) { return 400 + l * 20; } },
+    trophy:      { name: "Champion's Trophy", rarity: 'rare', icon: { shape: 'skull', color: '#d9bd6a', accent: '#8a1a22' }, desc: 'A grisly prize. Worth good gold to any merchant.', value: function (l) { return 60 + l * 12; } },
   };
   D.MATERIALS = {
-    mat_dust:    { key: 'dust',    name: 'Arcane Dust',   rarity: 'magic', icon: { shape: 'rune', color: '#8fb4ff', accent: '#ffffff' }, value: 2 },
+    mat_dust:    { key: 'dust',    name: 'Arcane Dust',   rarity: 'uncommon', icon: { shape: 'rune', color: '#8fb4ff', accent: '#ffffff' }, value: 2 },
     mat_shard:   { key: 'shard',   name: 'Ember Shard',   rarity: 'rare',  icon: { shape: 'rune', color: '#ffe45b', accent: '#ff8a2b' }, value: 12 },
-    mat_essence: { key: 'essence', name: 'Abyssal Essence', rarity: 'epic', icon: { shape: 'rune', color: '#ff8a2b', accent: '#b65bff' }, value: 150 },
+    mat_essence: { key: 'essence', name: 'Abyssal Essence', rarity: 'magic', icon: { shape: 'rune', color: '#ff8a2b', accent: '#b65bff' }, value: 150 },
+    mat_cls_warrior:     { key: 'forge_warrior',     name: 'Warbrand Ore',  rarity: 'rare', icon: { shape: 'rune', color: '#c8503a', accent: '#ffd0a0' }, value: 15, cls: 'warrior' },
+    mat_cls_ranger:      { key: 'forge_ranger',      name: 'Hawkfeather',   rarity: 'rare', icon: { shape: 'rune', color: '#6ac86a', accent: '#e8ffd0' }, value: 15, cls: 'ranger' },
+    mat_cls_sorcerer:    { key: 'forge_sorcerer',    name: 'Star Salt',     rarity: 'rare', icon: { shape: 'rune', color: '#6a8cff', accent: '#e0e8ff' }, value: 15, cls: 'sorcerer' },
+    mat_cls_necromancer: { key: 'forge_necromancer', name: 'Grave Ash',     rarity: 'rare', icon: { shape: 'rune', color: '#8a6ac8', accent: '#e0d0ff' }, value: 15, cls: 'necromancer' },
+    mat_rift:    { key: 'riftshard', name: 'Rift Shard', rarity: 'magic', icon: { shape: 'rune', color: '#ff6aa8', accent: '#2a0a1a' }, value: 40 },
   };
 
+  // R7.4: the crafting material of each class (weapon upgrades, and armour of the class's weight), and the shared Rift Shard.
+  D.CLASS_MATERIAL = { warrior: 'mat_cls_warrior', ranger: 'mat_cls_ranger', sorcerer: 'mat_cls_sorcerer', necromancer: 'mat_cls_necromancer' };
   // ---- class profiles (fallbacks; G.game.CLASSES overrides weaponTypes/primaryStat at runtime) ----------
   const BASE_W = {
     hpMax: 0.5, mpMax: 0.2, armor: 0.4, resAll: 4, resFire: 1, resCold: 1, resLightning: 1, resPoison: 1, dodge: 4, block: 3,

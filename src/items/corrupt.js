@@ -1,9 +1,9 @@
 // Loot & Economy — R6.5 the corrupted rift: corrupted drops and cleansing.
-// Below depth ~8 nothing is corrupted; the chance climbs with depth. A corrupted piece of equipment (rare / epic) carries
+// Below depth ~8 nothing is corrupted; the chance climbs with depth. A corrupted piece of equipment (rare / magic) carries
 //   * one STRONG upside affix (mod.corrupt = 'up', rolled at the top of its range and boosted),
 //   * one DRAWBACK (mod.corrupt = 'down', a negative stat), and
 //   * one LATENT affix kept hidden in item.latent (not counted, shown as ??? in the tooltip).
-// Cleansing in town (blacksmith, I.cleanse) pays gem dust + ember shards + gold: the drawback goes, the latent affix is revealed
+// Cleansing in town (blacksmith, I.cleanse) pays gem dust + Rift Shards + gold: the drawback goes, the latent affix is revealed
 // and the upside settles to its normal strength. Worn uncleansed it is the raw-power gamble. Every player-facing word is in D.CORRUPT.
 (function () {
   'use strict';
@@ -27,7 +27,8 @@
     maxChance: 0.35,
     upsideBoost: 1.5,               // corrupted upside = boost x a top-quality roll; cleansing settles it to 1.0x
     source: { monster: 0.6, champion: 1, rare: 1.2, boss: 1.5, legendary: 1.5, chest: 1, barrel: 0.2, quest: 1, echo: 1.5 },
-    cost: { gemdust: [8, 5], shard: [1, 25], goldMult: 2 },   // gemdust = 8 + ilvl/5, shard = 1 + ilvl/25
+    cost: { gemdust: [8, 5], riftshard: [1, 25], goldMult: 2 },   // gemdust = 8 + ilvl/5, Rift Shards (mat_rift) = 1 + ilvl/25
+    uniqueP: 0.00003,               // chance a corrupted drop is promoted to the Unique tier (overall stays below the Mythic rate, 0.002%)
     verb: 'Cleanse',
   };
   // Drawbacks: [min@1, max@1, min@60, max@60] — negative values.
@@ -66,7 +67,7 @@
   // Corrupt a rare / epic piece of equipment in place. -> bool
   D.corrupt = function (item, rng) {
     rng = rng || G.rng.global;
-    if (!D.isEquip(item) || item.corrupted || item.uniqueId || (item.rarity !== 'rare' && item.rarity !== 'epic')) return false;
+    if (!D.isEquip(item) || item.corrupted || item.uniqueId || (item.rarity !== 'rare' && item.rarity !== 'magic')) return false;
     const used = {};
     for (const m of item.mods) used[m.stat] = true;
     const up = tmpOf(item);
@@ -85,6 +86,7 @@
     item.mods.push({ stat: d.stat, value: roundTo(lo + (hi - lo) * rng.next(), 1), corrupt: 'down' });
     if (lat.mods.length) item.latent = lat.mods.map(function (m) { return { stat: m.stat, value: m.value }; });
     item.corrupted = true;
+    if (rng.chance(D.CORRUPT.uniqueP)) item.rarity = 'unique';     // R7.1: only a vanishingly rare corrupted piece reaches the red Unique tier
     item.name = D.CORRUPT.prefix + ' ' + item.name;
     item.value = D.itemValue(item);
     return true;
@@ -104,13 +106,13 @@
     return typeof target === 'number' ? p.inventory[target] : p.equipment[target];
   }
 
-  // -> { gemdust, shard, gold } or null if the item is not corrupted. target = item, bag index or equipment slot.
+  // -> { gemdust, riftshard, gold } or null if the item is not corrupted. target = item, bag index or equipment slot.
   I.cleanseCost = function (target) {
     const p = G.state.player;
     const item = p && hostOf(p, target);
     if (!D.isCorrupt(item)) return null;
     const c = D.CORRUPT.cost;
-    return { gemdust: c.gemdust[0] + Math.floor(item.ilvl / c.gemdust[1]), shard: c.shard[0] + Math.floor(item.ilvl / c.shard[1]),
+    return { gemdust: c.gemdust[0] + Math.floor(item.ilvl / c.gemdust[1]), riftshard: c.riftshard[0] + Math.floor(item.ilvl / c.riftshard[1]),
       gold: Math.round((item.value || 1) * c.goldMult) };
   };
 
@@ -120,10 +122,10 @@
     const cost = item ? I.cleanseCost(item) : null;
     if (!cost) return D.fail('That item is not corrupted');
     if ((p.materials.gemdust || 0) < cost.gemdust) return D.fail('Not enough gem dust');
-    if ((p.materials.shard || 0) < cost.shard) return D.fail('Not enough ' + D.MATERIALS.mat_shard.name);
+    if ((p.materials.riftshard || 0) < cost.riftshard) return D.fail('Not enough ' + D.MATERIALS.mat_rift.name);
     if (p.gold < cost.gold) return D.fail('Not enough gold');
     p.materials.gemdust -= cost.gemdust;
-    p.materials.shard -= cost.shard;
+    p.materials.riftshard -= cost.riftshard;
     D.addGold(p, -cost.gold, 'buy');
     item.mods = item.mods.filter(function (m) { return m.corrupt !== 'down'; });
     for (const m of item.mods) if (m.corrupt === 'up') { m.value = m.pure; delete m.pure; m.corrupt = 'pure'; }

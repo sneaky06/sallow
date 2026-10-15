@@ -217,3 +217,54 @@ without a family of their own join a line of their band (picked by id hash) with
   - Awakening affix names (Emberbane ...): `awaken.js` top table. Corruption words and drawback list: `corrupt.js` `D.CORRUPT`, `D.CORRUPT_DRAWBACKS`.
   - Rarity names/colours belong to core (`G.C.RARITY`). Remaining literals in logic are toasts/UI sentences only (Sold / Salvaged / Gambled ...
     in economy.js, tooltip sentences in info.js), not names of things.
+
+## Revision 7 (Loot & Economy) — APIs for the UI and combat teams
+
+**Rarity ladder (R7.1).** `C.RARITY` (src/core/constants.js) is now `common, uncommon, rare, magic, legendary, mythic, unique, rift` (orders 0-7), each with
+`glow` (0-4: 0 common/uncommon/rare, 1 magic, 2 Legendary Elite, 2.5 mythic, 3 unique, 4 rift) and rift also `pulse: true`. Colours: grey, green, blue, purple,
+yellow, orange, red, pink. **Old keys are gone: `epic` and `set` no longer exist, and the *meaning* of `magic` moved (old magic = `uncommon`, old epic = `magic`).**
+Any code outside src/items that compares rarity strings must change (`src/ui/quests.js:13` uses `'epic'`; `src/ui/menus.js:88` filters `'set'`).
+- Set pieces are `rarity: 'legendary'` with `item.setId` (tooltip type line reads "Legendary Elite · Set ..."; `D.MISC_NAMES.setTag`). Test sets with `item.setId`.
+- Corrupted items (R6) are `rarity: 'unique'` (`item.corrupted`). `rift` items are 6 hand-authored pieces in uniques.js (`rift_*`), item level 21+, about 1 in 25 000
+  drops (`D.RIFT_P`, `D.RIFT_MIN_ILVL`); Elite / Mythic / set odds unchanged (`D.BASE_P` untouched, rarityChances keeps its internal `set` bucket).
+- **Save migration:** every new item has `rv: 7`. Items without it are migrated once (magic→uncommon, epic→magic, set→legendary, corrupted→unique) by
+  `G.items.migrateState()` (runs on every `scene:changed` and, for the player's gear, inside `D.ensure`). Call `G.items.migrateState()` right after loading a save if you
+  render before the first scene change. The saved junk rule (`settings.junk.maxRarity`) migrates too. Junk / sell-up-to-rarity keys are the new keys.
+- `rollItem({rarity:'set'})` still works as "a set piece".
+
+**Power (R7.2).** `G.items.power(item, classId?)` -> integer (0 for non-equipment); class defaults to the current player. Formula: 0.35 x class-weighted stat score
+(weapon DPS, base armour, every counted mod) x (1 + 4% per +upgrade) + 3 x item level x slot weight + sockets (4 empty / 14 filled) + 60 per effect + 20 for a set piece.
+Tunables in `D.POWER`. Average warrior weapon: common@1 12, uncommon@10 89, rare@20 242, rare@30 385, magic@40 623, Elite@40 695, Mythic@40 961, Rift@40 1080.
+`getTooltip(item).headline` is now `{ label: 'Power', value, delta, pct: false }` (delta vs everything it would displace, null when worn); the old DPS/armour/best-stat
+headline lives on `tip.detail`. `I.verdict` compares total Power of the loadout (set bonuses included). `tip.wanted` and `tip.corrupted` are new booleans.
+
+**Sockets (R7.3).** `D.SOCKET_MAX(item)` grows with level: chest and two-handers 2 (+1 at ilvl 25, +1 at 45), one-hand weapon / shield / helm 1 (+1 at 30, +1 at 50), others 1 (+1 at 40).
+Each extra socket is rarer (`D.SOCKET_MORE`: 2nd 30%, 3rd 8%, 4th 2%); about 3.5% of socketed drops are pre-filled with cut gems (`D.SOCKET_PREFILL`, never bloodstones).
+`item.sockets` is `[null | gem]` as before; the UI draws pips from it. The chisel still adds one up to the maximum.
+
+**New drops and materials (R7.4).** All names in `D.MATERIALS` / `D.CONSUMABLES` (bases.js).
+- Class materials `mat_cls_warrior|ranger|sorcerer|necromancer` (Warbrand Ore, Hawkfeather, Star Salt, Grave Ash), counters `p.materials.forge_<class>`; only the current class's
+  drops (rare 40%, boss always 2-4). `I.upgradeCost(item)` gains `classMat` (the counter key) and `[classMat]: n + 1` for weapons and the class's armour weight; `I.upgrade` pays it.
+- **Tome of Insight** (`tome_skill`, legendary-coloured consumable, 1 skill point): ~0.2-0.4% from champions/rares, 5% bosses, 8% Echo. Use it, or call
+  **`G.items.grantTome(n = 1)`** directly for guaranteed boss / fallen rewards (adds `p.skillPoints`, toast, `player:stats` + `skills:changed`). The old XP item is renamed Tome of Lessons.
+- **Rift Shard** `mat_rift` (`p.materials.riftshard`): from depth 8, champions 4% up to bosses 100%; the currency of **cleansing** (cleanse cost is now gem dust + Rift Shards + gold).
+- **Champion's Trophy** `trophy`: a stackable that only sells (value 60 + 12 x level); champions 6%, rares 25%, bosses 50%.
+- Loot sources `echo` (R6.2) and the `corruption` option are unchanged from the R6 notes.
+
+**Collection Book / Curator (R7.11)** — `G.items.collection` (src/items/collection.js; state in `state.flags.collection`, plain JSON):
+`getPages()` -> `[{ id, name, kind, hint, count, total, done, reward: { buff: [[stat, value]], title? }, entries: [{ key, label, have, item }] }]` (one page per look family and set, 47 pages;
+armour pages = helm/chest/gloves/boots, weapon pages = 13 weapon and off-hand types, set pages = their five pieces, unique-family pages = the unique);
+`getProgress()` -> `{ pages, total, tiers: [{ at, need, name, claimed, mats, buff, stash }], titles, stash }`; `register(bagIndex[, 'stash'])` -> `{ ok, page, entry, completed, tiers }` (consumes the item);
+`registerAll()`; `isWanted(item)` (the book mark; wanted items are never junk and never bulk-sold while `D.COLLECTION.protect` is true); `entryOf(item)`;
+`setAuto(bool)` / `isAuto()` (auto-register when `scene:changed` -> town; skips locked items). Events: `collection:registered`, `collection:page`, `collection:tier`.
+Rewards are data in `D.COLLECTION` (`buffs` rotated per page, set pages x3 and a title; tiers at 5 / 15 / all = materials + bigger buff + stash rows + title). Permanent buffs
+flow through `getEquipmentMods`. **Meta/UI to build:** apply `getProgress().stash` extra stash rows, show titles, the Curator NPC and book screen. `D.COLLECTION.protect = false` turns the junk protection off.
+
+**Relics of the Fallen (R7.10)** — `G.items.RELICS` (10: `fallen_1`..`fallen_10`, depths 3, 6, 9, 13, 16, 19, 21, 24, 28, 35; Brannoc = `fallen_2`, Wren = `fallen_4`,
+Varr = `fallen_8`, Crane = `fallen_9`; the rest are placeholder names), `I.RELIC_IDS`, `I.RELICS_COMBINED`. API: `grantRelic(id)` (combat calls this on the fight's end; ids stored in
+`state.flags.relics`), `hasRelic`, `getRelics`, `relicCount`, `canCombineRelics()`, `combineRelics()` (at the Elder; sets `flags.relicsCombined`), `getRelicMods()` (already inside
+`getEquipmentMods`), `getRelicEffects()` -> `{ dash_shield_bash, dash_reload, ramping_fire, extra_minion, ember_heir }` for the combat team to implement. Events: `relic:granted`, `relic:combined`.
+
+Names to rename later (extra since R6): relic names/stories in relics.js, collection words in `D.COLLECTION`, rarity names in `C.RARITY`, material names in `D.MATERIALS`.
+
+**R7.1 correction (unique / rift rarity).** Corruption is now a frequent "tainted" modifier that does NOT change rarity (`item.corrupted`, name prefix, upside/drawback/latent as before; a corrupted Rare stays Rare). Only `D.CORRUPT.uniqueP` (0.003%) of corrupted drops are promoted to the red `unique` tier, so Unique overall is at most ~1.6e-5 per item, below the Mythic rate (2e-5); `D.RIFT_P` is now 2e-6 (below Unique). Old corrupted saves keep their migrated tier.

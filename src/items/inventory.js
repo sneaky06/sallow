@@ -246,6 +246,11 @@
         G.emit('sfx', { name: 'quest' });
         break;
       }
+      case 'tome_skill':
+        if (!I.grantTome(1)) return false;
+        break;
+      case 'trophy':
+        return fail('Sell it to a merchant');
       case 'chisel': {
         let host = null;
         for (const s of SOCKET_ORDER) {
@@ -265,6 +270,19 @@
     }
     consume(p, invIndex);
     invChanged();
+    return true;
+  };
+
+  // R7.4 Tome of Insight: n skill points. Used by the Tome item and by boss / fallen-adventurer rewards (game calls this directly).
+  I.grantTome = function (n) {
+    const p = G.state.player;
+    n = Math.max(1, n | 0 || 1);
+    if (!p) return false;
+    p.skillPoints = (p.skillPoints | 0) + n;
+    G.emit('ui:toast', { text: 'Insight: +' + n + ' skill point' + (n > 1 ? 's' : ''), color: '#e8d8a0' });
+    G.emit('sfx', { name: 'quest' });
+    G.emit('player:stats', {});
+    G.emit('skills:changed', {});
     return true;
   };
 

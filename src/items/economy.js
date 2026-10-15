@@ -9,7 +9,7 @@
 
   const BUY_MULT = 6;
   function P() { return D.ensure(G.state.player); }
-  function rord(r) { return (C.RARITY[r] || C.RARITY.common).order; }
+  function rord(r) { return (C.RARITY[r === 'set' ? 'legendary' : r] || C.RARITY.common).order; }
   function invChanged() { G.emit('inventory:changed', {}); }
   function plevel() { const p = G.state.player; return Math.max(1, (p && p.level) || 1); }
 
@@ -46,7 +46,7 @@
   // R5.8: locked items are protected the same way.
   function protectedItem(item) {
     const r = C.RARITY[item.rarity] || {};
-    return item.rarity === 'set' || r.tier === 'legendary' || !!item.locked;
+    return !!item.setId || r.tier === 'legendary' || !!item.locked || !!(D.COLLECTION && D.COLLECTION.protect && D.isWanted && D.isWanted(item));
   }
   D.protectedItem = protectedItem;
 
@@ -262,9 +262,9 @@
     const t = 1 + Math.floor(item.ilvl / 20);
     switch (item.rarity) {
       case 'common': y.dust = t; break;
-      case 'magic': y.dust = 2 * t; break;
+      case 'uncommon': y.dust = 2 * t; break;
       case 'rare': y.dust = 2 * t; y.shard = 1 + Math.floor(item.ilvl / 30); break;
-      case 'epic': y.dust = 3 * t; y.shard = 3 + Math.floor(item.ilvl / 20); break;
+      case 'magic': y.dust = 3 * t; y.shard = 3 + Math.floor(item.ilvl / 20); break;
       case 'mythic': y.shard = 15; y.essence = 5; break;
       default: y.shard = 5; y.essence = 1;      // elite, set
     }
@@ -355,7 +355,7 @@
     const item = typeof target === 'object' ? target : p && socketHost(p, target);
     if (!item || !rerollable(item, modIndex)) return null;
     const n = item.rerolls || 0;
-    const tierK = { rare: 1, epic: 2, set: 3, legendary: 3, mythic: 5 }[item.rarity] || 1;
+    const tierK = { rare: 1, magic: 2, legendary: 3, unique: 3, mythic: 5, rift: 8 }[item.rarity] || 1;
     return { gemdust: (4 + Math.floor(item.ilvl / 10)) * tierK * (n + 1), gold: Math.round((item.value || 1) * 0.5 * (n + 1)) };
   };
 
@@ -395,12 +395,19 @@
     if (!D.isEquip(item) || (item.plus || 0) >= D.MAX_PLUS) return null;
     const n = item.plus || 0;
     const t = 1 + Math.floor(item.ilvl / 20);
-    return {
+    const cost = {
       gold: Math.round((item.value || 1) * (3 + 2 * n)) + 25 * (n + 1),
       dust: 4 * (n + 1) * t,
       shard: n >= 2 ? (n - 1) * 2 : 0,
       essence: n >= 4 ? 1 : 0,
     };
+    // R7.4: weapons, and armour of the class's weight, also eat the class material (Warbrand Ore, Hawkfeather ...)
+    const p = G.state.player, prof = p && D.classProfile(p), mid = prof && D.CLASS_MATERIAL[prof.id];
+    if (mid && (item.slot === 'weapon' || (item.armorClass && item.armorClass === prof.armor))) {
+      cost.classMat = D.MATERIALS[mid].key;
+      cost[cost.classMat] = n + 1;
+    }
+    return cost;
   };
 
   I.upgrade = function (target) {
@@ -412,10 +419,11 @@
     const cost = I.upgradeCost(item);
     if (!cost) return D.fail(D.isEquip(item) ? 'Already fully upgraded' : 'Cannot upgrade that');
     if (p.gold < cost.gold) return D.fail('Not enough gold');
-    for (const k of ['dust', 'shard', 'essence']) {
+    const mk = ['dust', 'shard', 'essence'].concat(cost.classMat ? [cost.classMat] : []);
+    for (const k of mk) {
       if ((p.materials[k] || 0) < cost[k]) return D.fail('Not enough ' + k);
     }
-    for (const k of ['dust', 'shard', 'essence']) p.materials[k] -= cost[k];
+    for (const k of mk) p.materials[k] -= cost[k];
 
     const plus = (item.plus || 0) + 1;
     if (!item.base0) item.base0 = Object.assign({}, item.base);
@@ -458,7 +466,7 @@
   function vendorItem(level, slot, weights, family) {
     const rng = G.rng.global;
     const u = rng.next() * (weights[0] + weights[1] + weights[2]);
-    const rarity = u < weights[0] ? 'common' : u < weights[0] + weights[1] ? 'magic' : 'rare';
+    const rarity = u < weights[0] ? 'common' : u < weights[0] + weights[1] ? 'uncommon' : 'rare';
     return I.rollItem({ level: level + rng.int(0, 1), rarity: rarity, slot: slot, _family: family });
   }
 
@@ -522,11 +530,11 @@
     const cost = I.gambleCost();
     if (p.gold < cost) { D.fail('Not enough gold'); return null; }
     if (p.inventory.indexOf(null) < 0) { D.fail('Inventory full'); return null; }
-    const item = I.rollItem({ level: plevel(), slot: slot, _boost: 3, _floor: 'magic' });
+    const item = I.rollItem({ level: plevel(), slot: slot, _boost: 3, _floor: 'uncommon' });
     I.addToInventory(item);
     D.addGold(p, -cost, 'buy');
     const o = rord(item.rarity);
-    if (o >= rord('set')) G.emit('sfx', { name: 'loot_legendary' });
+    if (o >= rord('legendary')) G.emit('sfx', { name: 'loot_legendary' });
     else if (o >= rord('rare')) G.emit('sfx', { name: 'loot_rare' });
     D.toast('Gambled: ' + item.name, C.RARITY[item.rarity].color);
     return item;

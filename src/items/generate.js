@@ -6,18 +6,20 @@
   const D = I.data;
   const C = G.C;
 
-  const ORDER = ['common', 'magic', 'rare', 'epic', 'set', 'legendary', 'mythic'];   // display order; C.RARITY[..].order is the authority
+  const ORDER = ['common', 'uncommon', 'rare', 'magic', 'set', 'legendary', 'mythic'];   // roll buckets: 'set' rolls a Legendary Elite set piece (R7.1)   // display order; C.RARITY[..].order is the authority
   const HAND_AUTHORED = { legendary: 1, set: 1, mythic: 1 };
-  const TOP_DOWN = ['mythic', 'set', 'legendary', 'epic', 'rare'];
+  D.RIFT_MIN_ILVL = 21;      // R7.1: Rift items only drop from the Hellscape down; one in about 500 000 items (boosted at most x2 by the source)
+  D.RIFT_P = 0.000002;
+  const TOP_DOWN = ['mythic', 'set', 'legendary', 'magic', 'rare'];
   // Per-item odds at 0 magic find (contract targets).
   // R4.2: Legendary Elite halved to 0.125% and purely chance-based — no pity timer, quota or per-floor guarantee anywhere.
-  const BASE_P = { common: 0.55093, magic: 0.33, rare: 0.10, epic: 0.017, legendary: 0.00125, set: 0.0008, mythic: 0.00002 };
+  const BASE_P = { common: 0.55093, uncommon: 0.33, rare: 0.10, magic: 0.017, legendary: 0.00125, set: 0.0008, mythic: 0.00002 };
   // Diminishing returns: effective MF = mf * K / (mf + K). Smaller K = flattens sooner.
-  const MF_K = { magic: 400, rare: 250, epic: 300, legendary: 350, set: 350, mythic: 250 };
+  const MF_K = { uncommon: 400, rare: 250, magic: 300, legendary: 350, set: 350, mythic: 250 };
   D.RARITY_ORDER = ORDER;
   D.BASE_P = BASE_P;
 
-  function rord(r) { return (C.RARITY[r] || C.RARITY.common).order; }
+  function rord(r) { return (C.RARITY[r === 'set' ? 'legendary' : r] || C.RARITY.common).order; }
   function effMF(mf, k) { return mf * k / (mf + k); }
   function player() { return G.state.player; }
 
@@ -33,14 +35,14 @@
       // mythics ignore the source boost: a boss is ~8 ordinary chances, nothing more (R2.2: <= ~0.03% per boss kill)
       p[r] = BASE_P[r] * (1 + effMF(mf, MF_K[r]) / 100) * (r === 'mythic' ? 1 : boost);
       if (r === 'legendary' && eliteBoost) p[r] *= eliteBoost;
-      if ((r === 'rare' || r === 'epic') && pallorBoost) p[r] *= pallorBoost;
+      if ((r === 'rare' || r === 'magic') && pallorBoost) p[r] *= pallorBoost;
       top += p[r];
     }
     if (top > 0.9) { for (const r of TOP_DOWN) p[r] *= 0.9 / top; top = 0.9; }
     const rest = 1 - top;
-    const odds = (BASE_P.magic / BASE_P.common) * (1 + effMF(mf, MF_K.magic) / 100) * boost;
-    p.magic = rest * odds / (1 + odds);
-    p.common = rest - p.magic;
+    const odds = (BASE_P.uncommon / BASE_P.common) * (1 + effMF(mf, MF_K.uncommon) / 100) * boost;
+    p.uncommon = rest * odds / (1 + odds);
+    p.common = rest - p.uncommon;
     return p;
   };
 
@@ -106,7 +108,7 @@
   function reqLevel(ilvl) { return Math.max(1, Math.min(60, Math.round(ilvl * 0.75))); }
 
   function newItem(def, ilvl, rarity, rng) {
-    const it = { id: G.newId(), baseId: def.id, name: def.name, type: def.type, slot: def.slot };
+    const it = { id: G.newId(), rv: D.RARITY_VERSION, baseId: def.id, name: def.name, type: def.type, slot: def.slot };
     if (def.weaponType) it.weaponType = def.weaponType;
     if (def.twoHanded) it.twoHanded = true;
     if (def.armorClass) it.armorClass = def.armorClass;     // 'heavy' | 'light' | 'cloth' — the engine's gear rig reads it
@@ -168,15 +170,24 @@
     return first;
   }
 
+  // R7.3: first socket as before; each further socket is rarer (2nd 30%, 3rd 8%, 4th 2%), capped by D.SOCKET_MAX(item).
+  // A socketed drop comes pre-filled with cut gems (never bloodstones) about once in 30.
+  D.SOCKET_MORE = [0, 0, 0.3, 0.08, 0.02];
+  D.SOCKET_PREFILL = 0.035;
   function rollSockets(item, rng) {
     const max = D.SOCKET_MAX(item);
     const s = item.slot;
     const p = (s === 'weapon' || s === 'chest' || s === 'helm' || s === 'offhand') ? 0.2 : 0.05;
     if (!max || !rng.chance(p)) return;
-    item.sockets = (max > 1 && rng.chance(0.3)) ? [null, null] : [null];
+    let n = 1;
+    while (n < max && n < D.SOCKET_MORE.length - 1 && rng.chance(D.SOCKET_MORE[n + 1])) n++;
+    item.sockets = new Array(n).fill(null);
+    if (rng.chance(D.SOCKET_PREFILL)) {
+      for (let i = 0; i < n; i++) item.sockets[i] = rollGem(Math.max(1, item.ilvl - 5), rng, true);
+    }
   }
 
-  const RARITY_VALUE = { common: 1, magic: 2.5, rare: 6, epic: 14, legendary: 40, set: 45, mythic: 150 };
+  const RARITY_VALUE = { common: 1, uncommon: 2.5, rare: 6, magic: 14, legendary: 40, mythic: 150, unique: 60, rift: 400 };
   const SLOT_VALUE = { weapon: 1.4, chest: 1.2, offhand: 1.0, helm: 1.0, gloves: 0.9, boots: 0.9, belt: 0.8, amulet: 1.3, ring: 1.2 };
   // Gold sell price of a piece of equipment.
   D.itemValue = function (item) {
@@ -189,12 +200,14 @@
   };
 
   const QUALITY = {
-    magic: function (u) { return u; },
+    uncommon: function (u) { return u; },
     rare: function (u) { return u; },
-    epic: function (u) { return 0.5 + 0.5 * u; },
+    magic: function (u) { return 0.5 + 0.5 * u; },
     legendary: function (u) { return 0.4 + 0.6 * u; },
     set: function (u) { return 0.4 + 0.6 * u; },
     mythic: function (u) { return 0.7 + 0.3 * u; },
+    unique: function (u) { return 0.5 + 0.5 * u; },
+    rift: function (u) { return 0.8 + 0.2 * u; },
   };
 
   D.rollAffixes = rollAffixes;
@@ -203,14 +216,14 @@
   function buildEquip(def, ilvl, rarity, rng) {
     const item = newItem(def, ilvl, rarity, rng);
     const tier = ilvl < 20 ? 0 : ilvl < 45 ? 1 : 2;
-    if (rarity === 'magic') {
-      const first = rollAffixes(item, rng.chance(0.5) ? 2 : 1, 1, rng, QUALITY.magic);
+    if (rarity === 'uncommon') {
+      const first = rollAffixes(item, rng.chance(0.5) ? 2 : 1, 1, rng, QUALITY.uncommon);
       item.name = (first.prefix ? first.prefix.names[tier] + ' ' : '') + def.name + (first.suffix ? ' ' + first.suffix.names[tier] : '');
     } else if (rarity === 'rare') {
       rollAffixes(item, rng.int(3, 4), 2, rng, QUALITY.rare);
       item.name = D.rareName(item, rng);
-    } else if (rarity === 'epic') {
-      rollAffixes(item, rng.int(4, 5), 3, rng, QUALITY.epic);
+    } else if (rarity === 'magic') {
+      rollAffixes(item, rng.int(4, 5), 3, rng, QUALITY.magic);
       item.name = D.rareName(item, rng);
     }
     rollSockets(item, rng);
@@ -233,7 +246,7 @@
 
   function buildUnique(u, ilvl, rng) {
     const def = pickTier(u.family, ilvl, rng, true).def;
-    const item = newItem(def, ilvl, u.rarity, rng);
+    const item = newItem(def, ilvl, u.rarity === 'set' ? 'legendary' : u.rarity, rng);      // R7.1: set pieces are Legendary Elite + setId
     const look = D.uniqueLook(u, def);
     if (look) item.look = look;
     item.name = u.name;
@@ -262,8 +275,9 @@
   }
 
   // ---- gems, consumables, materials ----
-  const GEM_RARITY = ['common', 'magic', 'magic', 'rare', 'epic'];
-  function makeMisc(baseId, ilvl, qty) {
+  const GEM_RARITY = ['common', 'uncommon', 'uncommon', 'rare', 'magic'];
+  function makeMisc(baseId, ilvl, qty) { const m = makeMisc0(baseId, ilvl, qty); if (m) m.rv = D.RARITY_VERSION; return m; }
+  function makeMisc0(baseId, ilvl, qty) {
     qty = Math.max(1, qty || 1);
     const g = D.GEMS[baseId];
     if (g && g.family === 'blood') {
@@ -329,17 +343,17 @@
 
     const prof = player() ? D.classProfile(player()) : null;
     D.setRollClass(prof);
-    const explicit = !!(opts.rarity && C.RARITY[opts.rarity]);
-    let rarity = explicit ? opts.rarity : rollRarity(opts.magicFind || 0, opts._boost || 1, rng, opts._floor, opts._elite, opts._pallor);
+    const explicit = !!(opts.rarity && (C.RARITY[opts.rarity] || opts.rarity === 'set'));
+    let rarity = explicit ? opts.rarity : (ilvl >= D.RIFT_MIN_ILVL && rng.chance(D.RIFT_P * Math.min(2, opts._boost || 1))) ? 'rift' : rollRarity(opts.magicFind || 0, opts._boost || 1, rng, opts._floor, opts._elite, opts._pallor);
     const fixed = opts.baseId ? D.BASES[opts.baseId] : null;
     let slot = fixed ? fixed.slot : normSlot(opts.slot);
     const family = fixed ? fixed.family : opts._family;
 
     // Elite (key 'legendary') / set / mythic are hand-authored; fall back a step if nothing fits this slot or level.
-    while (HAND_AUTHORED[rarity]) {
+    while (HAND_AUTHORED[rarity] || rarity === 'rift') {
       const u = pickUnique(rarity, ilvl, slot, family, explicit, rng, prof);
       if (u) return buildUnique(u, ilvl, rng);
-      rarity = rarity === 'mythic' ? 'legendary' : 'epic';
+      rarity = rarity === 'mythic' ? 'legendary' : 'magic';
     }
 
     if (!slot && !family) {
@@ -347,25 +361,25 @@
       slot = rng.weighted(rarity === 'common' ? SLOT_W_NOJEWEL : SLOT_W).slot;
     }
     const pick = fixed ? { def: fixed, lvl: ilvl } : pickBase(slot, ilvl, rng, prof, family);
-    if (rarity === 'common' && pick.def.type === 'jewelry') rarity = 'magic';
+    if (rarity === 'common' && pick.def.type === 'jewelry') rarity = 'uncommon';
     return buildEquip(pick.def, pick.lvl, rarity, rng);
   };
 
   // ---- loot tables ----
   // n: item count weights; floors: rarity floor for the first items (rest for the remainder); boost: rare+ odds multiplier.
   const SOURCES = {
-    monster:  { n: [[0, 66], [1, 30], [2, 4]], goldP: 0.45, goldM: 1, potP: 0.07, gemP: 0.008, miscP: 0.004, matP: 0.01, boost: 1, floors: [] },
-    champion: { n: [[1, 25], [2, 50], [3, 25]], goldP: 1, goldM: 3, potP: 0.3, gemP: 0.06, miscP: 0.03, matP: 0.12, boost: 1.6, floors: ['magic'] },
-    rare:     { n: [[3, 40], [4, 40], [5, 20]], goldP: 1, goldM: 6, potP: 0.5, gemP: 0.15, miscP: 0.06, matP: 0.3, loreP: 0.04, boost: 2.5, floors: ['rare', 'magic'] },
-    boss:     { n: [[7, 25], [8, 35], [9, 25], [10, 15]], goldP: 1, goldM: 20, pots: [2, 3], gems: 1, gemP: 0.4, miscP: 0.5, matP: 1, loreP: 0.3, boost: 4,
-      floors: ['rare', 'rare'], rest: 'magic', lvl: 2 },
+    monster:  { n: [[0, 66], [1, 30], [2, 4]], goldP: 0.45, goldM: 1, potP: 0.07, gemP: 0.008, miscP: 0.004, matP: 0.01, clsP: 0.02, boost: 1, floors: [] },
+    champion: { n: [[1, 25], [2, 50], [3, 25]], goldP: 1, goldM: 3, potP: 0.3, gemP: 0.06, miscP: 0.03, matP: 0.12, clsP: 0.15, riftP: 0.04, trophyP: 0.06, tomeP: 0.002, boost: 1.6, floors: ['uncommon'] },
+    rare:     { n: [[3, 40], [4, 40], [5, 20]], goldP: 1, goldM: 6, potP: 0.5, gemP: 0.15, miscP: 0.06, matP: 0.3, loreP: 0.04, clsP: 0.4, clsQty: [1, 2], riftP: 0.2, trophyP: 0.25, tomeP: 0.004, boost: 2.5, floors: ['rare', 'uncommon'] },
+    boss:     { n: [[7, 25], [8, 35], [9, 25], [10, 15]], goldP: 1, goldM: 20, pots: [2, 3], gems: 1, gemP: 0.4, miscP: 0.5, matP: 1, loreP: 0.3, clsP: 1, clsQty: [2, 4], riftP: 1, riftQty: [2, 5], tomeP: 0.05, trophyP: 0.5, boost: 4,
+      floors: ['rare', 'rare'], rest: 'uncommon', lvl: 2 },
     // legendary-tier monsters (R3.6): a small boss, with three times the usual Legendary Elite odds on top of the boost
-    legendary: { n: [[5, 35], [6, 40], [7, 25]], goldP: 1, goldM: 12, pots: [1, 2], gems: 0, gemP: 0.5, miscP: 0.25, matP: 0.6, loreP: 0.15, boost: 3, elite: 3,
-      floors: ['rare', 'rare'], rest: 'magic', lvl: 1 },
-    chest:    { n: [[2, 30], [3, 45], [4, 25]], goldP: 1, goldM: 5, potP: 0.5, gemP: 0.15, miscP: 0.08, matP: 0.15, loreP: 0.04, boost: 2, floors: ['magic'] },
+    legendary: { n: [[5, 35], [6, 40], [7, 25]], goldP: 1, goldM: 12, pots: [1, 2], gems: 0, gemP: 0.5, miscP: 0.25, matP: 0.6, loreP: 0.15, boost: 3, clsP: 0.8, clsQty: [1, 3], riftP: 0.6, tomeP: 0.04, trophyP: 0.5, elite: 3,
+      floors: ['rare', 'rare'], rest: 'uncommon', lvl: 1 },
+    chest:    { n: [[2, 30], [3, 45], [4, 25]], goldP: 1, goldM: 5, potP: 0.5, gemP: 0.15, miscP: 0.08, matP: 0.15, loreP: 0.04, clsP: 0.12, riftP: 0.1, tomeP: 0.003, boost: 2, floors: ['uncommon'] },
     barrel:   { n: [[0, 86], [1, 14]], goldP: 0.35, goldM: 0.6, potP: 0.08, gemP: 0.004, miscP: 0, matP: 0, boost: 0.8, floors: [] },
     // R6.2: the reward for killing your own Echo — a few good drops, the first guaranteed rare-or-better (opts.floor can raise it)
-    echo:     { n: [[2, 45], [3, 40], [4, 15]], goldP: 1, goldM: 8, potP: 0.5, gemP: 0.3, miscP: 0.1, matP: 0.5, loreP: 0.1, boost: 2.5, floors: ['rare', 'magic'] },
+    echo:     { n: [[2, 45], [3, 40], [4, 15]], goldP: 1, goldM: 8, potP: 0.5, gemP: 0.3, miscP: 0.1, matP: 0.5, loreP: 0.1, clsP: 0.8, clsQty: [1, 3], riftP: 0.5, tomeP: 0.08, trophyP: 0.3, boost: 2.5, floors: ['rare', 'uncommon'] },
     quest:    { n: [[1, 70], [2, 30]], goldP: 1, goldM: 8, potP: 0, gemP: 0.1, miscP: 0, matP: 0, boost: 3, floors: ['rare'] },
   };
   D.SOURCES = SOURCES;
@@ -379,7 +393,7 @@
   D.makeLore = function (index) {
     const L = G.meta && G.meta.LORE;
     const page = Array.isArray(L) && L[index];
-    return { id: G.newId(), baseId: 'lore', type: 'lore', slot: null, loreIndex: index,
+    return { id: G.newId(), rv: D.RARITY_VERSION, baseId: 'lore', type: 'lore', slot: null, loreIndex: index,
       name: (page && page.title) || D.MISC_NAMES.lorePage, rarity: 'rare', ilvl: 1, reqLevel: 1,
       icon: { shape: 'scroll', color: '#d8c8a0', accent: '#8a5a2a' }, base: {}, mods: [], value: 0 };
   };
@@ -475,6 +489,15 @@
       }
     }
 
+    // R7.4 new drops. Class material: biased to the current class; Rift Shards from the corrupted depths; Tome of Insight (skill
+    // point) very rarely; Champion's Trophy from tougher kills (sells well).
+    const pl = player();
+    const cm = pl && D.CLASS_MATERIAL[pl.classId];
+    if (cm && rng.chance(src.clsP != null ? src.clsP : 0)) items.push(makeMisc(cm, 1, src.clsQty ? rng.int(src.clsQty[0], src.clsQty[1]) : 1));
+    if (level >= D.CORRUPT.startDepth && rng.chance(src.riftP || 0)) items.push(makeMisc('mat_rift', 1, src.riftQty ? rng.int(src.riftQty[0], src.riftQty[1]) : 1));
+    if (rng.chance((src.tomeP || 0) * (opts.source === 'echo' || level >= 10 ? 1 : 0.5))) items.push(makeMisc('tome_skill', level, 1));
+    if (rng.chance(src.trophyP || 0)) items.push(makeMisc('trophy', level, 1));
+
     if (src.loreP && rng.chance(src.loreP)) {
       const page = rollLore(rng);
       if (page) items.push(page);
@@ -568,7 +591,7 @@
     }
     if (loot.gold) place(pile, goldItem(loot.gold));
     loot.pileId = pile.pileId;
-    if (best >= rord('set')) {
+    if (best >= rord('legendary')) {
       G.emit('sfx', { name: 'loot_legendary' });
       G.emit('ui:toast', { text: C.RARITY[bestItem.rarity].name + ' drop: ' + bestItem.name, color: C.RARITY[bestItem.rarity].color });
     } else if (best >= rord('rare')) G.emit('sfx', { name: 'loot_rare' });
