@@ -1339,7 +1339,7 @@
     water: abgr(50, 100, 170, 235), lava: abgr(230, 100, 30, 235), door: abgr(190, 140, 70, 240), grass: abgr(70, 110, 66, 230),
     deepWater: abgr(22, 44, 84, 235), deepLava: abgr(255, 170, 40, 235), chasm: abgr(14, 10, 20, 235), blocked: abgr(30, 28, 36, 235),
     path: abgr(150, 124, 92, 235), down: abgr(255, 150, 40, 255), up: abgr(140, 200, 255, 255),
-    charted: abgr(84, 80, 92, 140), chartedWall: abgr(44, 40, 52, 140),
+    charted: abgr(150, 160, 190, 120),
   };
   const MM_PROP = { inn: '#ffb050', inn_fire: '#ffb050', chute: '#5be0c8', surface_crate: '#d8a050', portal: '#b65bff', waypoint: '#4ac8ff', dungeon_entrance: '#ff7a2a', stash: '#ffd94a', shrine: '#fff0a0', chest: '#e8b040', corpse: '#7fe8ff' };
 
@@ -1362,7 +1362,16 @@
     for (let i = 0; i < mw * mh; i++) {
       const t = tiles[i];
       if (t === T.VOID) { mm32[i] = 0; continue; }
-      if (exp && !exp[i]) { mm32[i] = rev && (rev === true || rev[i]) ? (C.WALKABLE[t] ? MMC.charted : t === T.WALL ? MMC.chartedWall : 0) : 0; continue; }
+      if (exp && !exp[i]) {
+        // revealed but unexplored: only the outline of the walkable ground (floor cells touching anything unwalkable), faint
+        let o = 0;
+        if (rev && (rev === true || rev[i]) && C.WALKABLE[t]) {
+          const x = i % mw;
+          if (x === 0 || x === mw - 1 || i < mw || i >= mw * (mh - 1) || !C.WALKABLE[tiles[i - 1]] || !C.WALKABLE[tiles[i + 1]] || !C.WALKABLE[tiles[i - mw]] || !C.WALKABLE[tiles[i + mw]]) o = MMC.charted;
+        }
+        mm32[i] = o;
+        continue;
+      }
       const lit = !vis || vis[i];
       mm32[i] = t === T.WALL ? (lit ? MMC.wall : MMC.wallDim) : t === T.WATER ? MMC.water : t === T.LAVA ? MMC.lava : t === T.DOOR ? MMC.door
         : t === T.STAIRS_DOWN ? MMC.down : t === T.STAIRS_UP ? MMC.up : t === T.GRASS ? MMC.grass : t === T.PATH || t === T.BRIDGE ? MMC.path : t === T.DEEP_WATER ? MMC.deepWater : t === T.DEEP_LAVA ? MMC.deepLava : t === T.CHASM ? MMC.chasm

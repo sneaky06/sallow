@@ -294,6 +294,8 @@
     activeCleansed = (opts && opts.cleansed) || (G.state && G.state.flags && G.state.flags.cleansed) || null;
     depth = Math.max(1, depth | 0);
     seed = (seed >>> 0) || 1;
+    const realSeed = seed;
+    if (depth % C.BOSS_EVERY === 0) seed = ((0xB055E5 ^ Math.imul(depth, 0x9E3779B1)) >>> 0) || 1;      // R16: boss floors are static set pieces, identical every visit
     const theme = C.themeForDepth(depth);
     const pick = W.pickVariant(depth, seed), variant = pick.variant;
     let ctx = null, attempts = 0;
@@ -304,7 +306,7 @@
       try { ctx = build(depth, a ? derive(seed, a) : seed, layout, pick.def); if (ctx) variant.layout = layout; } catch (err) { console.warn('[world] generation attempt failed', err); }
     }
     if (!ctx) { attempts++; ctx = build(depth, seed, 'fallback', pick.def); if (ctx) variant.layout = 'fallback'; }
-    if (!ctx) throw new Error('world: could not generate depth ' + depth + ' seed ' + seed);
+    if (!ctx) throw new Error('world: could not generate depth ' + depth + ' seed ' + realSeed);
     W._lastAttempts = attempts;
 
     const filled = gen.populate(ctx);
@@ -325,7 +327,7 @@
       };
     }
     const map = {
-      w: ctx.w, h: ctx.h, kind: 'dungeon', depth, theme, seed,
+      w: ctx.w, h: ctx.h, kind: 'dungeon', depth, theme, seed: realSeed,
       tiles: ctx.tiles,
       explored: new Uint8Array(n),
       visible: new Uint8Array(n),

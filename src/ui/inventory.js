@@ -122,20 +122,20 @@
   // ---------- R16.9 requirements and R16.11 auto-compare ----------
   const REQ = { str: 'Strength', dex: 'Dexterity', int: 'Intelligence', vit: 'Vitality' };
   // stat requirements the items team puts on gear (item.req / item.requires = { str, dex, int }), red while you fall short; plus the reason
-  // G.items.canEquip(item) gives when it will refuse you
+  // G.items.meetsRequirements(item, player) gives when it will refuse you
   function reqLines(item) {
     const out = [], p = S.player, need = item.req || item.requires || item.reqStats;
     if (need && typeof need === 'object' && p) {
       for (const k in REQ) {
         if (!(need[k] > 0)) continue;
-        const have = (p.stats && p.stats[k]) || 0;
+        const have = (p.attrs && p.attrs[k]) || 0;     // same rule as G.items.meetsRequirements: base attributes
         out.push(h('div', { class: 'ed-tipline ' + (have < need[k] ? 'ed-bad' : 'ed-note'), text: TX.req.requires + REQ[k] + ' ' + need[k] + (have < need[k] ? TX.req.youHave + Math.floor(have) + ')' : '') }));
       }
     }
-    if (item.slot && G.items && typeof G.items.canEquip === 'function' && !wornIn(item)) {
+    if (item.slot && G.items && typeof G.items.meetsRequirements === 'function' && !wornIn(item)) {
       let r = null;
-      try { r = G.items.canEquip(item); } catch (err) { r = null; }
-      const why = r === false ? TX.req.cannotEquipYet : (r && r.ok === false ? (r.reason || TX.req.cannotEquipYet) : null);
+      try { r = G.items.meetsRequirements(item, p); } catch (err) { r = null; }
+      const why = r && r.ok === false ? (r.text || TX.req.cannotEquipYet) : null;
       if (why) out.push(h('div', { class: 'ed-tipline ed-bad', text: TX.req.cannotEquip + why }));
     }
     return out;

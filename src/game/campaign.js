@@ -575,7 +575,7 @@
 
   // ============================== relic powers (combat side) ==============================
   // dash_shield_bash (Brannoc): your dash ends in a shield bash — 80% weapon damage around you and a 0.8 s stagger.
-  // dash_reload (Wren): every dash looses a free aimed shot (150%) at the nearest foe; the floor map opens on arrival.
+  // dash_reload (Wren): every dash looses a free aimed shot (150%) at the nearest foe; each floor's layout is revealed on arrival (map.revealed — not explored, so explored % and the clear grade are honest).
   // ramping_fire (Varr): fire damage +3% per second of fighting, up to +45%; resets after 4 s without a hit.
   // extra_minion (Crane): +1 skeleton warrior; your kills cannot be raised (skills.js / deep.js / Crane himself).
   game.relicDash = function (p, x0, y0) {
@@ -631,6 +631,10 @@
   G.on('scene:changed', function (ev) {
     ramp.start = ramp.last = -99;
     const p = G.state.player, map = ev && ev.map;
-    if (p && map && ev.scene === 'dungeon' && game.fxOf(p).dash_reload && map.explored) map.explored.fill(1);
+    if (p && map && ev.scene === 'dungeon' && game.fxOf(p).dash_reload && map.tiles) {          // reveal the layout (walkable tiles) without counting it as explored
+      const rv = new Uint8Array(map.w * map.h);
+      for (let i = 0; i < rv.length; i++) if (G.C.WALKABLE[map.tiles[i]]) rv[i] = 1;
+      map.revealed = rv;
+    }
   });
 })();

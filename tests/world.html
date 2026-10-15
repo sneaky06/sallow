@@ -886,6 +886,9 @@ window.G = { manifest: {} };
         need2(viaBoss.cleansed === true && W.generateDungeon(13, 555, { cleansed: ['boss_broodmother'] }).cleansed === false, 'act boss id counts');
         R.cleansedInfo = 'cleansed monsters ' + clean + '/' + base + ', npcs ' + npcs + ', camps ' + camps + '/' + nmaps;
       }
+      { const same = function (d) { const a = W.generateDungeon(d, 11), b = W.generateDungeon(d, 987654); return a.tiles.join() === b.tiles.join() && JSON.stringify(a.rooms) === JSON.stringify(b.rooms) && JSON.stringify(a.props) === JSON.stringify(b.props) && JSON.stringify(a.spawns) === JSON.stringify(b.spawns) && a.seed === 11 && b.seed === 987654; };
+        for (const d of [5, 10, 15, 20, 25, 30, 35, 60]) { R.asserts++; if (!same(d)) { R.failed++; R.failures.push('boss floor ' + d + ' differs between seeds'); } }
+        R.asserts++; if (same(7)) { R.failed++; R.failures.push('ordinary floors should still vary by seed'); } }
       R.genStats = stats(R.genMs);
       const lines = [];
       lines.push((R.failed ? 'FAIL' : 'PASS') + ' — ' + R.maps + ' dungeons (depth 1–60) + 10 towns, ' + R.asserts + ' assertions, ' + R.failed + ' failed, ' + window.__errors.length + ' script errors');
