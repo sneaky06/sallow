@@ -349,3 +349,14 @@ Core (done by the lead): climbing stairs up arrives beside the previous floor's 
    gives a reward: gold, materials, a Mark at big tiers, and small permanent bonuses (e.g. kills → +1% damage per tier, chests →
    +2% magic find). `G.meta.getMilestones()`, `milestone:reached { id, tier, reward }`, permanent bonuses via
    `G.meta.getMilestoneMods() → { [stat]: value }`, which combat adds in recomputeStats. A Milestones page in the Journal.
+
+### R13 — bulk rate grows with loyalty (lead dev, 2026-10-15)
+The surface crate's bulk rate is no longer a flat 60%. It starts at **50%** and rises through **loyalty quests** that unlock as the
+story progresses: one per act from the merchant (bulk *sell* rate +10% each) and one per act from the blacksmith (bulk *salvage*
+yield +10% each), so a player who has finished all three acts' loyalty quests sells and salvages from the crate at **80%** — never
+full price (carrying items to a trader stays the only way to get 100%).
+- **Items:** `G.items.bulkRate('sell'|'salvage') → 0.5 + state.flags.loyalty.{sell|salvage}`, capped at 0.8; every bulk path uses it.
+- **Story:** six short loyalty quests (merchant ×3, blacksmith ×3), one unlocking per act, grim and in character ("good customers"
+  in a dying town), with a goal tied to that trader (sell N items to them, bring them a material, gold spent with them, …).
+- **UI:** reward type `loyalty: { kind: 'sell'|'salvage', amount: 0.1 }`; the crate shows the current rate ("Bulk rate 60% · raise it
+  by helping Orlen and Brakka") and the trader's panel shows their loyalty level.
