@@ -1035,14 +1035,19 @@ function harness() {
     const gk = I.dropItemAt(1, 1, keep);
     ok(I.pickup(gk.id) === false && S.groundItems.some(function (g) { return g.item === keep; }), 'non-junk still needs bag space');
 
-    // auto sell on arriving in town — one summary toast
+    // R8.1: junk auto = queue for the chute; nothing is sold on arrival any more
     mkPlayer('warrior', 30);
     S.settings.junk = { maxRarity: 'common', action: 'sell', auto: true, keepUpgrades: false, keepSocketed: true };
     for (let i = 0; i < 4; i++) { const it = give({ level: 10, slot: 'belt', rarity: 'common' }); delete it.sockets; }
     S.scene = 'town';
     clearEvents();
     G.emit('scene:changed', { scene: 'town', depth: 0, map: null });
-    ok(count() === 0 && S.player.gold > 0 && T.events['ui:toast'].length === 1, 'auto sell on entering town, with one summary toast', T.events['ui:toast'].map(function (t) { return t.text; }).join('|'));
+    ok(count() === 4 && S.player.gold === 0, 'auto no longer sells on entering town');
+    S.scene = 'dungeon';
+    ok(I.chuteOpened().count === 4 && count() === 0 && S.surface.length === 4, 'auto: opening the chute sends the junk up');
+    S.settings.junk.auto = false; give({ level: 10, slot: 'belt', rarity: 'common' });
+    ok(I.chuteOpened() === null && count() === 1, 'auto off: opening the chute sends nothing');
+    S.surface = []; S.scene = 'town';
     G.emit('scene:changed', { scene: 'dungeon', depth: 1, map: null });
 
     // bulk sell never touches sets / Legendary
@@ -1234,7 +1239,7 @@ function harness() {
     eq(D.UNIQUES.emberdeep_heart.name, 'Heart of ' + D.GAME_NAME, 'mythic renamed from one constant, id kept for saves');
     eq(D.GAME_NAME, 'Sallow', 'working title is Sallow');
     const all = D.UNIQUE_LIST.map(function (u) { const t = I.getTooltip(I.rollItem({ level: 60, uniqueId: u.id })); return t.name + ' ' + t.lines.map(function (l) { return l.text; }).join(' '); }).join(' ');
-    ok(!/Emberdeep/.test(all), 'no player-facing "Emberdeep" left in item text');
+    ok(!/Emberfall/.test(all), 'no player-facing "Emberfall" left in item text (the town is Emberdeep)');
   });
 
   // =====================================================================================================================

@@ -39,7 +39,7 @@
     [['resAll', 3]], [['block', 4], ['dmgPct', 5]]);
   L('gravewarden', 'heavy', 0, 'Gravewarden', '#8a7a4a', '#3e5a4a', '#7fc8a0', 'Tarnished bronze scales gone green, a crypt-guard tabard, a grilled visor.',
     [['resPoison', 10]], [['lifeSteal', 1], ['dmgPct', 5]]);
-  L('tallow_iron', 'heavy', 0, 'Tallow-Iron', '#9aa3ad', '#e8dcb0', '#ff9a3c', 'Emberfall militia plate, wax-stained from the candle vigils; a stub of candle on the helm.',
+  L('tallow_iron', 'heavy', 0, 'Tallow-Iron', '#9aa3ad', '#e8dcb0', '#ff9a3c', 'Emberdeep militia plate, wax-stained from the candle vigils; a stub of candle on the helm.',
     [['resFire', 10]], [['critDmg', 10], ['block', 3]]);
   L('ash_plate', 'heavy', 1, 'Ash Plate', '#3a3636', '#6a6260', '#ff6a2a', 'Soot-black plate with ember-orange seams that glow faintly when struck.',
     [['resFire', 12]], [['dmgPct', 8], ['resAll', 4]]);
@@ -100,7 +100,7 @@
   L('hearthwood', 'weapon', 0, 'Hearthwood', '#7a5a3a', '#3a2a1e', '#ffb347', 'Dark oak scorched by the hearth, banded with copper.');
   L('blackiron', 'weapon', 1, 'Blackiron', '#2e2e34', '#6a6a78', '#c8d0e0', 'Blued black iron with bright-ground edges.');
   L('gravesilver', 'weapon', 1, 'Gravesilver', '#c0c4cc', '#3a3a48', '#7fd4ff', 'Tarnished silver etched with funeral prayers.');
-  L('emberforged', 'weapon', 1, 'Emberforged', '#5a2a1a', '#d9a63a', '#ff6a2a', 'Quenched in the Emberfall forge; the fuller still glows.');
+  L('emberforged', 'weapon', 1, 'Emberforged', '#5a2a1a', '#d9a63a', '#ff6a2a', 'Quenched in the Emberdeep forge; the fuller still glows.');
   L('pallid', 'weapon', 2, 'Pallid', '#e8e2cc', '#8a8070', '#f8f4e0', 'Bleached to the colour of old teeth. It drinks the light around it.');
   L('abyssal', 'weapon', 2, 'Abyssal', '#1a1028', '#6a4a9a', '#b98cff', 'Something grown, not forged: ridged, violet-black, faintly breathing.');
   L('starfallen', 'weapon', 2, 'Starfallen', '#3a4a6a', '#c8d8ff', '#fff06a', 'Meteoric metal, cold to the touch, flecked with light.');

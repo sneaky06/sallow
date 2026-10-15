@@ -208,12 +208,9 @@
     return res;
   };
 
-  // auto + sell: junk is sold on arriving in town, one summary toast.
-  G.on('scene:changed', function (e) {
-    if (!e || e.scene !== 'town' || !G.state.player) return;
-    const rules = junkRules();
-    if (rules.auto && rules.action !== 'salvage') I.processJunk();
-  });
+  // R8.1: junk `auto` means "queue for the chute": nothing is sold or salvaged on its own any more. The UI calls I.chuteOpened() when the
+  // chute panel opens; with auto on that sends the junk up at once, otherwise the player taps "Send junk". -> { count, left } | null
+  I.chuteOpened = function () { return junkRules().auto ? I.sendJunk() : null; };
 
   // ---- buyback (R2.7): the last 12 things sold, newest first, at 2.5x what the vendor paid; forgotten on entering a dungeon ----
   const BUYBACK_MAX = 12, BUYBACK_MULT = 2.5;

@@ -150,38 +150,27 @@
   // ------------------------------ map population ------------------------------
   const ARCH_W = { melee: 4, ranged: 2.4, caster: 1.6, swarm: 3, brute: 1.2 };
 
-  // R9.1 "floors shape their monsters": map.variant.monsterBias (world) tilts the picks. Accepted shapes, all optional:
-  //   { ids: { [monsterId]: weightMult } | [monsterId], arch: { melee: mult, … }, dtype: { fire: mult, … }, body: { wraith: mult, … } }
-  // or a plain array of monster ids (= ×3 each). Ids outside the theme pool join it. Read once per map in spawnMapEntities.
+  // R9.1 "floors shape their monsters" — the canonical shape is World's map.variant.monsterBias = { tags, monsterIds, weight }:
+  // `weight` (0..1) is the share of spawn picks drawn from `monsterIds` (archetype-weighted); the rest follow the theme pool.
+  // `tags` are descriptive only. Ids that are unknown, bosses, minions or event monsters are ignored. Read once per map.
   let bias = null;
   function readBias(map) {
-    const v = map && map.variant, b = v && (v.monsterBias || v.monsters);
-    if (!b) return null;
-    if (Array.isArray(b)) { const ids = {}; b.forEach(function (id) { ids[id] = 3; }); return { ids: ids }; }
-    if (Array.isArray(b.ids)) { const ids = {}; b.ids.forEach(function (id) { ids[id] = 3; }); return Object.assign({}, b, { ids: ids }); }
-    return b;
-  }
-  function biasMult(id) {
-    if (!bias) return 1;
-    const d = M[id];
-    let w = 1;
-    if (bias.ids && bias.ids[id]) w *= bias.ids[id];
-    if (bias.arch && bias.arch[d.arch]) w *= bias.arch[d.arch];
-    if (bias.dtype && bias.dtype[d.dtype || 'phys']) w *= bias.dtype[d.dtype || 'phys'];
-    if (bias.body && bias.body[d.sprite.body]) w *= bias.body[d.sprite.body];
-    return w;
+    const b = map && map.variant && map.variant.monsterBias;
+    if (!b || !Array.isArray(b.monsterIds) || !(b.weight > 0)) return null;
+    const ids = b.monsterIds.filter(function (id) { return M[id] && !M[id].boss && M[id].theme !== 'minion' && M[id].theme !== 'event'; });
+    return ids.length ? { ids: ids, weight: Math.min(1, b.weight), tags: Array.isArray(b.tags) ? b.tags.slice() : [] } : null;
   }
   game.monsterBiasOf = function (map) { return readBias(map); };
   function pickType(rng, pool, depth, not) {
+    if (bias && rng.next() < bias.weight) pool = bias.ids;          // this pick follows the floor's variant
     const entries = [];
     for (const id of pool) {
       if (id === not) continue;
       let w = ARCH_W[M[id].arch] || 1;
       if (depth <= 1 && (M[id].arch === 'brute' || M[id].arch === 'caster')) w *= 0.4;
-      w *= biasMult(id);
       entries.push({ w: w, id: id });
     }
-    return rng.weighted(entries).id;
+    return entries.length ? rng.weighted(entries).id : pool[0];
   }
 
   function spotNear(rng, x, y, spread) {
@@ -206,7 +195,6 @@
     if (game.notePallorFloor) game.notePallorFloor(map);       // R5.2: Pallor rises before this floor's monsters are made
     let pool = game.THEME_POOLS[map.theme] || game.THEME_POOLS[G.C.themeForDepth(depth)] || game.THEME_POOLS.crypt;
     bias = readBias(map);
-    if (bias && bias.ids) { const extra = Object.keys(bias.ids).filter(function (id) { return M[id] && !M[id].boss && M[id].theme !== 'minion' && M[id].theme !== 'event' && pool.indexOf(id) < 0; }); if (extra.length) pool = pool.concat(extra); }
     const order = { npc: 0, boss: 1, elite: 2, pack: 3, monster: 4 };
     const spawns = map.spawns.slice().sort(function (a, b) { return (order[a.kind] || 9) - (order[b.kind] || 9); });
     let count = 0;

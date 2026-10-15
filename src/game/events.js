@@ -63,7 +63,7 @@
   game.getClearGrade = function () {
     const S = G.state;
     if (!S.map || S.scene !== 'dungeon') return null;
-    return { grade: null, explored: exploredExact(), time: Math.round(S.time - fl.t0), par: Math.round(par(S.map)), last: fl.last };
+    return { grade: null, explored: exploredExact(), exploredShown: game.getExplored(), time: Math.round(S.time - fl.t0), par: Math.round(par(S.map)), last: fl.last };
   };
   // player.js calls this as the stairs down are taken (before the next floor loads).
   game.onStairsDown = function () {
@@ -73,7 +73,7 @@
     const score = xp / 100 * Math.min(1.3, pr / time);
     let G0 = GRADES[GRADES.length - 1];
     for (const g of GRADES) if (score >= g.min) { G0 = g; break; }
-    fl.pending = { grade: G0.g, score: Math.round(score * 100) / 100, explored: xp, time: Math.round(time), par: Math.round(pr), depth: S.depth };
+    fl.pending = { grade: G0.g, score: Math.round(score * 100) / 100, explored: xp, exploredShown: game.getExplored(), time: Math.round(time), par: Math.round(pr), depth: S.depth };          // explored = exact 0–100; exploredShown = the R8.4 object the player saw
   };
   function awardGrade(p, map, gr) {
     const G0 = GRADES.find(function (g) { return g.g === gr.grade; });

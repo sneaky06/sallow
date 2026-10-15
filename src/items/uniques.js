@@ -18,7 +18,7 @@
   // ---- Warrior ----
   U('oathkeeper', 'Oathkeeper', L, 'sword', 'warrior', 8,
     [['dmgPct', 60, 90], ['str', 25, 40], ['block', 8, 12], ['lifeSteal', 3, 5]],
-    'Sworn on the ashes of Emberfall. It remembers.', { color: '#e8e0c8', accent: '#ff8a2b' });
+    'Sworn on the ashes of Emberdeep. It remembers.', { color: '#e8e0c8', accent: '#ff8a2b' });
   U('gorehowl', 'Gorehowl', L, 'greataxe', 'warrior', 18,
     [['dmgPct', 90, 140], ['critDmg', 60, 100], ['lifeOnKill', 30, 50], ['moveSpeed', 8, 12]],
     'It screams when it is hungry. It is always hungry.', { color: '#a82a2a', accent: '#2a1a1a' });
@@ -242,7 +242,7 @@
     4: [['allSkills', 2], ['castSpeed', 20], ['xpGain', 10]],
   });
 
-  S('heirlooms', 'Emberfall Heirlooms', null, '#d9bd6a', [
+  S('heirlooms', 'Emberdeep Heirlooms', null, '#d9bd6a', [
     ['heirloom_amulet', 'Heirloom Locket', 'amulet', [['magicFind', 12, 20], ['hpMax', 80, 120]]],
     ['heirloom_signet', 'Heirloom Signet', 'ring', [['goldFind', 30, 50], ['critChance', 4, 7]]],
     ['heirloom_seal', 'Heirloom Seal', 'ring', [['magicFind', 10, 16], ['resAll', 8, 12]]],

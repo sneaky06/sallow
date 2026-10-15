@@ -269,3 +269,14 @@ Status: tests/combat.html → 465/465, 0 errors; real index.html with game + eng
   scaling, made Hellscape a wall).
 - **Harness:** `runMatrix({ …, allSystems: true })` = shrine bargains auto-accepted (bot visits shrines), real corpse runs
   (respawn → re-enter, Echo at the corpse), everything else live; `style: 'slow'` = no dodging, no dashes, skills every 0.9 s.
+
+## DESIGN.md §15 cleanups (combat)
+- #3 Canonical monster bias = World's `map.variant.monsterBias = { tags, monsterIds, weight }`: each spawn pick draws from
+  `monsterIds` with probability `weight` (archetype-weighted), else from the theme pool. Old combat shapes are no longer read.
+- #4 Bargains: only shrines World marks deal — `prop.bargain` (true or a bargain id) / `shrineKind: 'bargain'`, and rift shrines
+  (`shrineKind: 'corrupt'`). The deal is picked per shrine from the floor seed unless `prop.bargain` names one. No independent roll.
+- #5 Flow events: `flow:chain { count }` (every Close Call) and `flow:trigger { chain }` are canonical; `flow:start` is a deprecated alias.
+- #8 `ember_heir`: at each fight's start (an awake enemy within 9 tiles after 8 s without one) every relic power fires once: a
+  3-tile shield-bash nova (80%, 0.8 s stun), a 150% shot at the nearest foe, the fire ramp primed to +45%, and a spectral skeleton
+  (`heirShade`, 12 s) for any class.
+- #12 `getClearGrade()` / `floor:graded` carry `explored` (exact 0–100) and `exploredShown` (the R8.4 object the player saw).

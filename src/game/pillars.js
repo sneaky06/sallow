@@ -36,7 +36,7 @@
     if (flow.n >= 5) for (const id in p.cooldowns) p.cooldowns[id] = 0;
     U.text(p.x, p.y - 1.7, flow.n > 3 ? 'FLOW ×' + flow.n : 'FLOW', '#7fffd4', true);
     U.fx('nova', p.x, p.y, { radius: 2.5, color: '#7fffd4' }); U.sfx('shrine');
-    G.emit('flow:start', { chain: flow.n });
+    G.emit('flow:start', { chain: flow.n });          // deprecated alias of flow:trigger (kept for one release)
     G.emit('flow:trigger', { chain: flow.n });
   };
   function tickFlow(dt) {
@@ -47,7 +47,8 @@
   G.on('player:died', function () { endSlow(); flow.n = 0; });
 
   // ============================== shrine bargains ==============================
-  // About a third of shrines (deterministic per shrine) offer a deal instead of a buff. The game emits
+  // Shrines World marks as bargains (prop.bargain: true or a bargain id, shrineKind 'bargain') offer a deal instead of a buff
+  // (the deal itself is picked per shrine from the seed unless prop.bargain names one). The game emits
   // shrine:offer { id, name, cost, reward } and waits; G.game.acceptBargain(id) applies it for the rest of the floor,
   // G.game.declineBargain(id) leaves the shrine dark. One bargain per floor. state: G.game.bargain (null or the active deal).
   const BARGAINS = game.BARGAINS = {
@@ -63,7 +64,7 @@
     const S = G.state, map = S.map;
     if (!map || map.kind !== 'dungeon' || game.bargain || offer || prop.bargainSeen) return false;
     const h = hash(prop.x, prop.y, map.seed);
-    if (h % 100 >= 35 && !prop.bargain) return false;
+    if (!prop.bargain && prop.shrineKind !== 'bargain' && prop.shrineKind !== 'corrupt') return false;          // World decides: bargain shrines and rift (corrupt) shrines deal
     if (!G.ui) return false;          // no UI to ask: an ordinary shrine
     const ids = Object.keys(BARGAINS), id = prop.bargain && BARGAINS[prop.bargain] ? prop.bargain : ids[(h >>> 8) % ids.length];
     prop.bargainSeen = true;
@@ -272,6 +273,7 @@
   game.updatePillars = function (dt) {
     const S = G.state, p = S.player;
     tickFlow(dt);
+    if (game.emberHeirTick) game.emberHeirTick(p);          // the combined relic
     if (!p || p.dead || S.scene !== 'dungeon') return;
     tickEmbers(p, dt);
   };

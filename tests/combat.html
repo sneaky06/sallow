@@ -2356,8 +2356,8 @@ ok(back.hp < 1e6 && front[0].hp < 1e6 && front[1].hp < 1e6, 'Whirlwind hits all 
     const countIds = function (bias) { const m = Object.assign({}, S.map, { seed: 4242, mods: [], variant: bias ? { monsterBias: bias } : undefined, spawns: [] });
       for (let i = 0; i < 12; i++) m.spawns.push({ x: 4 + (i % 4) * 3, y: 4 + Math.floor(i / 4) * 3, kind: 'pack', count: 4 }); S.entities = []; game.spawnMapEntities(m);
       const c = {}; S.entities.forEach(function (e) { if (e.type === 'monster') c[e.monsterId] = (c[e.monsterId] || 0) + 1; }); return c; };
-    const plainB = countIds(null), wraithy = countIds({ ids: { wraith: 8 } }), fiery = countIds(['imp']);
-    ok((wraithy.wraith || 0) > (plainB.wraith || 0) * 2 && (fiery.imp || 0) > 0 && !plainB.imp, 'R9.1 map.variant.monsterBias tilts the picks (wraith ' + (plainB.wraith || 0) + ' → ' + (wraithy.wraith || 0) + '; imp joins the pool: ' + (fiery.imp || 0) + ')');
+    const plainB = countIds(null), wraithy = countIds({ tags: ['drowned'], monsterIds: ['wraith'], weight: 0.6 }), fiery = countIds({ tags: ['fire'], monsterIds: ['imp'], weight: 0.5 });
+    ok((wraithy.wraith || 0) > (plainB.wraith || 0) * 2 && (fiery.imp || 0) > 0 && !plainB.imp, 'R9.1 map.variant.monsterBias { tags, monsterIds, weight } tilts the picks (wraith ' + (plainB.wraith || 0) + ' → ' + (wraithy.wraith || 0) + '; imp joins the pool: ' + (fiery.imp || 0) + ')');
     // shrine bargains
     p = fresh('warrior', true, 3); const uiW = G.ui; G.ui = G.ui || {};
     const offers = []; const oOf = G.on('shrine:offer', function (e) { offers.push(e); });
@@ -2431,6 +2431,32 @@ ok(back.hp < 1e6 && front[0].hp < 1e6 && front[1].hp < 1e6, 'Whirlwind hits all 
     const blocked = !cores.length && !core.used;
     hk2.hp = 0; game.kill(hk2, p); game.ctl.intent = { type: 'prop', x: core.x, y: core.y }; step(0.3); oCo();
     ok(blocked && cores.length === 1 && cores[0].prop === core && core.used && S.flags.riftCoreTouched, 'R10 rift core: silent while the Hearthking lives; afterwards object:interact { type: "rift_core", prop }');
+
+    section('DESIGN.md §15 cleanups');
+    p = fresh('warrior', true, 3); const uiW2 = G.ui; G.ui = G.ui || {}; const offs2 = []; const oOf2 = G.on('shrine:offer', function (e) { offs2.push(e); });
+    const plainShr = { type: 'shrine', x: Math.floor(p.x) + 1, y: Math.floor(p.y), solid: true, interact: 'shrine' }; S.map.props.push(plainShr);
+    game.ctl.intent = { type: 'prop', x: plainShr.x, y: plainShr.y }; step(0.5);
+    const plainBuff = !!game.getEffect(p, 'shrine') && !offs2.length;
+    G.scenes.enterDungeon(3); p = S.player;
+    const worldShr = { type: 'shrine', x: Math.floor(p.x) + 1, y: Math.floor(p.y), solid: true, interact: 'shrine', bargain: true, shrineKind: 'bargain' }; S.map.props.push(worldShr);
+    game.ctl.intent = { type: 'prop', x: worldShr.x, y: worldShr.y }; step(0.5); const worldOffer = offs2.length === 1 && game.BARGAINS[offs2[0].id];
+    game.declineBargain(); G.scenes.enterDungeon(3); p = S.player;
+    const riftShr = { type: 'shrine', x: Math.floor(p.x) + 1, y: Math.floor(p.y), solid: true, interact: 'shrine', shrineKind: 'corrupt' }; S.map.props.push(riftShr);
+    game.ctl.intent = { type: 'prop', x: riftShr.x, y: riftShr.y }; step(0.5); oOf2(); G.ui = uiW2; game.declineBargain();
+    ok(plainBuff && worldOffer && offs2.length === 2, '§15 #4: only World\'s bargain shrines (bargain: true / shrineKind bargain|corrupt) deal; a plain shrine blesses');
+    p = fresh('warrior', true); const fl2 = []; const oF2 = G.on('flow:trigger', function () { fl2.push('t'); }), oF3 = G.on('flow:chain', function () { fl2.push('c'); });
+    for (let i = 0; i < 3; i++) game.onCloseCall(p); oF2(); oF3(); game.endFlow();
+    ok(fl2.indexOf('t') >= 0 && fl2.filter(function (s) { return s === 'c'; }).length === 3, '§15 #5: flow:chain { count } on every Close Call, flow:trigger at the chain');
+    // ember_heir
+    p = fresh('warrior', true); const reW2 = G.items.getRelicEffects; G.items.getRelicEffects = function () { return { ember_heir: true }; }; game.recomputeStats(p);
+    const hf1 = dummy(p.x + 1.5, p.y, 1e6); hf1.ai.st = 'chase'; step(0.2);
+    const shade = S.entities.find(function (e) { return e.heirShade; });
+    const burst = hf1.hp < 1e6 && shade;
+    step(13); const gone = !S.entities.some(function (e) { return e.heirShade && !e.dead; });
+    G.items.getRelicEffects = reW2; game.recomputeStats(p);
+    ok(burst && gone, '§15 #8: ember_heir — a fight\'s start fires every relic power once (bash nova, free shot, fire ramp, a shade for 12 s)');
+    const cg = (function () { const q = fresh('ranger', false, 12); return game.getClearGrade(); })();
+    ok(typeof cg.explored === 'number' && cg.exploredShown && typeof cg.exploredShown.label === 'string', '§15 #12: getClearGrade carries the exact explored number plus the shown object');
     oT(); H.mods = null;
   }
 

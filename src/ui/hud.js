@@ -756,8 +756,10 @@
     const parts = [];
     const t = e.time != null ? e.time : e.seconds;
     if (t != null) parts.push(clock(t) + (e.par != null ? ' (par ' + clock(e.par) + ')' : ''));
-    const ex = pctOf(e.explored != null ? e.explored : e.pct);
-    if (ex != null) parts.push(ex + '% explored');
+    // explored is a number (old) or { value, low, high, label } (R8.4: fuzzy with depth)
+    const eo = e.explored != null ? e.explored : e.pct;
+    if (eo && typeof eo === 'object') { const lb = typeof eo.label === 'string' ? eo.label : (eo.value != null ? pctOf(eo.value) + '%' : ''); if (lb) parts.push(lb + ' explored'); }
+    else { const ex = pctOf(eo); if (ex != null) parts.push(ex + '% explored'); }
     const b = e.text || e.bonus || e.reward;
     if (b && typeof b === 'string') parts.push(b);
     else if (b && typeof b === 'object') {

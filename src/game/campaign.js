@@ -590,6 +590,37 @@
       if (t) game.K.shoot(p, Math.atan2(t.y - p.y, t.x - p.x), { pct: 150, type: 'phys', shape: 'arrow', color: '#e8e0c8', speed: 16 });
     }
   };
+  // ember_heir (all ten relics combined): "the fallen fight beside you" — when a fight starts (an awake enemy within 9 tiles
+  // after 8 s without one) every relic power fires once for free: a shield-bash nova (80%, 0.8 s stun, 3 tiles), a 150% shot
+  // at the nearest foe, Varr's fire ramp primed to its +45% cap, and a spectral skeleton (12 s) for any class.
+  let heirFight = -99;
+  game.emberHeirTick = function (p) {
+    const S = G.state, now = S.time;
+    for (const e of S.entities) if (e.heirShade && !e.dead && e.expireAt < now) { e.hp = 0; game.kill(e, null); }
+    if (!p || p.dead || !game.fxOf(p).ember_heir) return;
+    let fighting = false;
+    const foes = game.live.foes;
+    for (let i = 0; i < foes.length && !fighting; i++) { const e = foes[i]; if (!e.dead && e.ai && e.ai.st !== 'sleep' && Math.hypot(e.x - p.x, e.y - p.y) < 9) fighting = true; }
+    if (!fighting) return;
+    if (now - heirFight > 8) emberHeirBurst(p, now);
+    heirFight = now;
+  };
+  function emberHeirBurst(p, now) {
+    U.text(p.x, p.y - 1.7, 'THE TEN', '#ffd27a', true); U.fx('nova', p.x, p.y, { radius: 3, color: '#ffd27a' }); U.sfx('shrine');
+    for (const e of game.K.around(p.x, p.y, 3)) { game.playerHit(e, { pct: 80, type: 'phys', skill: false, melee: true, noProc: true }); if (!e.dead) game.applyStatus(e, 'stun', 0.8); }
+    const t = game.pickTarget(9);
+    if (t) game.K.shoot(p, Math.atan2(t.y - p.y, t.x - p.x), { pct: 150, type: 'phys', shape: 'arrow', color: '#ffd27a', speed: 16 });
+    ramp.start = now - 15; ramp.last = now;
+    const s = W.free(p.x + U.rand(-1, 1), p.y + U.rand(-1, 1), 2);
+    if (s) {
+      const m = game.createMinion('minion_skeleton', s.x, s.y, p, 1);
+      m.summonOf = 'ember_heir'; m.heirShade = true; m.expireAt = now + 12; m.name = 'One of the Ten'; m.sprite.accent = '#ffd27a';
+      G.state.entities.push(m);
+      U.fx('teleport', s.x, s.y, { color: '#ffd27a' });
+    }
+  }
+  G.on('scene:changed', function () { heirFight = -99; });
+
   const ramp = { start: -99, last: -99 };
   game.fireRamp = function () {
     const now = G.state.time;

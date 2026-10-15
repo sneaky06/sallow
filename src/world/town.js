@@ -1,4 +1,4 @@
-// G.world.generateTown: the hub "Emberfall". The layout is fixed; the seed only moves trees and bushes.
+// G.world.generateTown: the hub "Emberdeep". The layout is fixed; the seed only moves trees and bushes.
 (function () {
   'use strict';
   const G = window.G;

@@ -10,7 +10,7 @@
   // {boss} is G.game.getMonsterInfo(boss).name at display time (else `bossName`). Dialogue and acts live in story_data.js.
   // R7.7 campaign: Act I The Shallows (1–10), Act II The Deep (11–20), Act III Hellscape (21–30), world boss at 30.
   // Reward items name rarity keys in order of preference (the rarity ladder changes in R7.1; the first key that exists wins).
-  const LOW = ['uncommon', 'magic'], MID = ['rare'], HIGH = ['epic', 'magic'], TOP = ['legendary'];
+  const LOW = ['uncommon'], MID = ['rare'], HIGH = ['magic'], TOP = ['legendary'];
   const MAIN = [
     { id: 'main_1', name: 'The Cold Stair', kind: 'depth', goal: 3,
       desc: 'Start in the old mine and the crypt beneath it. Reach depth 3 and see what is rotting.',
