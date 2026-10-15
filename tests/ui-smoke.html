@@ -281,6 +281,39 @@ async function run() {
     scav.carrying = { name: 'Gilded Helm' }; for (var sz2 = 0; sz2 < 3; sz2++) G.ui.update(0.31);
     ck('scavenger grab banner names the item', /took Gilded Helm/.test([].map.call(document.querySelectorAll('.ed-banner b'), function (b) { return b.textContent; }).join('|')));
     S.entities.splice(S.entities.indexOf(scav), 1); S.settings.tips = true;
+    // ---- Revision 11: perks (the game API is stubbed here when it does not exist yet) ----
+    ui.close(); ui._closeModals(); S.paused = false; S.settings.tips = false;
+    var realPerks = !!G.game.getPerkTree, pst = { points: 4, marks: 1, bought: [] }, Pl = S.player;
+    if (!realPerks) {
+      var branches = ['craft', 'edge', 'crossroads'].map(function (b) { return { id: b, name: b[0].toUpperCase() + b.slice(1), tiers: [0, 1, 2, 3, 4].map(function (t) { return [b + t + 'a', b + t + 'b']; }) }; });
+      G.game.PERKS = {}; branches.forEach(function (b) { b.tiers.forEach(function (pr, t) { pr.forEach(function (id, k) { G.game.PERKS[id] = { name: 'Perk ' + id, text: 'Does a thing for ' + id + '.', cost: k ? 2 : 1, keystone: t === 4, drawback: t === 4 ? 'Max life -10%' : '' }; }); }); });
+      G.game.getPerkTree = function () { return branches; }; G.game.getPerkInfo = function (id) { return G.game.PERKS[id]; };
+      G.game.getPerkPoints = function () { return { points: pst.points, marks: pst.marks }; };
+      G.game.buyPerk = function (id, o) { var c = G.game.PERKS[id].cost; if (o && o.mark) { if (pst.marks < c) return false; pst.marks -= c; } else if (!(o && o.wager)) { if (pst.points < c) return false; pst.points -= c; } Pl.perks = Pl.perks || {}; Pl.perks[id] = 1; if (o && o.wager) Pl.wager = id; G.emit('perk:bought', { id: id, wager: !!(o && o.wager) }); return true; };
+      G.game.respecPerks = function () { Pl.perks = {}; Pl.wager = null; pst.points = 4; return true; };
+    }
+    ui.open('perks'); await wait(80);
+    ck('Perks tab sits next to Skills', [].some.call(document.querySelectorAll('.ed-head .ed-tab'), function (t) { return /Skills/.test(t.textContent); }) && [].some.call(document.querySelectorAll('.ed-head .ed-tab'), function (t) { return /Perks/.test(t.textContent); }));
+    ck('one branch shown at a time in portrait, three tabs', document.querySelectorAll('.ed-pbsel .ed-tab').length === 3 && (innerWidth > innerHeight || document.querySelectorAll('.ed-pbranch:not(.off)').length === 1));
+    ck('five tiers, ten cards per branch', document.querySelectorAll('.ed-pbranch:not(.off) .ed-ptier').length === 5 && document.querySelectorAll('.ed-pbranch:not(.off) .ed-pcard').length === 10);
+    ck('keystones are visibly special with the drawback in red', !!q('.ed-pbranch:not(.off) .ed-pcard.key .ed-bad'));
+    ck('Marks glow while unspent', !!q('.ed-pcount .marks.lit'));
+    ck('higher tiers are shut until points are spent', !!q('.ed-ptier.shut'));
+    var c0 = q('.ed-pbranch:not(.off) .ed-ptier .ed-pcard.open'); c0.click(); await wait(50);
+    ck('card opens a detail with Buy, Mark and Wager and the stake spelled out', !!q('.ed-perkdlg') && /Wager/.test(q('.ed-perkdlg').textContent) && /die before/i.test(q('.ed-perkdlg').textContent) && /Spend a Mark/.test(q('.ed-perkdlg').textContent));
+    [].filter.call(document.querySelectorAll('.ed-perkdlg .ed-btn'), function (b) { return /^Buy/.test(b.textContent); })[0].click(); await wait(80);
+    ck('Buy takes the perk and dims the other of the pair', document.querySelectorAll('.ed-pbranch:not(.off) .ed-ptier:nth-child(2) .ed-pcard.owned').length === 1 && document.querySelectorAll('.ed-pbranch:not(.off) .ed-ptier:nth-child(2) .ed-pcard.taken').length === 1);
+    var c1 = q('.ed-pbranch:not(.off) .ed-ptier:nth-child(3) .ed-pcard'); ck('tier 2 card is still shut', c1 && c1.classList.contains('shut'));
+    document.querySelectorAll('.ed-pbsel .ed-tab')[1].click(); await wait(60); var c2 = q('.ed-pbranch:not(.off) .ed-pcard.open');
+    if (c2) { c2.click(); await wait(40); var wb = [].filter.call(document.querySelectorAll('.ed-perkdlg .ed-btn'), function (b) { return b.textContent === 'Wager'; })[0]; if (wb) wb.click(); await wait(80); }
+    ck('a wager lights the HUD candle', !!Pl.wager); ui.close(); for (var cz2 = 0; cz2 < 4; cz2++) G.ui.update(0.6); await wait(50);
+    ck('candle shows under the depth label', !!q('.ed-candle') && q('.ed-candle').style.display === 'block' && /Wager/.test(q('.ed-candle').textContent));
+    G.emit('perk:mark', { feat: 'grade_s_1' }); await wait(30); ck('Mark earned toast', /Mark earned: Grade S 1/.test([].map.call(document.querySelectorAll('.ed-toast'), function (t) { return t.textContent; }).join('|')));
+    G.emit('perk:lost', { id: Pl.wager }); await wait(30); ck('wager lost banner', /Wager lost/.test([].map.call(document.querySelectorAll('.ed-banner b'), function (b) { return b.textContent; }).join('|')));
+    ui.open('perks'); await wait(50); [].filter.call(document.querySelectorAll('.ed-head .ed-btn'), function (b) { return b.textContent === 'Respec'; })[0].click(); await wait(40);
+    ck('respec spells out the cost', /gold/.test((q('.ed-modal') || {}).textContent || '') && /refunded/.test(q('.ed-modal').textContent)); ui._closeModals(); ui.close();
+    S.settings.tips = true; S.flags.tipsSeen = []; ui._tip('marks'); for (var tz = 0; tz < 3; tz++) G.ui.update(0.3); await wait(30);
+    ck('Marks tip is a pause-style card', !!q('.ed-tipdlg') && S.paused === true); ui._closeModals(); S.paused = false; S.settings.tips = false; Pl.perks = {}; Pl.wager = null;
     G.ui.open('journal'); await wait(50); log('journal ok: ' + !!q('.ed-panel .ed-page')); ui.close();
     log('small controls (hud): ' + small(q('.ed-hud')).join('; '));
   } catch (err) { ERR.push('TEST: ' + err.stack); }

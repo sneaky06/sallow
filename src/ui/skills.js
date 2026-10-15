@@ -195,7 +195,9 @@
         h('div', { class: 'ed-skleft' }, tabs,
           h('div', { class: 'ed-treewrap' }, tree && tree.desc ? h('div', { class: 'ed-note', style: 'text-align:center;margin-bottom:8px', text: tree.desc }) : null, tree ? treeEl(tree, view, p) : null)),
         details(view, p));
+      const ptabs = ui._perkTabs ? ui._perkTabs() : null;
       return ui._frame('Skills', {
+        tabs: ptabs, tab: 'skills', onTab: function (id) { if (id === 'perks') ui.open('perks'); },
         right: [h('span', { class: sp > 0 ? 'ed-gold' : 'ed-dim', style: 'margin-right:4px;white-space:nowrap', text: sp + ' pt' + (sp === 1 ? '' : 's') }),
           ui._btn('Respec', function () { respec(p); })],
         sub: autoBar(p),

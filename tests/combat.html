@@ -2132,7 +2132,7 @@ ok(back.hp < 1e6 && front[0].hp < 1e6 && front[1].hp < 1e6, 'Whirlwind hits all 
     oRise(); oTx();
     const away = game.W.free(echo.home.x + 14, echo.home.y, 4); if (away) { p.x = away.x; p.y = away.y; game.onPlayerMoved(true); step(4); }
     ok(!away || Math.hypot(echo.x - echo.home.x, echo.y - echo.home.y) < 9.5, 'a guard does not follow you far from the corpse');
-    const dropsE = H.drops; echo.hp = 1; echo.effects = []; game.playerHit(echo, { pct: 100, type: 'phys', skill: false });
+    const dropsE = H.drops; echo.hp = 1; echo.effects = []; echo.stats.dodge = 0; game.playerHit(echo, { pct: 100, type: 'phys', skill: false });
     ok(echo.dead && S.flags.corpse === cp && cp.echoSlain && H.drops === dropsE + 1 && H.lastDrop.floor === 'rare', 'killing it clears the way (the bag stays on the corpse) and drops rare-or-better');
     G.scenes.enterDungeon(3);
     ok(!S.entities.some(function (e) { return e.echo; }), 'a slain guard does not rise again');
@@ -2457,6 +2457,98 @@ ok(back.hp < 1e6 && front[0].hp < 1e6 && front[1].hp < 1e6, 'Whirlwind hits all 
     ok(burst && gone, '§15 #8: ember_heir — a fight\'s start fires every relic power once (bash nova, free shot, fire ramp, a shade for 12 s)');
     const cg = (function () { const q = fresh('ranger', false, 12); return game.getClearGrade(); })();
     ok(typeof cg.explored === 'number' && cg.exploredShown && typeof cg.exploredShown.label === 'string', '§15 #12: getClearGrade carries the exact explored number plus the shown object');
+
+    section('R11 perk trees');
+    const PK = game.PERKS, cls11 = Object.keys(game.CLASSES);
+    const shapeOk = cls11.every(function (c) {
+      const tree = game.getPerkTree(c);
+      return tree.length === 3 && tree.every(function (b) { return b.tiers.length === 5 && b.tiers.every(function (t) { return t.options.length === 2 && t.options.every(function (o) { return o && o.name && o.text && o.classId === c && (t.tier === 5) === o.keystone; }); }); }) &&
+        Object.keys(PK).filter(function (id) { return PK[id].classId === c; }).length === 30 && tree[2].tiers[0].options.every(function (o) { return o.licence && o.licence.length; });
+    });
+    ok(shapeOk && Object.keys(PK).length === 120, '4 classes × 3 branches × 5 tiers × a choice of 2 = 120 perks; Crossroads tier 1 = two licences; tier 5 = Keystones');
+    const allFeats = function (qq) { qq.feats = {}; game.FEATS.forEach(function (f) { qq.feats[f] = true; }); };
+    const prep = function (c) {
+      const qq = fresh(c, true); toLevel(qq, 60); game.setAutoBuild('balanced'); game.setAutoBuild(null); qq.perks = {}; allFeats(qq); qq.gold = 1e7;
+      qq.effects = []; game.recomputeStats(qq); qq.hp = qq.stats.hpMax; qq.mp = qq.stats.mpMax; return qq;
+    };
+    const snapP = function (qq) { const b = Object.assign({}, qq.bonus); delete b.perkList; delete b.w; return JSON.stringify(qq.stats) + JSON.stringify(b); };
+    const exercise = function (qq) {
+      const tg = dummy(qq.x + 1, qq.y, 1e6); tg.rarity = 'rare'; tg.stats.hpMax = 1e6; S.time += 1;
+      game.applyStatus(tg, 'burn', 3, 5, qq); game.applyStatus(tg, 'chill', 3);
+      game.playerHit(tg, { pct: 100, type: 'phys', skill: false, melee: true }); game.playerHit(tg, { pct: 100, type: 'fire' }); game.playerHit(tg, { pct: 100, type: 'lightning' });
+      game.applyHit(qq, { phys: 3 }, { src: tg, melee: true });
+      for (let i = 0; i < 3; i++) game.onCloseCall(qq);
+      game.endFlow();
+      G.input.move.x = 1; G.emit('input:classaction', {}); G.input.move.x = 0;
+      qq.mp = qq.stats.mpMax; for (let i = 0; i < 4; i++) { game.ctl.gcd = 0; if (qq.skillBar[i]) game.useSkill(i); }
+      const kv = dummy(qq.x + 1, qq.y + 0.5, 1); kv.rarity = 'champion'; game.applyStatus(kv, 'poison', 3, 1, qq); game.playerHit(kv, { pct: 100, type: 'phys', skill: false });
+      step(0.6);
+    };
+    const bad11 = [], applied = {};
+    for (const id of Object.keys(PK)) {
+      const d = PK[id], qq = prep(d.classId), base = snapP(qq);
+      let okBuy = true;
+      for (let t = 1; t < d.tier; t++) okBuy = game.buyPerk(game.PERK_ORDER[d.classId][d.branch][t][0], { mark: true }) && okBuy;
+      okBuy = game.buyPerk(id, { mark: true }) && okBuy;
+      const listed = qq.bonus.perkList.some(function (x) { return x.id === id; });
+      const errB = H.errors.length;
+      try { exercise(qq); } catch (err) { bad11.push(id + ' threw ' + err.message); }
+      if (H.errors.length > errB) bad11.push(id + ' errors ' + H.errors.slice(errB, errB + 1).join());
+      applied[id] = snapP(qq) !== base || ['dmg', 'crit', 'hurt', 'cc', 'flow', 'dash', 'kill', 'cast', 'afterHit', 'afterCast', 'minion', 'minionDeath', 'minionKill', 'loot', 'tick'].some(function (k) { return typeof d[k] === 'function'; });
+      qq.effects = []; game.dismissMinions(); S.flags.perkRespecAct = null; const resp = game.respecPerks(); qq.effects = []; game.recomputeStats(qq);
+      if (!okBuy || !listed) bad11.push(id + ' not bought');
+      if (!applied[id]) bad11.push(id + ' changes nothing');
+      if (!resp || Object.keys(qq.perks).length || snapP(qq) !== base) bad11.push(id + ' does not un-apply');
+    }
+    ok(!bad11.length, 'every perk is bought, runs through combat (hits, Close Calls, Flow, dash, skills, kills) and un-applies cleanly on respec', bad11.slice(0, 6).join('; '));
+    // targeted behaviour
+    let qq = prep('warrior'); const pen0 = (H.wtype = 'bow', game.recomputeStats(qq), qq.bonus.offClass);
+    game.buyPerk('w_hunters_grip', { mark: true }); const pen1 = qq.bonus.offClass, lock1 = game.getSkillInfo('bash').disabled; H.wtype = null; game.recomputeStats(qq);
+    ok(pen0 === -35 && pen1 === 0 && !lock1, 'a licence lifts the off-class penalty and the skill lock (Hunter\'s Grip + bow)');
+    ok(!game.buyPerk('w_pit_fighter', { mark: true }) && game.getPerkInfo('w_pit_fighter').locked, 'taking one option locks the other');
+    qq = prep('warrior'); ['w_edge_discipline', 'w_second_swing', 'w_unyielding', 'w_warlord', 'w_juggernaut'].forEach(function (id) { game.buyPerk(id, { mark: true }); });
+    ok(game.getClassAction().maxCharges === 2 && (game.applyStatus(qq, 'stun', 1), !game.isStunned(qq)) && qq.stats.hpMax < (function () { const s = qq.stats.hpMax; return s / 0.9 + 1; })(), 'Juggernaut: 2 Shoulder Charge charges, unstunnable');
+    qq = prep('warrior'); ['w_brute_force', 'w_executioner', 'w_bloodrush', 'w_crushing', 'w_oath'].forEach(function (id) { game.buyPerk(id, { mark: true }); }); qq.hp = qq.stats.hpMax * 0.5; qq.potions.hp = 3;
+    ok(!game.usePotion('hp'), "Berserker's Oath: no health potions");
+    qq = prep('necromancer'); ['n_hollow', 'n_marrow', 'n_grave_pact', 'n_bone_lord', 'n_lone_lich'].forEach(function (id) { game.buyPerk(id, { mark: true }); }); qq.skills.raise_skeleton = 1; qq.skillBar[0] = 'raise_skeleton'; qq.mp = qq.stats.mpMax;
+    ok(!game.useSkill(0), 'Lone Lich: summons refused');
+    qq = prep('sorcerer'); ['s_kindling', 's_overload', 's_permafrost', 's_battery', 's_glass'].forEach(function (id) { game.buyPerk(id, { mark: true }); });
+    const hpGl = qq.hp; game.applyHit(qq, { phys: 100 }, { lvl: 1 }); const lossGlass = hpGl - qq.hp;
+    qq = prep('sorcerer'); const hpN = qq.hp; game.applyHit(qq, { phys: 100 }, { lvl: 1 });
+    ok(lossGlass > (hpN - qq.hp) * 1.15, 'Glass Cannon: you take 25% more');
+    // points, marks, wagers
+    qq = fresh('ranger', true); toLevel(qq, 30);
+    const pts = game.getPerkPoints();
+    ok(pts.points === 5 && pts.marks === 0 && pts.wagerAvailable, 'perk points: 1 per 6 levels (5 at level 30); Marks start at 0');
+    game.perkFeat('flow_5'); ok(game.getPerkPoints().marks === 1, 'a feat earns a Mark (perk:mark)');
+    const lostP = []; const oLo = G.on('perk:lost', function (e) { lostP.push(e.id); });
+    ok(game.buyPerk('r_steady', { wager: true }) && qq.wager === 'r_steady' && qq.perks.r_steady === 'wager' && !game.getPerkPoints().wagerAvailable, 'a wager takes a perk for free, one at a time');
+    game.kill(qq, null); G.scenes.respawn();
+    ok(!qq.perks.r_steady && !qq.wager && lostP[0] === 'r_steady', 'dying before town loses the wagered perk (perk:lost)');
+    oLo();
+    S.flags.perkWagerAct = null; game.buyPerk('r_running', { wager: true }); G.scenes.enterTown();
+    ok(qq.perks.r_running === 'won' && !qq.wager, 'reaching town alive wins the wager for good (perk:won)');
+    // auto-build
+    const autoBad = [];
+    for (const c of cls11) for (const m of ['single', 'aoe', 'balanced']) {
+      const a = fresh(c, true); game.setAutoBuild(m); toLevel(a, 60);
+      const P = a.perks, ids = Object.keys(P);
+      if (!ids.length) autoBad.push(c + '/' + m + ' none');
+      for (const id of ids) {
+        const d = PK[id];
+        if (P[id] !== 'point' || d.keystone || d.classId !== c) autoBad.push(id + ' ' + P[id]);
+        if (d.tier > 1) { const pr = game.PERK_ORDER[c][d.branch][d.tier - 1]; if (!P[pr[0]] && !P[pr[1]]) autoBad.push(id + ' skips a tier'); }
+        const pair = game.PERK_ORDER[c][d.branch][d.tier]; if (P[pair[0]] && P[pair[1]]) autoBad.push(id + ' both options');
+      }
+      if (game.getPerkPoints(a).points < 0) autoBad.push(c + '/' + m + ' overspent');
+    }
+    ok(!autoBad.length, 'auto-build buys legal perks for every class × mode (points only, no Marks, Keystones or Wagers)', autoBad.slice(0, 5).join('; '));
+    // save round-trip
+    qq = prep('necromancer'); ['n_hollow', 'n_hoarder', 'n_grave_pact'].forEach(function (id) { game.buyPerk(id, { mark: true }); }); game.buyPerk('n_swap_tempo');
+    const beforeP = JSON.stringify({ perks: qq.perks, feats: qq.feats, stats: qq.stats });
+    const copy = JSON.parse(JSON.stringify(qq)); S.player = copy; game.recomputeStats(copy);
+    ok(JSON.stringify({ perks: copy.perks, feats: copy.feats, stats: copy.stats }) === beforeP && game.getPerkTree('necromancer')[0].tiers[0].chosen === 'n_hollow', 'perks survive a save round-trip (plain data), getPerkTree shows the chosen option');
+    S.player = qq;
     oT(); H.mods = null;
   }
 
@@ -2650,7 +2742,7 @@ ok(back.hp < 1e6 && front[0].hp < 1e6 && front[1].hp < 1e6, 'Whirlwind hits all 
           }
           if (opts.allSystems && n % 30 === 0 && !(game.ctl.intent)) {          // visit shrines when nothing is close
             const near = S.entities.some(function (e) { return e.type === 'monster' && e.faction === 'enemy' && !e.dead && Math.hypot(e.x - p.x, e.y - p.y) < 7; });
-            const shr = !near && S.map.props.find(function (q) { return q.interact === 'shrine' && !q.used && Math.hypot(q.x + 0.5 - p.x, q.y + 0.5 - p.y) < 9; });
+            const shr = !near && S.map.props.find(function (qq) { return qq.interact === 'shrine' && !qq.used && Math.hypot(qq.x + 0.5 - p.x, qq.y + 0.5 - p.y) < 9; });
             if (shr) { game.ctl.intent = { type: 'prop', x: shr.x, y: shr.y }; st.shrines = (st.shrines || 0) + 1; }
           }
           if (!(game.ctl.intent && game.ctl.intent.type === 'prop')) botStep(st); else { G.input.move.x = G.input.move.y = 0; G.input.attackHeld = false; }

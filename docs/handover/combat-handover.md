@@ -280,3 +280,18 @@ Status: tests/combat.html → 465/465, 0 errors; real index.html with game + eng
   3-tile shield-bash nova (80%, 0.8 s stun), a 150% shot at the nearest foe, the fire ramp primed to +45%, and a spectral skeleton
   (`heirShade`, 12 s) for any class.
 - #12 `getClearGrade()` / `floor:graded` carry `explored` (exact 0–100) and `exploredShown` (the R8.4 object the player saw).
+
+## R11 perk trees (combat) — new file src/game/perks.js (manifest: last); design + every number in docs/PERKS.md
+Status: tests/combat.html → 484/484, 0 errors; real index.html with perks bought for all four classes: 0 errors.
+- APIs for the UI: `G.game.getPerkTree(classId)` → branches → tiers → `options: [perkInfo, perkInfo]`, `chosen`; `getPerkInfo(id)`
+  (`owned, how, locked, lockedReason, canBuy, canWager`); `buyPerk(id, { mark?, wager? })`; `getPerkPoints()` (`points, marks,
+  wagerOpen, wagerAvailable, earnedPoints, earnedMarks`); `respecPerks()`, `getPerkRespecCost()`; `G.game.FEATS` (16 Mark feats),
+  `G.game.perkFeat(id)` (dev). Events: `perk:bought { id, how, auto? }`, `perk:mark { feat, marks }`, `perk:lost { id }`,
+  `perk:won { id }`, `perk:respec`.
+- State (saved with the player): `player.perks = { id: 'point'|'mark'|'wager'|'won' }`, `player.feats`, `player.featCount`,
+  `player.wager`, `player.wagerCredits`; `flags.perkWagerAct`, `flags.perkRespecAct`.
+- Hooks other code calls (all guarded): perkStats (recomputeStats, before and after the weapon is read), perkCrit / perkDmg /
+  perkAfterHit (playerHit), perkHurt (applyHit on the player), perkCC (closeCall), perkFlow (Flow trigger), perkDash (class action),
+  perkKill / perkMinionKill / perkMinionDeath (kill), perkCast / perkAfterCast (castNow: may change V, cost, cooldown), perkMinion
+  (createMinion), perkLootRolls, perkPotion, perkTick (per frame). Licences feed `bonus.licence` / `bonus.licenceAll`, which
+  lift the R8.7 penalty and the skill lock.

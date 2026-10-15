@@ -59,6 +59,8 @@
     const fx = t.effects;
     for (let i = 0; i < fx.length; i++) if (fx[i].taken) total *= Math.max(0.1, 1 + fx[i].taken / 100);
     if (isPlayer && t.bonus && t.bonus.dr) total *= 1 - t.bonus.dr / 100;
+    if (isPlayer && game.perkHurt) total = game.perkHurt(t, total, src, o);          // R11 perks on damage taken
+    if (t.summon && G.state.player && G.state.player.bonus && G.state.player.bonus.minionTaken) total *= 1 + G.state.player.bonus.minionTaken / 100;
     if (t.guard !== undefined && src && game.guardMult) total *= game.guardMult(t, src);          // R7: Brannoc's shield wall
     if (t.rarity === 'boss' && src && src.summon) total *= 0.5;          // minions alone cannot carry a boss fight (R4.3)
     else if (t.summon && src && src.rarity === 'boss') total *= 2.5;     // ...nor wall one off: bosses tear through summons
@@ -116,6 +118,11 @@
       if (isPlayer && t.bonus && t.bonus.chillAttackers) game.applyStatus(src, 'chill', 2);
     }
     if (t.hp <= 0) {
+      if (isPlayer && t.bonus && t.bonus.lastStand && game.lastStandFloor !== G.state.map) {          // perk Last Stand: once per floor
+        game.lastStandFloor = G.state.map; t.hp = 1; game.addEffect(t, { id: 'invuln', t: 3 });
+        U.text(t.x, t.y - 1.2, 'LAST STAND', '#ffd0a0', true); U.fx('nova', t.x, t.y, { radius: 2, color: '#ffd0a0' }); U.shake(5, 0.3);
+        return total;
+      }
       if (isPlayer && game.fxOf(t).second_wind && !game.getEffect(t, 'second_wind_cd')) {      // mythic: cheat death
         t.hp = Math.round(st.hpMax * 0.5);
         game.addEffect(t, { id: 'second_wind_cd', t: 120 });
@@ -150,6 +157,7 @@
       case 'shock': game.addEffect(t, { id: 'shock', t: dur, taken: 20 }); break;
       case 'freeze':
       case 'stun': {
+        if (t.type === 'player' && id === 'stun' && t.bonus && t.bonus.noStun) return;          // perk Juggernaut
         if (boss && id === 'freeze') { game.applyStatus(t, 'chill', dur * 2); return; }
         if (game.getEffect(t, 'cc_immune')) return;
         if (boss) dur *= 0.3; else if (elite) dur *= 0.6;
@@ -195,9 +203,10 @@
     if (shatter) scale *= 1.5;
     if (myth.ramping_fire && (type === 'fire' || st.fireDmg) && game.fireRamp) scale *= 1 + game.fireRamp(p);      // relic: Varr's ramping fire
     const flowCrit = pfx.length && game.getEffect(p, 'flow_crit');          // R9.1 Flow: the next hit is a guaranteed crit
-    const crit = !!flowCrit || U.chance(st.critChance + (spec.crit || 0));
+    const crit = !!flowCrit || U.chance(st.critChance + (spec.crit || 0) + (game.perkCrit ? game.perkCrit(p, t, spec) : 0));
     if (flowCrit) game.removeEffect(p, 'flow_crit');
     if (crit) scale *= 1 + st.critDmg / 100;
+    if (game.perkDmg) scale *= game.perkDmg(p, t, spec, crit);          // R11 perk damage rules
     mult *= scale;
     const parts = {};
     parts[type] = base * mult * (1 + (b['elem_' + type] || 0) / 100);
@@ -208,6 +217,7 @@
 
     const dealt = game.applyHit(t, parts, { src: p, crit: crit, melee: spec.melee, canDodge: t.stats.dodge > 0 });
     if (dealt <= 0) return 0;
+    if (game.perkAfterHit) game.perkAfterHit(p, t, dealt, spec);          // R11 on-hit perks
     if (shatter) {          // combo (Frost Nova + fire): the frozen enemy shatters, spraying frost around it
       game.removeEffect(t, 'freeze');
       U.text(t.x, t.y - 1.2, 'SHATTER', COL.cold, true); U.fx('frost', t.x, t.y, { radius: 1.5 }); U.sfx('ice');
@@ -327,6 +337,7 @@
       t.ai.corpse = 1.2;
       t.noCorpse = true;
       if (p && p.minions && p.minions[t.summonOf] > 0) p.minions[t.summonOf]--;
+      if (p && game.perkMinionDeath) game.perkMinionDeath(p, t);          // R11 Grave Pact
       return;
     }
     const def = game.MONSTERS[t.monsterId] || {};
@@ -366,6 +377,8 @@
       if (p.stats.lifeOnKill) game.heal(p, p.stats.lifeOnKill);
       if (p.stats.manaOnKill) p.mp = Math.min(p.stats.mpMax, p.mp + p.stats.manaOnKill);
     }
+    if (killer && killer.faction === 'player' && killer.summon && game.perkMinionKill) game.perkMinionKill(p, killer, t);          // R11 perks
+    else if (game.perkKill) game.perkKill(p, t);
     if (t.xp > 0) {
       const over = p.level - t.level - 5;
       game.gainXp(t.xp * (over > 0 ? Math.max(0.1, 1 - over * 0.15) : 1) * (1 + fr.xpGain / 100));
@@ -404,6 +417,12 @@
     if (pr.spec) {
       game.playerHit(t, pr.spec);
     } else {
+      if (t.type === 'player' && t.bonus && t.bonus.shieldLine && t.equipment && t.equipment.offhand && t.equipment.offhand.offhandType === 'shield' && U.chance(50)) {          // perk Shield Line
+        let a = Math.atan2(-pr.vy, -pr.vx) - t.facing;
+        while (a > Math.PI) a -= Math.PI * 2;
+        while (a < -Math.PI) a += Math.PI * 2;
+        if (Math.abs(a) < 1.05) { U.text(t.x, t.y - 0.9, 'Blocked', '#c9c2b0'); U.fx('spark', t.x, t.y, { color: '#c9c2b0' }); return; }
+      }
       const src = game.byId(pr.srcId);
       const parts = {};
       parts[pr.dtype] = pr.dmg;
@@ -520,7 +539,8 @@
     U.fx(z.fx || 'explosion', z.x, z.y, { radius: z.r, color: z.color });
     if (z.shake) U.shake(z.shake, 0.25);
     if (z.faction === 'player') {
-      const foes = game.live.foes, spec = { pct: z.pct, type: z.dtype, st: z.st };
+      const tp = z.trap && G.state.player && G.state.player.bonus && G.state.player.bonus.trapPct ? 1 + G.state.player.bonus.trapPct / 100 : 1;          // perk Trapper
+      const foes = game.live.foes, spec = { pct: z.pct * tp, type: z.dtype, st: z.st };
       for (let i = foes.length - 1; i >= 0; i--) {
         const e = foes[i];
         if (!e || e.dead || Math.hypot(e.x - z.x, e.y - z.y) > z.r + e.radius) continue;
@@ -555,7 +575,7 @@
         if (z.faction === 'enemy' && !z.every && z.delay < 0.6 && playerIn(z)) z.near = 1;      // was in the circle near the end
         if (z.delay > 0) continue;
         if (!z.every && !z.trap) {
-          const close = z.near && z.faction === 'enemy' && !playerIn(z);
+          const close = z.faction === 'enemy' && ((z.near && !playerIn(z)) || (playerIn(z) && G.state.player.bonus && G.state.player.bonus.ccInvuln && game.getEffect(G.state.player, 'invuln')));          // (+ perk Shoulder Through)
           zoneBlast(z);
           if (close && game.closeCall) game.closeCall(z);          // stepped out at the last moment
           if (z.linger) {          // leaves a damaging pool behind

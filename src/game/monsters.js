@@ -112,6 +112,7 @@
     e.summon = true;
     e.xp = 0; e.noLoot = true;
     e.ai.st = 'chase';
+    if (game.perkMinion) game.perkMinion(p, e);          // R11 minion perks
     return e;
   };
 

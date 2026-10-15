@@ -23,14 +23,14 @@
   game.getFlow = function () { return { chain: flow.n, slow: flow.t > 0 }; };
   game.onCloseCall = function (p) {
     const now = G.state.time;
-    flow.n = now - flow.last <= 8 ? flow.n + 1 : 1;
+    flow.n = now - flow.last <= ((p.bonus && p.bonus.flowWindow) || 8) ? flow.n + 1 : 1;          // (+ perk Unbroken Flow)
     flow.last = now;
     G.emit('flow:chain', { count: flow.n });
     if (flow.n < 3) return;
     G.state.timeScale = SLOW;
-    flow.t = SLOW_T;
+    flow.t = SLOW_T * ((G.state.player && G.state.player.bonus || {}).flowSlowMult || 1);          // perk Bullet Time
     if (flow.timer) clearTimeout(flow.timer);
-    flow.timer = setTimeout(function () { flow.timer = 0; if (G.state.timeScale === SLOW) G.state.timeScale = 1; }, Math.round(SLOW_T / SLOW * 1000) + 200);
+    flow.timer = setTimeout(function () { flow.timer = 0; if (G.state.timeScale === SLOW) G.state.timeScale = 1; }, Math.round(flow.t / SLOW * 1000) + 200);
     game.addEffect(p, { id: 'flow_crit', t: 6 });
     if (flow.n >= 4 && game.ctl) { game.ctl.dashN = -1; game.ctl.dashCd = 0; }
     if (flow.n >= 5) for (const id in p.cooldowns) p.cooldowns[id] = 0;
@@ -38,10 +38,11 @@
     U.fx('nova', p.x, p.y, { radius: 2.5, color: '#7fffd4' }); U.sfx('shrine');
     G.emit('flow:start', { chain: flow.n });          // deprecated alias of flow:trigger (kept for one release)
     G.emit('flow:trigger', { chain: flow.n });
+    if (game.perkFlow) game.perkFlow(p, flow.n);          // R11 Flow perks
   };
   function tickFlow(dt) {
     if (flow.t > 0 && (flow.t -= dt) <= 0) endSlow();
-    if (flow.n && G.state.time - flow.last > 8) flow.n = 0;
+    if (flow.n && G.state.time - flow.last > ((G.state.player && G.state.player.bonus || {}).flowWindow || 8)) flow.n = 0;
   }
   G.on('scene:changed', function () { endSlow(); flow.n = 0; });
   G.on('player:died', function () { endSlow(); flow.n = 0; });
@@ -235,7 +236,7 @@
   const heat = { n: 0, cool: 0 };
   game.heatStacks = function () { return heat.n; };
   function setHeat(p, n) {
-    heat.n = U.clamp(n, 0, 10);
+    heat.n = U.clamp(n, 0, (G.state.player && G.state.player.bonus || {}).heatMax || 10);          // perks Last Stand, Pyre Heart
     if (!p) return;
     if (heat.n > 0) game.addEffect(p, { id: 'heat', t: 1e6, stacks: heat.n, dealt: 4 * heat.n });
     else game.removeEffect(p, 'heat');
@@ -248,7 +249,7 @@
   G.on('player:damaged', function (e) {
     const p = G.state.player;
     if (!p || !heat.n || !e || !(e.amount > p.stats.hpMax * 0.08)) return;
-    const lost = Math.ceil(heat.n / 2);
+    const lost = Math.ceil(heat.n / ((G.state.player && G.state.player.bonus || {}).heatLossDiv || 2));          // perk Forge Heat
     setHeat(p, heat.n - lost);
     U.text(p.x, p.y - 1.4, '-' + lost + ' heat', '#ff9a3a');
   });
@@ -257,15 +258,19 @@
       const em = embers[i];
       em.t -= dt;
       if ((em.pulse -= dt) <= 0) { em.pulse = 0.4; U.fx('spark', em.x, em.y, { color: '#ff9a3a', radius: 0.4 }); }
-      if (Math.abs(p.x - em.x) < 0.9 && Math.abs(p.y - em.y) < 0.9 && Math.hypot(p.x - em.x, p.y - em.y) < 0.8) {
+      const er = (G.state.player && G.state.player.bonus || {}).emberR || 0.8;          // perk Ember Hunger
+      let byMinion = false;
+      if ((G.state.player && G.state.player.bonus || {}).minionEmbers) for (const m of game.live.allies) if (!m.dead && Math.hypot(m.x - em.x, m.y - em.y) < 0.8) { byMinion = true; break; }          // perk Pyre
+      if (byMinion || (Math.abs(p.x - em.x) < er + 0.1 && Math.abs(p.y - em.y) < er + 0.1 && Math.hypot(p.x - em.x, p.y - em.y) < er)) {
         embers.splice(i, 1);
-        setHeat(p, heat.n + 1); heat.cool = 6;
+        setHeat(p, heat.n + 1); heat.cool = (G.state.player && G.state.player.bonus || {}).heatCool || 6;
         U.text(p.x, p.y - 1.2, 'HEAT ' + heat.n, '#ff9a3a');
         continue;
       }
       if (em.t <= 0) embers.splice(i, 1);
     }
-    if (heat.n && (heat.cool -= dt) <= 0) { heat.cool = 6; setHeat(p, heat.n - 1); }
+    const cool = (G.state.player && G.state.player.bonus || {}).heatCool || 6;          // perks Conflagration, Pyre Heart
+    if (heat.n && (heat.cool -= dt) <= 0) { heat.cool = cool; setHeat(p, heat.n - 1); }
   }
   G.on('scene:changed', function () { embers.length = 0; const p = G.state.player; heat.cool = 0; if (p) setHeat(p, 0); else heat.n = 0; });
 

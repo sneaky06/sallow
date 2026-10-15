@@ -1,1 +1,1 @@
-G.manifest.game = ['base.js', 'data_skills.js', 'data_monsters.js', 'stats.js', 'combat.js', 'skills.js', 'mods.js', 'deep.js', 'monsters.js', 'player.js', 'lockdown.js', 'echo.js', 'campaign.js', 'bosses.js', 'fallen.js', 'events.js', 'pillars.js'];
+G.manifest.game = ['base.js', 'data_skills.js', 'data_monsters.js', 'stats.js', 'combat.js', 'skills.js', 'mods.js', 'deep.js', 'monsters.js', 'player.js', 'lockdown.js', 'echo.js', 'campaign.js', 'bosses.js', 'fallen.js', 'events.js', 'pillars.js', 'perks.js'];

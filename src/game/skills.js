@@ -207,6 +207,7 @@
   K.summon = function (p, skillId, monId, max, power) {
     if (game.fxOf(p).legion) max += skillId === 'raise_skeleton' ? 2 : skillId === 'skeletal_mage' ? 1 : 0;      // mythic legion: +2 warriors, +1 mage
     if (game.fxOf(p).extra_minion && skillId === 'raise_skeleton') max += 1;          // relic: Old Tobiah Crane
+    if (p.bonus.extraSkel && skillId === 'raise_skeleton') max += p.bonus.extraSkel;          // perk Legion Unbound
     clearMinions(skillId);
     const mult = power / 100 * (1 + (p.bonus.minionPct || 0) / 100);
     for (let i = 0; i < max; i++) {

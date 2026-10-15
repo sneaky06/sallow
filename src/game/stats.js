@@ -40,6 +40,7 @@
       skills: {}, skillBar: bar, cooldowns: {}, autoBuild: null,
       gold: 0, inventory: inv, equipment: equipment, potions: { hp: 3, mp: 1 },
       bonus: {}, minions: {},
+      perks: {}, feats: {}, wager: null, wagerCredits: 0,          // R11 perk trees (perks.js)
     };
     game.recomputeStats(p, true);
     p.hp = p.stats.hpMax;
@@ -82,6 +83,7 @@
       if (sk.mods) { const m = sk.mods(V, p); for (const k in m) st[k] += m[k]; }
       if (sk.bonus) { const b = sk.bonus(V, p); for (const k in b) bonus[k] = (bonus[k] || 0) + b[k]; }
     }
+    if (game.perkStats) game.perkStats(p, st, bonus, false);          // R11 perks
     for (const e of p.effects) if (e.mods) for (const k in e.mods) if (st[k] !== undefined) st[k] += e.mods[k];
 
     // mythic effects (R2.2): ids only, behaviour lives in this module
@@ -118,10 +120,12 @@
     st.pickupRadius = 2 + st.pickupRadius;
 
     bonus.w = readWeapon(p, cls);
+    if (game.perkStats) game.perkStats(p, st, bonus, true);          // R11 perks that depend on the weapon
     // R8.7: a weapon outside the class's weaponTypes costs damage (G.items.classPenalty when the items team provides it,
     // else the lead default −35%) and locks the skills that need a class weapon (game.weaponLock).
     bonus.offClass = 0;
-    if (p.equipment && p.equipment.weapon && cls.weaponTypes.indexOf(bonus.w.type) < 0) {
+    const licensed = bonus.licenceAll || (bonus.licence && bonus.licence.indexOf(bonus.w.type) >= 0);          // R11 Crossroads licences
+    if (p.equipment && p.equipment.weapon && cls.weaponTypes.indexOf(bonus.w.type) < 0 && !licensed) {
       let pen = -35;
       if (G.items && G.items.classPenalty) {
         try {
@@ -329,6 +333,7 @@
       if (!id) break;
       learn(p, id, true);
     }
+    if (game.autoPerks) game.autoPerks(p);          // R11: perk points follow the plan too
     layoutBar(p, mode);
     if (!silent) { game.recomputeStats(p); G.emit('skills:changed', {}); }
   }
@@ -343,7 +348,7 @@
     const prev = p.autoBuild;
     p.autoBuild = mode;
     if (mode) {
-      if (prev && prev !== mode) refundSkills(p);
+      if (prev && prev !== mode) { refundSkills(p); if (game.resetAutoPerks) game.resetAutoPerks(p); }
       autoSpend(p, true);
       game.recomputeStats(p);
     }

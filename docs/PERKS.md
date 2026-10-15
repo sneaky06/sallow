@@ -1,127 +1,72 @@
-# Perk trees — proposal (R11, combat team, for the lead dev's approval)
+# Perk trees (R11) — approved design, as built
 
-Design only; nothing here is built. Skills (data_skills.js) stay as they are — perks sit beside them and change *how you play*,
-not just numbers. Every perk below has exact values so it can be built as written.
+Skills stay as they are; perks change *how you play*. Every perk is a rule, not a stat step. Source: `src/game/perks.js`.
 
-## 1. How perks are earned — two currencies
+## 1. Earning
+- **Perk points:** 1 every 6 levels (10 by level 60).
+- **Marks** (feats, once each per character, 16 in all): first, fifth and fifteenth S-grade clear · Flow chain ×5, ×8, ×12 ·
+  each act boss killed without drinking a health potion (6) · hold Heat 10 for 20 s · catch the Scavenger before he grabs anything
+  (1st, 5th) · reach the stairs of a bargain floor at Pallor III+. Points and Marks spend the same way; auto-build never spends Marks.
+- **Wagers:** once per act, take any legal perk for free with your life as the stake. Reach town alive and it is won for good;
+  die first and it is lost (`perk:lost`). One open wager at a time; the HUD can show a candle while `player.wager` is set.
 
-**Perk points (steady):** 1 at level 5 and every 5 levels after (12 by level 60). An average player fills the core of one tree.
+Budget: tiers 1–2 cost 1, tiers 3–4 cost 2, Keystones (tier 5) cost 3 → a full branch is 9. An average player (≈ level 45–55,
+a few Marks) completes about 1.5 branches; a skilled one (most Marks, a won wager or two) about 2 plus their Keystones.
 
-**Marks (skill):** earned by feats, each feat once per character. Marks buy the same perks as points, and are the only way to
-afford the top tier of two trees. A great player ends with roughly twice the perks of an average one — visible, material reward.
+## 2. Layout
+Per class: **Craft** (class fantasy), **Edge** (dash, Close Call, Flow, Heat), **Crossroads** (off-class weapons). Five tiers, each a
+**choice of two** — taking one locks the other until respec. Tier n needs a choice in tier n−1 of the same branch. Tier 5 is a
+Keystone: a rule change with a drawback. Crossroads tier 1 is a pair of **Licences**: the licensed weapon types carry no R8.7 penalty
+and unlock the class skills that need a class weapon. (The armour-weight penalty idea is closed: there is none.)
 
-| Feat (once each) | Marks |
-|---|---|
-| Clear a floor with grade S (1st, 5th, 15th S) | 1 each |
-| Flow ×5, Flow ×8, Flow ×12 in one chain | 1 each |
-| Kill an act boss without drinking a health potion (each of the 6) | 1 each |
-| Hold Heat 10 for 20 s | 1 |
-| Kill a Fallen without being hit by its signature move (each) | 1 each (up to 10) |
-| Catch the Scavenger before he grabs anything (1st, 5th) | 1 each |
-| Win a bargain floor (reach the stairs with the deal active) at Pallor III+ | 1 |
+## 3. The choices
+Legend: **A** / **B** per tier. "Basic" = basic attack.
 
-**Wagers (push your luck):** any perk can be *wagered* instead of bought — it costs nothing now but carries a stake: die before
-the next town visit and it is lost (refunded as nothing). Reach town alive and it becomes permanent. One wager at a time;
-the HUD shows a small candle while one is lit. This turns "one more floor?" into "one more floor with my new perk on the line?"
-
-## 2. Layout (same for every class)
-
-Each class has **three branches**, five tiers each, 3 perks per tier (one costs 1, two cost 2). A tier unlocks after spending
-0 / 3 / 6 / 10 / 15 points+marks in that branch. A branch's tier-5 perk is a **Keystone**: a rule change with a drawback.
-
-- **Craft** — the class fantasy, deeper (one skill tree's identity per tier).
-- **Edge** — skill-ceiling perks keyed to dash, Close Call, Flow and Heat. Shared shape across classes, class-flavoured effects.
-- **Crossroads** — cross-class gear and borrowed tricks (§3). Starts with the off-class weapon licence.
-
-Readable in one screen: 15 nodes per branch, 45 per class, icons from the existing skill icon set.
-
-## 3. Crossroads: off-class gear without the R8.7 penalty
-
-Tier 1 of Crossroads is a **Licence** (cost 1): the class uses the listed weapon family with no −35% and its locked skills work
-with it (`G.game.weaponLock` returns null). Tier 2+ adds tricks that only work while holding off-class gear — the trade-off is
-that the class's own weapon-favoured perks (e.g. Warrior "Edge Discipline") switch off while you do.
-
-| Class | Licence (tier 1) | Signature trick (tier 3) | Trade-off |
+### Warrior
+| Tier | Craft | Edge | Crossroads |
 |---|---|---|---|
-| Warrior | **Hunter's Grip** — bows and daggers | *Point Blank*: bow basic attacks within 2 tiles hit for +40% and knock back | −15% armour while a bow is held |
-| Ranger | **Duellist's Hand** — swords and maces | *Riposte*: a dash through an enemy swing (Close Call) makes the next melee hit stun 1 s | melee basic attacks do not cleave |
-| Sorcerer | **Battle-Mage** — swords, maces, daggers | *Spellblade*: every 3rd basic hit fires a free Fire Bolt (100%) | −20% mana regen while holding one |
-| Necromancer | **Grave Archer** — bows, axes | *Bone Arrows*: basic shots that kill raise a skeleton (max +2, 15 s) | your summons take 15% more damage |
+| 1 | A **Edge Discipline**: +12% damage with swords, axes, maces · B **Brute Force**: basic +30% damage, −10% attack speed | A **Shoulder Through**: being untouchable in a telegraph as it lands = Close Call · B **Steel Nerves**: Close Call lasts 8 s (not 5) | A **Hunter's Grip**: licence bows, daggers · B **Pit Fighter**: licence staves, wands |
+| 2 | A **Second Swing**: cleave splash 90% (was 60%) · B **Executioner's Eye**: +30% vs foes below 35% life | A **Iron Tempo**: each Close Call halves the dash recharge left · B **Counterweight**: Close Call → next basic +100% | A **Point Blank**: bow basics within 2.5 tiles +40% and shove; −15% armour with a bow · B **Quarterstaff**: staff basics hit everything around you (60%) |
+| 3 | A **Unyielding**: below 30% life take 30% less · B **Bloodrush**: kills heal 3% and +5% attack speed 4 s (×3) | A **Avalanche**: Flow → 2.5-tile slam 150%, stun 1 s · B **Unbroken Flow**: the Flow chain window is 12 s | A **Borrowed Arrow**: every dash ends with a free basic at the nearest foe · B **Shield Line**: with a shield, frontal shots are stopped 50% |
+| 4 | A **Warlord**: shouts refill Shoulder Charge and give +15% damage 6 s · B **Crushing Blows**: stunned foes take +40% | A **Forge Heat**: −2% damage taken per Heat; hard hits knock out a third · B **Ember Hunger**: embers fly to you from 2.5 tiles | A **Spoils of War**: elites you kill roll loot twice · B **Tactician**: each skill different from the last +8% damage (×4) |
+| 5 | A **Juggernaut**: 2 Shoulder Charge charges, you cannot be stunned; −10% life · B **Berserker's Oath**: +40% damage, +20% attack speed; no health potions | A **Last Stand**: once per floor a lethal hit leaves you at 1 life, untouchable 3 s; Heat max 5 · B **Glory Hound**: Close Call +25%/stack (not 15); take +15% damage | A **Weapon Master**: every weapon licensed, off-class +10%; class weapons −10% · B **Colossus**: +30% life, +20% armour; −15% move speed, dash recharge +50% |
 
-Armour: **no armour-weight penalty** (closes §15 #17). Instead each class has one Crossroads tier-2 perk about armour feel
-(e.g. Sorcerer *Plated Robes*: chest armour +40% but −5% cast speed).
+### Ranger
+| Tier | Craft | Edge | Crossroads |
+|---|---|---|---|
+| 1 | A **Steady Draw**: +15% crit chance after standing still 0.5 s · B **Running Shot**: +15% damage while moving | A **Reload Roll**: a dash that passes within 1.5 tiles of a foe refunds a charge (once per 4 s) · B **Evasive Roll**: dash → +30% dodge 2 s | A **Duellist's Hand**: licence swords, maces · B **Staff and Wand**: licence staves, wands |
+| 2 | A **Volley Tempo**: Multishot +1 arrow per 3 Heat · B **Long Draw**: +2% damage per tile beyond 4 (max +20%) | A **Kite Rhythm**: Close Call → +10% attack speed 4 s (×3) · B **Second Chance**: Close Call heals 4% | A **Riposte**: Close Call → next melee hit stuns 1 s · B **Spell Arrows**: staff/wand basics burst for 70% in 1.5 tiles |
+| 3 | A **Hunter's Mark**: your first hit on an elite marks it: +12% damage from you 8 s · B **Pinning Shot**: basics slow 30% for 2 s | A **Bullet Time**: Flow slow-motion 50% longer, basics pierce everything during it · B **Flow Volley**: Flow → an arrow at every foe within 8 tiles (130%) | A **Brawler's Roll**: every dash ends in a 1.6-tile sweep (100%) · B **Arcane Quiver**: +20% skill damage with an off-class weapon |
+| 4 | A **Trapper**: traps deal +40% · B **Poison Tips**: basics poison for 20% of the hit over 4 s | A **Ember Fletching**: at Heat 6+, basics +20% · B **Hot Pursuit**: +2% move speed per Heat | A **Trophy Hunter**: elites you kill roll loot twice · B **Field Medic**: health potions heal 50% more |
+| 5 | A **Ghost Step**: 3 dash charges, +0.15 s untouchable; dash recharge +1 s · B **Deadeye**: crits on foes 8+ tiles away deal double again; −20% damage within 3 tiles | A **Wind Dancer**: +20% move speed, dash recharge −1 s; no block, take +15% · B **Sniper's Nest**: still for 1 s → +40% damage; moving → −15% | A **Weapon Master** (as Warrior) · B **Lone Wolf**: +30% damage with no foe within 4 tiles; melee hits on you +25% |
 
-## 4. Notable perks per class (exact numbers)
+### Sorcerer
+| Tier | Craft | Edge | Crossroads |
+|---|---|---|---|
+| 1 | A **Kindling**: fire skills +15% vs burning foes · B **Cold Snap**: Frost Nova freezes 0.6 s longer | A **Rime Blink**: Blink leaves a 2-tile frost nova (80%) where you were · B **Phase Shift**: Blink → take 50% less for 1.5 s | A **Battle-Mage**: licence swords, maces, daggers · B **Hexbow**: licence bows |
+| 2 | A **Overload**: every 5th spell within 6 s is free and +30% · B **Static Field**: lightning hits always shock | A **Arcane Rhythm**: Close Call returns 10% mana · B **Spell Echo**: Close Call makes your next spell free | A **Spellblade**: every 3rd basic fires a free Fire Bolt (100%); −20% mana regen with an off-class weapon · B **Arcane Arrows**: bow basics +30% |
+| 3 | A **Pyromania**: burning foes you kill set foes within 2 tiles burning · B **Permafrost**: chilled foes take +15% from you | A **Time Thief**: cooldowns run 3× during Flow slow-motion · B **Singularity**: Flow pulls foes within 5 tiles 2 tiles in and chills them | A **Blood Magic**: without mana, spells cost life · B **Mana Thief**: basics restore 2% mana |
+| 4 | A **Arcane Battery**: up to +10% skill damage while above half mana · B **Elemental Rotation**: a spell of a different element than the last +15% damage 3 s | A **Conflagration**: +4% fire damage per Heat, Heat cools every 8 s · B **Heat Shield**: −2% damage taken per Heat | A **Spell-Charged**: each spell charges your next basic +40% (×3) · B **Ward**: every 10 s a shield worth 15% life |
+| 5 | A **Glass Cannon**: +35% skill damage; take +25% · B **Archmage**: cooldowns −30%; mana costs +50% | A **Event Horizon**: 3 Blink charges; each Blink costs 8% mana · B **Pyre Heart**: Heat max 15; it cools every 3 s | A **Weapon Master** · B **Unbound Mind**: mana costs −40%; −30% max mana |
 
-### Warrior — "the wall that charges"
-1. **Edge Discipline** (Craft 1): +10% damage with swords/axes/maces.
-2. **Second Swing** (Craft 2): cleave secondary targets take 75% instead of 60%.
-3. **Unyielding** (Craft 3): below 30% life, +30% damage reduction for 4 s (60 s cooldown).
-4. **Juggernaut** (Craft 5, Keystone): Shoulder Charge has 2 charges and breaks stuns on use; your max life −10%.
-5. **Shoulder Through** (Edge 1): Shoulder Charge passing through a telegraph that lands this instant counts as a Close Call.
-6. **Iron Tempo** (Edge 2): each Close Call refunds 50% of Shoulder Charge's recharge.
-7. **Avalanche** (Edge 3): during Flow, Ground Slam radius +1.5 tiles and it stuns 1 s.
-8. **Forge Heat** (Edge 4): Heat stacks also give +3% armour each; a hard hit only knocks out a third (not half).
-9. **Last Stand** (Edge 5, Keystone): at 1 life you get 3 s of invulnerability once per floor; Heat cannot exceed 5.
-10. **Hunter's Grip** (Crossroads 1, licence) and **Point Blank** (Crossroads 3) — see §3.
-11. **Shield Line** (Crossroads 4): holding a shield, frontal ranged hits are blocked 50% of the time.
+### Necromancer
+| Tier | Craft | Edge | Crossroads |
+|---|---|---|---|
+| 1 | A **Hollow Bones**: minions move and attack 25% faster · B **Bone Wall**: skeleton warriors +40% life, −15% damage | A **Swap Tempo**: every dash hastes your minions 30% for 3 s · B **Bone Step**: Grave Step leaves a bone burst (80%) where you were | A **Grave Archer**: licence bows, axes · B **Gravedigger**: licence swords, maces |
+| 2 | A **Marrow Feast**: Corpse Explosion +30% · B **Corpse Hoarder**: corpses last twice as long | A **Death March**: Close Call → minions 25% faster 4 s · B **Soul Sip**: Close Call heals minions 20% | A **Bone Arrows**: basic kills raise a skeleton (15 s, max 2); minions take +15% · B **Reaper's Swing**: melee basics heal 5% of their damage |
+| 3 | A **Grave Pact**: a minion's death heals you 3% · B **Death's Due**: minion kills restore 2 mana | A **Black Flow**: Flow detonates corpses within 6 tiles (60%) · B **Army of Flow**: Flow raises 2 skeletons for 10 s | A **Curse Ink**: basics curse (+10% damage taken) 3 s · B **Withering Touch**: basics poison for 30% over 4 s |
+| 4 | A **Plague Bearer**: poison skills +20%; poisoned foes spread poison on death · B **Bone Lord**: bone skills +20% | A **Pyre**: embers a minion walks through count as yours · B **Cold Hands**: +3% poison damage per Heat | A **Corpse Lantern**: +4% damage per corpse within 4 tiles (max 5) · B **Bone Ward**: every 12 s a shield worth 12% life |
+| 5 | A **Legion Unbound**: +2 skeleton warriors; minions −25% life · B **Lone Lich**: no summons; +50% skill damage | A **Lich Bargain**: Lich Form lasts until a hit over 10% of your life; its cooldown doubles · B **Hungering Dark**: kills heal 2%; no life regeneration | A **Weapon Master** · B **Master of Puppets**: minions +40% damage; you deal −25% |
 
-### Ranger — "never where the claws land"
-1. **Steady Draw** (Craft 1): Aimed Shot +15% crit chance if you have not moved for 0.5 s (rewards planting — then moving).
-2. **Volley Tempo** (Craft 2): Multishot fires 1 extra arrow per 3 Heat.
-3. **Hunter's Mark** (Craft 3): the first hit on an elite marks it: +12% damage taken from you for 8 s.
-4. **Ghost Step** (Craft 5, Keystone): Dash has 3 charges and 0.15 s more invulnerability; Dash cooldown +1 s.
-5. **Reload Roll** (Edge 1): a Dash that passes within 1 tile of an enemy attack refunds 1 charge (once per 4 s).
-6. **Kite Rhythm** (Edge 2): each Close Call adds +10% attack speed for 4 s (stacks 3).
-7. **Bullet Time** (Edge 3): Flow lasts 50% longer for you and basic shots during it pierce all.
-8. **Ember Fletching** (Edge 4): at Heat 6+, basic shots deal +20% as fire.
-9. **Deadeye** (Edge 5, Keystone): crits on enemies 8+ tiles away deal triple damage; you deal −20% within 3 tiles.
-10. **Duellist's Hand** (Crossroads 1, licence) and **Riposte** (Crossroads 3) — see §3.
-11. **Snare Craft** (Crossroads 4): Spike/Frost Traps can be thrown 5 tiles instead of placed.
-
-### Sorcerer — "enormous damage behind paper robes"
-1. **Kindling** (Craft 1): Fire Bolt's burn lasts 4 s instead of 3.
-2. **Cold Snap** (Craft 2): Frost Nova on a chilled target freezes 0.5 s longer.
-3. **Overload** (Craft 3): every 5th spell within 6 s costs no mana and hits +30%.
-4. **Glass Cannon** (Craft 5, Keystone): +35% skill damage; you take +25% damage (stacks with Glass Heart — for the brave).
-5. **Rime Blink** (Edge 1): a Blink that ends a Close Call leaves a 2-tile frost nova (80%).
-6. **Arcane Rhythm** (Edge 2): each Close Call returns 10% mana.
-7. **Time Thief** (Edge 3): while Flow slows time, your cooldowns tick at full speed (net: ~3× faster during slow motion).
-8. **Conflagration** (Edge 4): each Heat stack adds +4% fire damage instead of +4% damage; Heat cools in 8 s, not 6.
-9. **Event Horizon** (Edge 5, Keystone): Blink has 3 charges; every Blink costs 8% max mana.
-10. **Battle-Mage** (Crossroads 1, licence) and **Spellblade** (Crossroads 3) — see §3.
-11. **Plated Robes** (Crossroads 2): chest armour +40%, −5% cast speed.
-
-### Necromancer — "lets bone and curse do the dying"
-1. **Hollow Bones** (Craft 1): skeletons +15% move speed.
-2. **Marrow Feast** (Craft 2): Corpse Explosion radius +0.8 tiles.
-3. **Grave Pact** (Craft 3): when a minion dies, you heal 3% life.
-4. **Legion Unbound** (Craft 5, Keystone): +2 skeleton cap; every minion has −25% life.
-5. **Swap Tempo** (Edge 1): Grave Swap into a telegraph that then lands on the minion counts as your Close Call.
-6. **Death March** (Edge 2): each Close Call makes your minions attack 25% faster for 4 s.
-7. **Black Flow** (Edge 3): when Flow triggers, every corpse within 6 tiles detonates (Corpse Explosion at 60%).
-8. **Pyre** (Edge 4): your minions picking up embers grant you Heat (one per ember, they path to embers within 4 tiles).
-9. **Lich Bargain** (Edge 5, Keystone): Lich Form lasts until you take a hit over 10% of your life; its cooldown doubles.
-10. **Grave Archer** (Crossroads 1, licence) and **Bone Arrows** (Crossroads 3) — see §3.
-11. **Curse Ink** (Crossroads 4): your basic attacks apply Amplify Damage (rank 1) for 3 s.
-
-(Each class's other ~30 nodes are small, readable steps — +4% damage with a tree's skills, +1 s duration, +5% move speed — in
-the same 1-point / 2-point rhythm; the list above is what defines each tree.)
-
-## 5. Auto-build
-
-Auto-build buys perks on the same rules as skills: a per-class, per-mode **perk plan** (Craft first, then the Crossroads licence
-only if the equipped weapon is off-class, then Edge tiers 1–2). It never buys Keystones or Wagers, never spends Marks (those are the
-skilled player's to place — the tree glows when a Mark is unspent), and refunds/re-plans for free when the mode changes. One-thumb
-players get a sound build; skilled players out-build them with Marks and Keystones.
-
-## 6. Respec
-
-- Perk respec is separate from skill respec: **free once per act** (the Elder's hearth), otherwise `40 × level` gold.
-- Marks and points are fully refunded; Wagers cannot be respecced (they are already at stake).
-- Licences refund too — taking off-class gear again brings the R8.7 penalty back, shown in red before you confirm.
-
-## 7. APIs (for the build round)
-`G.game.PERKS[id] = { classId, branch, tier, cost, keystone, text, values }` · `getPerkInfo(id)` · `buyPerk(id, { mark?, wager? })` ·
-`getPerkPoints() → { points, marks }` · `respecPerks()` · events `perk:bought { id, wager }`, `perk:mark { feat }`, `perk:lost { id }`.
-`state.player.perks = { [id]: 1 }`, `player.marks`, `player.wager = id|null`, `player.feats = { [featId]: true }`.
+## 4. Auto-build, respec, APIs
+- **Auto-build** buys a per-class, per-mode plan with perk points only: never Marks, Keystones or Wagers. It re-plans when the mode
+  changes and takes the Crossroads licence only when the equipped weapon is off-class (else Craft and Edge).
+- **Respec:** free once per act, otherwise 40 × level gold (`G.game.getPerkRespecCost()`). Points and Marks refund; won wagers
+  become wager credits (free points). An open wager cannot be respecced.
+- **APIs:** `G.game.PERKS[id] = { id, classId, branch, tier, opt, name, text, cost, keystone, licence }` · `getPerkTree(classId)`
+  → `[{ id, name, tiers: [{ tier, cost, options: [perkInfo, perkInfo], chosen }] }]` · `getPerkInfo(id)` → `{ …, owned, how, locked,
+  lockedReason, canBuy }` · `buyPerk(id, { mark?, wager? }) → bool` · `getPerkPoints() → { points, marks, wagerOpen, wagerAvailable }`
+  · `respecPerks() → bool` · `getPerkRespecCost()`.
+- **Events:** `perk:bought { id, how }` (point / mark / wager) · `perk:mark { feat, marks }` · `perk:lost { id }` · `perk:won { id }`.
+- **State:** `player.perks = { [id]: 'point'|'mark'|'wager'|'won' }`, `player.feats = { [featId]: true }`, `player.wager`,
+  `player.wagerCredits`, `state.flags.perkWagerAct`, `state.flags.perkRespecAct`.

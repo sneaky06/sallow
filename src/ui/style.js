@@ -519,6 +519,48 @@
 .ed-chain{position:absolute;left:0;right:0;top:56%;text-align:center;pointer-events:none;font-size:15px;letter-spacing:1px;text-shadow:1px 1px 0 #000,-1px -1px 0 #000,1px -1px 0 #000,-1px 1px 0 #000}
 .ed-chain.pop{animation:ed-chainpop .35s steps(4)}
 @keyframes ed-chainpop{from{transform:scale(1.7);opacity:.2}to{transform:none;opacity:1}}
+/* ---------- Revision 11: perks ---------- */
+.ed-psub{display:flex;flex-direction:column;gap:4px;padding:4px 6px;background:var(--iron-lo)}
+.ed-pcount{display:flex;gap:12px;align-items:center;font-size:12px}
+.ed-pcount .marks{display:inline-flex;align-items:center;gap:4px;color:var(--bone)}
+.ed-pcount .marks.lit{color:#ffe45b;animation:ed-blink 1s steps(2) infinite;text-shadow:0 0 6px #ffe45b}
+.mark{display:inline-block;width:10px;height:10px;background:#ffe45b;transform:rotate(45deg);box-shadow:0 0 0 1px #000}
+.ed-pbsel{display:flex;gap:2px}.ed-pbsel .ed-tab{flex:1}
+.ed-pcols{display:flex;flex-direction:column;gap:10px}
+.ed-pbranch.off{display:none}
+.ed-pbhead{display:flex;flex-wrap:wrap;gap:2px 8px;align-items:baseline;margin-bottom:6px;color:var(--brass-hi);text-transform:uppercase;letter-spacing:1px}
+.ed-pbhead span{color:var(--ash);font-size:10px}.ed-pbhead small{flex-basis:100%;font-size:9px;color:var(--ash);text-transform:none;letter-spacing:0;font-weight:normal}
+.ed-ptier{margin-bottom:8px}.ed-ptier.shut{opacity:.75}
+.ed-ptlabel{display:flex;justify-content:space-between;font-size:10px;color:var(--ash);margin-bottom:3px}.ed-ptlabel em{font-style:normal}
+.ed-ppair{display:grid;grid-template-columns:1fr 1fr;gap:4px}
+.ed-pcard{position:relative;text-align:left;min-height:84px;padding:6px!important;background:var(--stone);border:2px solid #453e3a;display:flex;flex-direction:column;gap:3px;pointer-events:auto}
+.ed-pcard .pt{display:flex;gap:4px;align-items:center}.ed-pcard .pt b{flex:1;min-width:0;font-size:11px;line-height:12px}
+.ed-pcard .ed-ico{width:24px;height:24px}
+.ed-pcard .cost{flex:none;font-style:normal;font-size:10px;min-width:16px;text-align:center;background:#000;border:1px solid var(--iron-hi);color:var(--brass-hi)}
+.ed-pcard small{font-size:10px;line-height:12px;font-weight:normal;color:var(--bone)}
+.ed-pcard.open{border-color:var(--brass);box-shadow:0 0 6px #a8873a66}
+.ed-pcard.owned{border-color:#6fd36a;background:#10200f}
+.ed-pcard.wager{border-color:#ffb347;background:#241606}
+.ed-pcard.taken,.ed-pcard.shut{opacity:.45;filter:grayscale(.6)}
+.ed-pcard.shut{min-height:44px}.ed-pcard.shut small{display:none}
+.ed-pcard.key{border-color:#d12b30;background:linear-gradient(#2a0d10,#14090a);box-shadow:inset 0 0 0 1px #ffb347}
+.ed-pcard.key.owned{border-color:#ffe45b}
+.ed-pcard .tag{position:absolute;right:4px;bottom:3px;font-style:normal;color:#6fd36a}
+.ed-keytag{display:inline-block;margin:2px 0 6px;padding:1px 6px;font-size:9px;letter-spacing:1px;color:#08070a;background:#ffb347}
+.ed-perkdesc{margin:4px 0;font-weight:normal;font-size:12px;line-height:17px}
+.ed-wager{display:flex;gap:8px;align-items:flex-start;margin-top:8px;padding:6px;background:#241606;border:1px solid #ffb347;font-weight:normal;font-size:11px;line-height:14px}
+.ed-wager b{display:block;color:#ffb347;font-size:11px}
+.candle{display:inline-block;position:relative;width:6px;height:12px;background:#e8dcb0;box-shadow:0 0 0 1px #000;margin-right:2px;vertical-align:-2px;flex:none}
+.candle::before{content:'';position:absolute;left:1px;top:-6px;width:4px;height:5px;background:#ff9a3c;box-shadow:0 0 5px #ff9a3c;animation:ed-blink 1s steps(2) infinite}
+.candle.tag{position:absolute;right:6px;bottom:4px;margin:0}
+.ed-candle{display:block;font-size:10px!important;color:#ffb347!important;margin-top:2px}
+@media (orientation:landscape){
+  .ed-pcols{flex-direction:row;align-items:flex-start}
+  .ed-pcols .ed-pbranch{flex:1;min-width:0}.ed-pcols .ed-pbranch.off{display:block}
+  .ed-pbsel{display:none}
+  .ed-ppair{grid-template-columns:1fr}
+  .ed-pcard{min-height:64px}
+}
 @media (max-width:520px){.ed-ttl.opt{display:none}}
 @media (max-width:350px){.ed-topbtns{gap:1px}}
 `;

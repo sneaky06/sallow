@@ -368,7 +368,8 @@
     if (!p || p.dead || ccCd > 0 || !(z.r >= 1.2)) return;
     ccCd = 0.75;
     const old = game.getEffect(p, 'close_call'), n = Math.min(3, (old ? old.stacks : 0) + 1);
-    game.addEffect(p, { id: 'close_call', t: 5, stacks: n, dealt: 15 * n });
+    game.addEffect(p, { id: 'close_call', t: (p.bonus && p.bonus.ccTime) || 5, stacks: n, dealt: ((p.bonus && p.bonus.ccPer) || 15) * n });          // (+ perks Steel Nerves, Glory Hound)
+    if (game.perkCC) game.perkCC(p);          // R11 Close Call perks
     for (const id in p.cooldowns) if (p.cooldowns[id] > 0) p.cooldowns[id] = Math.max(0, p.cooldowns[id] - 1);
     U.text(p.x, p.y - 1.3, n > 1 ? 'CLOSE CALL ×' + n : 'CLOSE CALL', '#7fffd4', true);
     if (game.onCloseCall) game.onCloseCall(p);          // R9.1 Flow chain

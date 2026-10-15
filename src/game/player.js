@@ -71,7 +71,7 @@
   }
 
   // ---- movement ----
-  function playerSpeed(p) { return BASE_SPEED * (1 + p.stats.moveSpeed / 100) * game.speedMult(p) * ctl.tm; }
+  function playerSpeed(p) { return BASE_SPEED * (1 + (p.stats.moveSpeed + (p.bonus.heatMove && game.heatStacks ? p.bonus.heatMove * game.heatStacks() : 0)) / 100) * game.speedMult(p) * ctl.tm; }          // (+ perk Hot Pursuit)
 
   // The 2:1 iso projection makes equal world speeds look unequal on screen (screen-horizontal ≈ 2× screen-vertical).
   // Scale the player's world step so on-screen speed is the same in every direction; world-axis moves (screen diagonals) are unchanged.
@@ -134,16 +134,19 @@
       K.swing(p, t, 1.7);
       game.playerHit(t, { pct: 120, type: 'phys', skill: false, melee: true });      // melee pays for its risk with harder swings
       // R8.11: the swing cleaves a short arc — everyone else in it takes half
-      const arc = K.arc(p, p.facing, 1.7, 0.85);
-      for (let i = 0; i < arc.length; i++) if (arc[i] !== t && !arc[i].dead) game.playerHit(arc[i], { pct: 60, type: 'phys', skill: false, melee: true, noProc: true });
+      const sweep = p.bonus.staffSweep, arc = sweep ? K.around(p.x, p.y, 1.7) : K.arc(p, p.facing, 1.7, 0.85), splash = sweep ? 60 : (p.bonus.cleavePct || 60);          // perks Quarterstaff, Second Swing
+      for (let i = 0; i < arc.length; i++) if (arc[i] !== t && !arc[i].dead) game.playerHit(arc[i], { pct: splash, type: 'phys', skill: false, melee: true, noProc: true });
       return;
     }
     const bow = w.type === 'bow';
-    const shot = { pct: 100, type: 'phys', skill: false, shape: bow ? 'arrow' : 'bolt', color: bow ? '#e8dcb0' : game.CLASSES[p.classId].sprite.accent, speed: bow ? 15 : 13, pierce: p.bonus.pierce || 0 };          // R8.11: Eagle Eye 3+ pierces one foe
+    const shot = { pct: 100, type: 'phys', skill: false, shape: bow ? 'arrow' : 'bolt', color: bow ? '#e8dcb0' : game.CLASSES[p.classId].sprite.accent, speed: bow ? 15 : 13, pierce: p.bonus.flowPierce && game.getFlow && game.getFlow().slow ? 99 : (p.bonus.pierce || 0) };          // R8.11 Eagle Eye 3+ / perk Bullet Time
+    if (p.bonus.spellArrows && (w.type === 'staff' || w.type === 'wand')) { shot.explode = 1.5; shot.pct = 70; }          // perk Spell Arrows
     U.sfx(bow ? 'arrow' : 'bolt');
     K.shoot(p, p.facing, shot);
     if (p.bonus.extraArrow && U.chance(p.bonus.extraArrow)) { K.shoot(p, p.facing - 0.16, shot); K.shoot(p, p.facing + 0.16, shot); }
   }
+
+  game.freeBasic = function (p, t) { if (p && t && !t.dead) basicAttack(p, t); };          // perks (Borrowed Arrow)
 
   // Attack t if possible; otherwise (optionally) close the distance. Returns true if an attack was launched.
   function tryAttack(p, t, approach, dt) {
@@ -190,12 +193,15 @@
 
   function castNow(p, sk, rank, t, corpse) {
     const V = game.applySynergies(p, sk, game.skillValues(sk, rank));      // R3.8: ranks in partner skills boost this cast
-    const cost = game.skillMpCost(sk, rank);
+    const ctx = { cost: game.skillMpCost(sk, rank), cd: game.skillCooldown(p, sk, rank) };
+    if (game.perkCast) game.perkCast(p, sk, ctx, V);          // R11 perks may change values, cost and cooldown
+    const cost = ctx.cost;
     const myth = game.fxOf(p);
     if (myth.blood_price) {                  // mythic: skills are paid for in blood
       if (cost > 0) { p.hp = Math.max(1, p.hp - cost); U.text(p.x, p.y - 0.9, '-' + cost, '#d03a3a'); U.fx('blood', p.x, p.y, {}); }
-    } else { p.mp -= cost; }
-    const cd = game.skillCooldown(p, sk, rank);
+    } else if (p.bonus.bloodMagic && p.mp < cost) { p.hp = Math.max(1, p.hp - cost); U.text(p.x, p.y - 0.9, '-' + cost, '#d03a3a'); }          // perk Blood Magic
+    else { p.mp -= cost; }
+    const cd = ctx.cd;
     if (cd > 0) p.cooldowns[sk.id] = cd;
 
     let ang = p.facing;
@@ -215,6 +221,7 @@
     if (game.noteStyle) game.noteStyle(sk.id);
     if (sk.tags.indexOf('aoe') >= 0 && (sk.tg === 'melee' || sk.tg === 'self') && sk.tags.indexOf('summon') < 0) U.fx('ring', p.x, p.y, { radius: 2.4, color: sk.icon.color, duration: 0.25 });      // R8.11: aoe reads as aoe
     sk.cast(p, t, V, aim, sk, corpse);
+    if (game.perkAfterCast) game.perkAfterCast(p, sk);
     if (myth.echo_cast && sk.tg !== 'corpse' && sk.tg !== 'dir' && sk.tags.indexOf('mobility') < 0 && U.chance(25) && !(t && t.dead && (sk.tg === 'melee' || sk.tg === 'enemy'))) {
       U.text(p.x, p.y - 1.3, 'Echo', COL.shadow, true); U.fx('ring', p.x, p.y, { radius: 1.2, color: COL.shadow, duration: 0.3 }); U.sfx('cast');
       sk.cast(p, t, V, aim, sk, corpse);       // mythic: free second cast
@@ -235,7 +242,8 @@
     if (game.isStunned(p)) return false;
     if ((p.cooldowns[id] || 0) > 0) { U.sfx('error'); return false; }
     if (game.fxOf(p).blood_price) { if (p.hp <= game.skillMpCost(sk, rank) + 1) { warn(p, 'Not enough life', '#d03a3a'); return false; } }
-    else if (p.mp < game.skillMpCost(sk, rank)) { warn(p, 'No mana', COL.mana); return false; }
+    else if (p.mp < game.skillMpCost(sk, rank) && !(p.bonus.bloodMagic && p.hp > game.skillMpCost(sk, rank) + 1)) { warn(p, 'No mana', COL.mana); return false; }
+    if (p.bonus.noSummon && sk.tags.indexOf('summon') >= 0) { warn(p, 'The Lone Lich raises no one', '#8ee06a'); return false; }          // perk Lone Lich
     if (ctl.gcd > 0) {                       // buffer the press so mashing feels responsive
       if (ctl.gcd < 0.4) { ctl.queued = slot; ctl.queuedT = 0.5; return true; }
       return false;
@@ -271,13 +279,14 @@
     const p = G.state.player;
     if (!p || p.dead || (kind !== 'hp' && kind !== 'mp')) return false;
     if (!(p.potions[kind] > 0)) { U.sfx('error'); return false; }
-    if (kind === 'hp' && game.bargain && game.bargain.noPotions) { warn(p, 'Your vow forbids it', '#d03a3a'); return false; }          // R9.1 Dry Vow
+    if (kind === 'hp' && ((game.bargain && game.bargain.noPotions) || p.bonus.noPotions)) { warn(p, 'Your vow forbids it', '#d03a3a'); return false; }          // Dry Vow / Berserker's Oath          // R9.1 Dry Vow
     if (ctl.potCd[kind] > 0) return false;
     if (kind === 'hp') {
       if (p.hp >= p.stats.hpMax) return false;
       if (game.noteStyle) game.noteStyle('potion', p.hp / p.stats.hpMax);
       const veil = game.floorHas('thin_veil') ? 0.5 : 1;          // deep floor modifier Thin Veil
-      game.heal(p, Math.round(p.stats.hpMax * 0.4 * veil), true);
+      game.heal(p, Math.round(p.stats.hpMax * 0.4 * veil * (1 + (p.bonus.potionPct || 0) / 100)), true);
+      if (game.perkPotion) game.perkPotion();
       game.addEffect(p, { id: 'potion_hp', t: 3, mods: { hpRegen: Math.round(p.stats.hpMax * 0.04 * veil) } });
       U.fx('heal', p.x, p.y, { color: '#ff5b5b' });
     } else {
@@ -298,7 +307,7 @@
     const a = p && game.CLASSES[p.classId] && game.CLASSES[p.classId].action;
     if (!a) return null;
     const b = p.bonus || {};
-    CA.a = a; CA.cd = Math.max(1, a.cd - (b.dashCd || 0)); CA.d = a.d + (b.dashD || 0); CA.inv = a.inv + (b.dashInv || 0);
+    CA.a = a; CA.cd = Math.max(1, (a.cd - (b.dashCd || 0)) * (b.dashCdMult || 1)); CA.d = a.d + (b.dashD || 0); CA.inv = a.inv + (b.dashInv || 0);
     CA.max = Math.max(1, (a.charges || 1) + (b.dashCharges || 0));
     return CA;
   }
@@ -408,6 +417,7 @@
     }
     setAnim(p, 'walk', 0.2);
     if (game.relicDash) game.relicDash(p, x0, y0);          // R7.10 relic dash powers
+    if (game.perkDash) game.perkDash(p, x0, y0);          // R11 dash perks
     if (game.noteStyle) game.noteStyle('dash');
     return true;
   };
@@ -810,11 +820,12 @@
 
     const st = p.stats;
     if (!game.floorHas('no_regen')) {          // floor modifier Withering Air
-      if (p.hp < st.hpMax && !game.getEffect(p, 'bleach')) p.hp = Math.min(st.hpMax, p.hp + st.hpRegen * dt);
+      if (p.hp < st.hpMax && !game.getEffect(p, 'bleach') && !p.bonus.noRegen) p.hp = Math.min(st.hpMax, p.hp + st.hpRegen * dt);
       if (p.mp < st.mpMax) p.mp = Math.min(st.mpMax, p.mp + st.mpRegen * dt);
     }
     const cds = p.cooldowns;
-    for (const id in cds) if (cds[id] > 0) { cds[id] -= dt; if (cds[id] < 0) cds[id] = 0; }
+    const cdk = p.bonus.flowCdx && game.getFlow && game.getFlow().slow ? p.bonus.flowCdx : 1;          // perk Time Thief
+    for (const id in cds) if (cds[id] > 0) { cds[id] -= dt * cdk; if (cds[id] < 0) cds[id] = 0; }
     if (ctl.gcd > 0) ctl.gcd -= dt;
     if (ctl.atkT > 0) ctl.atkT -= dt;
     if (ctl.lock > 0) ctl.lock -= dt;
@@ -923,5 +934,6 @@
     if (game.updateLockdown) game.updateLockdown(dt);
     if (game.updateEvents) game.updateEvents(dt);
     if (game.updatePillars) game.updatePillars(dt);
+    if (game.perkTick && !p.dead) game.perkTick(p, dt);          // R11 perk timers
   };
 })();
