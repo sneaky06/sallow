@@ -197,20 +197,24 @@
   }
 
   // Turn a bag item in (the item is consumed). source 'stash' reads the stash instead of the bag. -> { ok, page, entry, completed, tiers }
+  // Turn a bag item in (the item is consumed). source 'stash' reads the stash instead of the bag; source 'item' means `index` is the
+  // item itself (the caller removes it, as the surface crate does). Town only (R8.1). -> { ok, page, entry, completed, tiers }
   coll.register = function (index, source) {
     const p = D.ensure(G.state.player);
+    if (!D.inTown('Registering with the Curator')) return { ok: false };
     const list = source === 'stash' ? G.state.stash : p && p.inventory;
-    const item = list && list[index];
+    const item = source === 'item' ? index : list && list[index];
     if (!item) return { ok: false };
     const res = registerItem(p, item);
     if (!res.ok) { D.fail(entryOf(item) ? 'Already in the Collection Book' : 'The Curator does not want that'); return res; }
-    list[index] = null;
+    if (source !== 'item') list[index] = null;
     G.emit('inventory:changed', {});
     return res;
   };
 
   // Registers every wanted bag item that is not locked. -> number of items turned in
   coll.registerAll = function (quiet) {
+    if (G.state.scene !== 'town') return 0;
     const p = D.ensure(G.state.player);
     let n = 0;
     for (let i = 0; i < p.inventory.length; i++) {

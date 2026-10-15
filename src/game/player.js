@@ -131,12 +131,15 @@
     const gain = game.CLASSES[p.classId].mpOnHit;            // martial classes build mana by fighting
     if (gain) p.mp = Math.min(p.stats.mpMax, p.mp + gain);
     if (!w.ranged) {
-      K.swing(p, t);
+      K.swing(p, t, 1.7);
       game.playerHit(t, { pct: 120, type: 'phys', skill: false, melee: true });      // melee pays for its risk with harder swings
+      // R8.11: the swing cleaves a short arc — everyone else in it takes half
+      const arc = K.arc(p, p.facing, 1.7, 0.85);
+      for (let i = 0; i < arc.length; i++) if (arc[i] !== t && !arc[i].dead) game.playerHit(arc[i], { pct: 60, type: 'phys', skill: false, melee: true, noProc: true });
       return;
     }
     const bow = w.type === 'bow';
-    const shot = { pct: 100, type: 'phys', skill: false, shape: bow ? 'arrow' : 'bolt', color: bow ? '#e8dcb0' : game.CLASSES[p.classId].sprite.accent, speed: bow ? 15 : 13 };
+    const shot = { pct: 100, type: 'phys', skill: false, shape: bow ? 'arrow' : 'bolt', color: bow ? '#e8dcb0' : game.CLASSES[p.classId].sprite.accent, speed: bow ? 15 : 13, pierce: p.bonus.pierce || 0 };          // R8.11: Eagle Eye 3+ pierces one foe
     U.sfx(bow ? 'arrow' : 'bolt');
     K.shoot(p, p.facing, shot);
     if (p.bonus.extraArrow && U.chance(p.bonus.extraArrow)) { K.shoot(p, p.facing - 0.16, shot); K.shoot(p, p.facing + 0.16, shot); }
@@ -210,6 +213,7 @@
     if (!utility) { ctl.lock = Math.min(gcd, 0.22); p.facing = ang; setAnim(p, sk.tg === 'melee' ? 'attack' : 'cast', Math.min(0.35, gcd)); }
     ctl.path = null;
     if (game.noteStyle) game.noteStyle(sk.id);
+    if (sk.tags.indexOf('aoe') >= 0 && (sk.tg === 'melee' || sk.tg === 'self') && sk.tags.indexOf('summon') < 0) U.fx('ring', p.x, p.y, { radius: 2.4, color: sk.icon.color, duration: 0.25 });      // R8.11: aoe reads as aoe
     sk.cast(p, t, V, aim, sk, corpse);
     if (myth.echo_cast && sk.tg !== 'corpse' && sk.tg !== 'dir' && sk.tags.indexOf('mobility') < 0 && U.chance(25) && !(t && t.dead && (sk.tg === 'melee' || sk.tg === 'enemy'))) {
       U.text(p.x, p.y - 1.3, 'Echo', COL.shadow, true); U.fx('ring', p.x, p.y, { radius: 1.2, color: COL.shadow, duration: 0.3 }); U.sfx('cast');
@@ -226,6 +230,8 @@
     const rank = game.skillRank(p, id);
     if (rank <= 0) return false;
     if (S.scene === 'town') { warn(p, 'Not in town', '#cccccc'); return false; }
+    const wl = game.weaponLock && game.weaponLock(p, sk);
+    if (wl) { warn(p, 'Needs a class weapon', '#ff6a6a'); return false; }          // R8.7
     if (game.isStunned(p)) return false;
     if ((p.cooldowns[id] || 0) > 0) { U.sfx('error'); return false; }
     if (game.fxOf(p).blood_price) { if (p.hp <= game.skillMpCost(sk, rank) + 1) { warn(p, 'Not enough life', '#d03a3a'); return false; } }
@@ -613,6 +619,9 @@
   G.on('input:tap', function (e) {
     if (!e || !canAct()) return;
     const S = G.state, p = S.player, x = e.x, y = e.y;
+    for (const g of S.groundItems) {          // R8.9: a tap on a pile always loots, even with a monster standing on it
+      if (g.item && g.item.type !== 'gold' && Math.hypot(g.x - x, g.y - y) < 0.55) { ctl.path = null; ctl.intent = { type: 'item', id: g.id }; return; }
+    }
     let best = null, bd = 1e9;
     const foes = game.live.foes;
     for (let i = 0; i < foes.length; i++) {
@@ -646,15 +655,48 @@
 
   G.on('input:skill', function (e) { if (e && canAct()) game.useSkill(e.slot | 0); });
   G.on('input:potion', function (e) { if (e && canAct()) game.usePotion(e.kind); });
+  // R8.9: one button, two jobs. 'loot' when a ground item (not loose gold, auto-picked anyway) lies within 2.4 tiles and no
+  // enemy is within melee reach — or when the stick points at an item within 4 tiles and nothing is in melee reach; else
+  // 'attack'. Cached 0.1 s; the UI reads it for the button icon.
+  const am = { t: -1, mode: 'attack', gid: 0, tried: {} };          // tried: ground / pile ids already offered (6 s), so a full bag or an open pile popup cannot trap the button
+  game.noteLootTried = function (g) { const now = G.state.time; am.tried[g.id] = now + 6; if (g.pileId != null) am.tried['p' + g.pileId] = now + 6; am.t = -1; };
+  game.getActionMode = function () {
+    const S = G.state, p = S.player;
+    if (!p || p.dead || !S.map) return 'attack';
+    if (S.time - am.t < 0.1 && am.t >= 0) return am.mode;
+    am.t = S.time;
+    let melee = false;
+    const foes = game.live.foes;
+    for (let i = 0; i < foes.length && !melee; i++) { const e = foes[i]; if (!e.dead && Math.hypot(e.x - p.x, e.y - p.y) < p.radius + e.radius + 1.3) melee = true; }
+    let best = null, bd = 1e9;
+    const mv = G.input.move, mm = Math.hypot(mv.x, mv.y);
+    for (const g of S.groundItems) {
+      if (!g.item || g.item.type === 'gold' || am.tried[g.id] > S.time || (g.pileId != null && am.tried['p' + g.pileId] > S.time)) continue;
+      const d = Math.hypot(g.x - p.x, g.y - p.y);
+      let ok = d <= 2.4;
+      if (!ok && d <= 4 && mm > 0.3) ok = ((g.x - p.x) * mv.x + (g.y - p.y) * mv.y) / (d * mm) > 0.8;          // walking toward it
+      if (ok && d < bd) { bd = d; best = g; }
+    }
+    am.mode = best && !melee ? 'loot' : 'attack';
+    am.gid = best ? best.id : 0;
+    return am.mode;
+  };
+  G.on('scene:changed', function () { am.t = -1; am.mode = 'attack'; am.gid = 0; am.tried = {}; });
+
   G.on('input:attack', function () {
     if (!canAct()) return;
     const p = G.state.player;
+    if (game.getActionMode() === 'loot') {
+      const g = groundById(am.gid);
+      if (g) { ctl.intent = { type: 'item', id: g.id }; ctl.path = null; return; }
+    }
     const t = game.pickTarget(p.bonus.w.ranged ? 8 : 7);
     if (t) { ctl.intent = { type: 'attack', id: t.id, once: true }; ctl.path = null; }
     else interactNearest(p);
   });
 
   function takeStairs(st) {
+    if (st === 'stairs_down' && game.onStairsDown) game.onStairsDown();          // R8.8: the floor is graded as you leave it
     U.sfx('stairs');
     game.pallorStairs = st;            // R5.2: only floors entered by the stairs raise Pallor
     G.emit('object:interact', { type: st });
@@ -707,6 +749,7 @@
         if (Math.hypot(g.x - p.x, g.y - p.y) <= 1.0) {
           ctl.intent = null; ctl.path = null;
           takeGround(p, g);
+          if (game.noteLootTried) game.noteLootTried(g);
         } else if (!stepToward(p, g.x, g.y, dt, false)) { ctl.intent = null; }
         break;
       }
@@ -800,7 +843,9 @@
       }
       acted = true;
     }
-    if (G.input.attackHeld && S.scene !== 'town') {
+    if (G.input.attackHeld && S.scene !== 'town' && game.getActionMode() === 'loot') {          // R8.9: holding the button near loot loots
+      if (!(ctl.intent && ctl.intent.type === 'item') && groundById(am.gid)) { ctl.intent = { type: 'item', id: am.gid }; ctl.path = null; }
+    } else if (G.input.attackHeld && S.scene !== 'town') {
       const t = game.pickTarget(weaponRange(p) ? 8 : 7);
       if (t) {
         ctl.intent = null;

@@ -1125,7 +1125,7 @@
     deepWater: abgr(22, 44, 84, 235), deepLava: abgr(255, 170, 40, 235), chasm: abgr(14, 10, 20, 235), blocked: abgr(30, 28, 36, 235),
     path: abgr(150, 124, 92, 235), down: abgr(255, 150, 40, 255), up: abgr(140, 200, 255, 255),
   };
-  const MM_PROP = { portal: '#b65bff', waypoint: '#4ac8ff', dungeon_entrance: '#ff7a2a', stash: '#ffd94a', shrine: '#fff0a0', chest: '#e8b040', corpse: '#7fe8ff' };
+  const MM_PROP = { chute: '#5be0c8', surface_crate: '#d8a050', portal: '#b65bff', waypoint: '#4ac8ff', dungeon_entrance: '#ff7a2a', stash: '#ffd94a', shrine: '#fff0a0', chest: '#e8b040', corpse: '#7fe8ff' };
 
   E.drawMinimap = function (ctx, w, h) {
     if (!ctx || !(w > 0) || !(h > 0)) return;

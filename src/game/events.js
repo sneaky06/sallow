@@ -14,7 +14,7 @@
     for (let i = 0; i < map.tiles.length; i++) if (C.WALKABLE[map.tiles[i]]) n++;
     return Math.max(1, n);
   }
-  game.getExplored = function () {
+  function exploredExact() {
     const S = G.state, map = S.map;
     if (!map || !map.explored) return 0;
     if (map.kind === 'town') return 100;
@@ -26,12 +26,29 @@
     for (let i = 0; i < t.length; i++) if (e[i] && C.WALKABLE[t[i]]) n++;
     ex.val = Math.min(100, Math.round(n / ex.walk * 100));
     return ex.val;
+  }
+  game.exploredExact = exploredExact;
+  // R8.4: what the player is told. Depths 1–3 exact ("62%"); 4–10 rounded ("~60%"); 11–20 a range that widens with depth
+  // ("40–70%", its position fixed per floor seed so it never flickers); 21+ "?" with a hint. value = the shown estimate.
+  game.getExplored = function () {
+    const S = G.state, map = S.map, v = exploredExact();
+    if (!map || map.kind === 'town') return { value: v, low: v, high: v, label: v + '%' };
+    const d = Math.max(1, map.depth | 0);
+    if (d <= 3) return { value: v, low: v, high: v, label: v + '%' };
+    if (d <= 10) { const r = Math.round(v / 10) * 10; return { value: r, low: Math.max(0, r - 5), high: Math.min(100, r + 5), label: '~' + r + '%' }; }
+    if (d <= 20) {
+      const w = 20 + (d - 11) * 2, off = (((map.seed | 0) >>> 0) % 997) / 997;          // 20–38 points wide
+      const low = U.clamp(Math.round((v - w * off) / 5) * 5, 0, 100), high = U.clamp(low + Math.round(w / 5) * 5, 0, 100);
+      return { value: Math.round((low + high) / 2), low: low, high: high, label: low + '–' + high + '%' };
+    }
+    return { value: null, low: 0, high: 100, label: '?', hint: 'Nobody has ever mapped this far down.' };
   };
 
   // ------------------------------ speed-clear grade ------------------------------
-  // On first reaching a stairs-down tile: score = explored fraction × min(1.3, par / time), par = 45 s + 1 s per 10 walkable tiles.
-  // S ≥ 0.85 · A ≥ 0.65 · B ≥ 0.45 · C ≥ 0.25 · D. Reward: XP (share of the level), dust/shards, and (D excepted) a small chest by
-  // the stairs whose best item is at least uncommon (B), rare (A) or magic (S).
+  // Measured when you take the stairs down: score = explored fraction × min(1.3, par / time), par = 45 s + 1 s per 10
+  // walkable tiles. S ≥ 0.85 · A ≥ 0.65 · B ≥ 0.45 · C ≥ 0.25 · D. R8.8: the grade and its reward land on arriving at the
+  // next floor — floor:graded fires there, with XP (share of the level), dust/shards and (D excepted) a small chest beside
+  // the arrival point whose best item is at least uncommon (B), rare (A) or magic (S).
   const GRADES = [
     { g: 'S', min: 0.85, xp: 0.12, dust: 6, shard: 2, floor: 'magic' },
     { g: 'A', min: 0.65, xp: 0.08, dust: 4, shard: 1, floor: 'rare' },
@@ -40,36 +57,46 @@
     { g: 'D', min: -1, xp: 0, dust: 0, shard: 0, floor: null, noChest: true },
   ];
   game.CLEAR_GRADES = GRADES;
-  const fl = { t0: 0, stairs: [], grade: null, chk: 0 };
+  const fl = { t0: 0, pending: null, last: null };
   function par(map) { return 45 + walkableCount(map) / 10; }
+  // { grade: null, explored, time, par } live for this floor, plus `last` = the grade of the floor you came from.
   game.getClearGrade = function () {
     const S = G.state;
     if (!S.map || S.scene !== 'dungeon') return null;
-    if (fl.grade) return fl.grade;
-    return { grade: null, explored: game.getExplored(), time: Math.round(S.time - fl.t0), par: Math.round(par(S.map)) };
+    return { grade: null, explored: exploredExact(), time: Math.round(S.time - fl.t0), par: Math.round(par(S.map)), last: fl.last };
   };
-  function gradeFloor(p, sx, sy) {
-    const S = G.state, map = S.map, time = Math.max(1, S.time - fl.t0), xp = game.getExplored(), pr = par(map);
+  // player.js calls this as the stairs down are taken (before the next floor loads).
+  game.onStairsDown = function () {
+    const S = G.state, map = S.map;
+    if (!map || S.scene !== 'dungeon') return;
+    const time = Math.max(1, S.time - fl.t0), xp = exploredExact(), pr = par(map);
     const score = xp / 100 * Math.min(1.3, pr / time);
     let G0 = GRADES[GRADES.length - 1];
     for (const g of GRADES) if (score >= g.min) { G0 = g; break; }
-    fl.grade = { grade: G0.g, score: Math.round(score * 100) / 100, explored: xp, time: Math.round(time), par: Math.round(pr), depth: S.depth };
+    fl.pending = { grade: G0.g, score: Math.round(score * 100) / 100, explored: xp, time: Math.round(time), par: Math.round(pr), depth: S.depth };
+  };
+  function awardGrade(p, map, gr) {
+    const G0 = GRADES.find(function (g) { return g.g === gr.grade; });
     if (G0.xp > 0) game.gainXp(p.xpNext * G0.xp);
     if (G0.dust || G0.shard) {
       p.materials = p.materials || {};
       p.materials.dust = (p.materials.dust || 0) + G0.dust; p.materials.shard = (p.materials.shard || 0) + G0.shard;
     }
-    if (!G0.noChest) {
-      const spot = G.world && G.world.findFreeTileNear ? G.world.findFreeTileNear(map, sx + 1, sy, 3) : null;
+    gr.chest = false;
+    if (!G0.noChest && G.world && G.world.findFreeTileNear) {
+      const sx = map.spawn.x, sy = map.spawn.y;
+      const spot = G.world.findFreeTileNear(map, sx + 2, sy, 3);
       if (spot && !(spot.x === sx && spot.y === sy)) {
         map.props.push({ type: 'chest', x: spot.x, y: spot.y, solid: true, interact: 'chest', gradeFloor: G0.floor || undefined, light: 2 });
         if (G.world.invalidate) G.world.invalidate(map);
         U.fx('lootbeam', spot.x + 0.5, spot.y + 0.5, { color: '#ffe45b' });
+        gr.chest = true;
       }
     }
-    U.toast('Floor cleared: grade ' + G0.g + ' (' + xp + '% explored, ' + fl.grade.time + 's / par ' + fl.grade.par + 's)', G0.g === 'S' ? '#ffe45b' : '#d8d8d8');
-    U.sfx(G0.g === 'S' || G0.g === 'A' ? 'quest' : 'click');
-    G.emit('floor:graded', fl.grade);
+    fl.last = gr;
+    U.toast('Depth ' + gr.depth + ' cleared: grade ' + gr.grade + ' (' + gr.explored + '% explored, ' + gr.time + 's / par ' + gr.par + 's)', gr.grade === 'S' ? '#ffe45b' : '#d8d8d8');
+    U.sfx(gr.grade === 'S' || gr.grade === 'A' ? 'quest' : 'click');
+    G.emit('floor:graded', gr);
   }
 
   // ------------------------------ timed events ------------------------------
@@ -275,18 +302,16 @@
       tick(p, dt);
       if (cur && (updT -= dt) <= 0) { updT = 0.25; G.emit('event:update', payload()); }
     }
-    if (!fl.grade && (fl.chk -= dt) <= 0) {
-      fl.chk = 0.25;
-      for (const s of fl.stairs) if (Math.abs(s.x + 0.5 - p.x) < 2.5 && Math.abs(s.y + 0.5 - p.y) < 2.5) { gradeFloor(p, s.x, s.y); break; }
-    }
   };
 
   G.on('scene:changed', function (ev) {
     const S = G.state, map = ev && ev.map;
     if (cur) G.emit('event:end', { id: cur.id, name: cur.name, timer: cur.timer, goal: cur.goal, success: false, reward: null });
-    cur = null; pending = null; fl.grade = null; fl.stairs = []; fl.t0 = S.time; ex.map = null;
+    cur = null; pending = null; fl.t0 = S.time; ex.map = null;
+    const gr = fl.pending;
+    fl.pending = null;
+    if (gr && map && ev.scene === 'dungeon' && (map.depth | 0) === gr.depth + 1 && S.player) awardGrade(S.player, map, gr);          // R8.8: graded on arrival below
     if (!map || ev.scene !== 'dungeon') return;
-    for (let i = 0; i < map.tiles.length; i++) if (map.tiles[i] === C.TILE.STAIRS_DOWN) fl.stairs.push({ x: i % map.w, y: (i / map.w) | 0 });
     const depth = map.depth | 0;
     if (depth < 2 || depth % C.BOSS_EVERY === 0) return;
     const rng = G.rng.create(((map.seed | 0) ^ 0x7f4a7c15) >>> 0);

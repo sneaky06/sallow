@@ -1730,12 +1730,10 @@ ok(back.hp < 1e6 && front[0].hp < 1e6 && front[1].hp < 1e6, 'Whirlwind hits all 
     G.emit('input:attack', {}); step(0.1);
     ok(S.projectiles.length === 1 && S.projectiles[0].shape === 'arrow' && Math.abs(p.x - wx) < 0.01, 'Warrior + bow: basic attack shoots from range');
     step(1); const hpBow = m.hp; p.mp = p.stats.mpMax;
-    ok(game.useSkill(0) === true, 'melee skill with a bow is still usable…'); step(3);
-    ok(m.hp < hpBow && Math.hypot(p.x - m.x, p.y - m.y) < 1.6, '…the Warrior closes in and Bashes with it');
+    ok(game.useSkill(0) === false && game.getSkillInfo('bash').disabled, 'R8.7: melee skills are locked while a Warrior holds a bow'); step(3);
     H.wtype = 'sword'; p = fresh('ranger', true); game.learnSkill('aimed_shot');
     m = dummy(p.x + 5, p.y, 1e6); step(0.1); p.mp = p.stats.mpMax;
-    game.useSkill(0);
-    ok(S.projectiles.length === 1 && S.projectiles[0].shape === 'shard', 'Ranger + sword: arrow skills still fire (as thrown blades)');
+    ok(game.useSkill(0) === false && S.projectiles.length === 0, 'R8.7: arrow skills are locked while a Ranger holds a sword');
     step(1); const hpSw = m.hp; G.emit('input:attack', {}); step(3);
     ok(m.hp < hpSw && Math.hypot(p.x - m.x, p.y - m.y) < 1.6 && S.projectiles.length === 0, 'Ranger + sword: basic attack is a melee swing');
     H.wtype = 'dagger'; p = fresh('sorcerer', true); game.learnSkill('fire_bolt'); m = dummy(p.x + 5, p.y, 1e6); step(0.1);
@@ -2118,23 +2116,27 @@ ok(back.hp < 1e6 && front[0].hp < 1e6 && front[1].hp < 1e6, 'Whirlwind hits all 
     game.noteStyle('potion', 0.3);
     const sty = game.getStyle();
     ok(sty.shares[p.skillBar[0]] > 0.6 && sty.shares.dash > 0.1 && sty.hpAt < 0.45 && jsonable(p.style), 'player.style tallies actions (decaying) and the potion threshold', JSON.stringify(sty));
-    S.flags.corpse = { depth: 3, seed: 777, x: 10.5, y: 10.5, gold: 500, items: [] };
-    p.gold = 1000; game.kill(p, null); G.scenes.respawn();
-    ok(S.flags.echo && S.flags.echo.depth === 3 && S.flags.echo.gold === 500 && S.flags.echo.snap.classId === 'sorcerer' && jsonable(S.flags.echo), 'an abandoned corpse becomes state.flags.echo (with a snapshot of you)');
-    const ec1 = S.flags.echo; S.flags.corpse = { depth: 4, seed: 1, x: 5, y: 5, gold: 9, items: [] };
+    G.scenes.enterDungeon(3); p.x = S.map.spawn.x + 0.5; p.y = S.map.spawn.y + 0.5; p.gold = 500;
     game.kill(p, null); G.scenes.respawn();
-    ok(S.flags.echo === ec1, 'one Echo at a time: a second abandoned corpse does not replace it');
+    const cp = S.flags.corpse;
+    ok(cp && cp.depth === 3 && cp.echo && cp.echo.classId === 'sorcerer' && cp.echoSlain === false && jsonable(S.flags), 'R8.2: a death leaves a corpse carrying a snapshot of you (corpse.echo)');
     G.scenes.enterDungeon(3);
     const echo = S.entities.find(function (e) { return e.echo; });
-    ok(echo && echo.name === 'Echo of Test' && echo.classId === 'sorcerer' && echo.equipment && echo.hp >= p.stats.hpMax * 2.5 && echo.kit.moves.length >= 3 && echo.anim === 'die',
-      'entering that depth: the Echo lies there (echo: true, your class, gear, ' + (echo && echo.kit.moves.map(function (m) { return m.id; }).join('/')) + ')');
-    const sp = game.W.free(echo.x + 4, echo.y, 4); p.x = sp.x; p.y = sp.y; game.onPlayerMoved(true); p.hp = p.stats.hpMax = 1e6;
+    ok(echo && echo.guardCorpse && Math.hypot(echo.x - cp.x, echo.y - cp.y) < 3 && echo.name === 'Echo of Test' && echo.classId === 'sorcerer' && echo.equipment && echo.kit.moves.length >= 3 && echo.anim === 'die',
+      'returning to that depth: your Echo lies at the corpse, guarding it (' + (echo && echo.kit.moves.map(function (m) { return m.id; }).join('/')) + ')');
+    const sp = game.W.free(echo.x + 4, echo.y, 4); p.x = sp.x; p.y = sp.y; game.onPlayerMoved(true); game.addEffect(p, { id: 'test_tank', t: 1e6, mods: { hpMax: 1e7 } }); p.hp = p.stats.hpMax;
+    S.entities = S.entities.filter(function (e) { return e.type !== 'monster' || e === echo; });
     let rose = 0; const oRise = G.on('echo:rise', function () { rose++; }); const said = []; const oTx = G.on('fx:text', function (e) { said.push(e.text); });
     step(8);
-    ok(rose === 1 && p.hp < 1e6 && said.some(function (s) { return echo.kit.moves.some(function (m) { return m.name === s && m.id !== 'attack'; }); }), 'it rises (echo:rise), fights back with your skills, telegraphed', said.filter(function (s) { return /[A-Z]/.test(s); }).slice(0, 4).join());
+    ok(rose === 1 && p.hp < p.stats.hpMax && said.some(function (s) { return echo.kit.moves.some(function (m) { return m.name === s && m.id !== 'attack'; }); }), 'it rises (echo:rise), fights back with your skills, telegraphed', said.filter(function (s) { return /[A-Z]/.test(s); }).slice(0, 4).join());
     oRise(); oTx();
-    const gE0 = p.gold, drops0 = H.drops; echo.hp = 1; game.playerHit(echo, { pct: 100, type: 'phys', skill: false });
-    ok(echo.dead && p.gold === gE0 + 500 && !S.flags.echo && H.drops === drops0 + 1 && H.lastDrop.floor === 'rare', 'killing it returns the corpse gold through reclaimCorpse + a rare-or-better drop');
+    const away = game.W.free(echo.home.x + 14, echo.home.y, 4); if (away) { p.x = away.x; p.y = away.y; game.onPlayerMoved(true); step(4); }
+    ok(!away || Math.hypot(echo.x - echo.home.x, echo.y - echo.home.y) < 9.5, 'a guard does not follow you far from the corpse');
+    const dropsE = H.drops; echo.hp = 1; echo.effects = []; game.playerHit(echo, { pct: 100, type: 'phys', skill: false });
+    ok(echo.dead && S.flags.corpse === cp && cp.echoSlain && H.drops === dropsE + 1 && H.lastDrop.floor === 'rare', 'killing it clears the way (the bag stays on the corpse) and drops rare-or-better');
+    G.scenes.enterDungeon(3);
+    ok(!S.entities.some(function (e) { return e.echo; }), 'a slain guard does not rise again');
+    S.flags.corpse = null;
 
     section('R7 act bosses and the Hearthking');
     const tank = function (q) { game.addEffect(q, { id: 'test_tank', t: 1e6, mods: { hpMax: 1e7 } }); q.hp = q.stats.hpMax; };
@@ -2267,14 +2269,20 @@ ok(back.hp < 1e6 && front[0].hp < 1e6 && front[1].hp < 1e6, 'Whirlwind hits all 
 
     section('R7.5 explored, clear grade, timed events');
     p = fresh('ranger', false, 3);
-    const e0 = game.getExplored(); S.map.explored.fill(1); S.time += 1;
-    ok(e0 >= 0 && e0 < 100 && game.getExplored() === 100, 'getExplored(): 0–100 over walkable tiles (' + e0 + '% at arrival)');
+    const e0 = game.getExplored(); S.map.explored.fill(1); S.time += 1; const e1 = game.getExplored();
+    const fuzz = [5, 15, 25].map(function (d) { G.scenes.enterDungeon(d === 5 ? 6 : d); S.map.explored.fill(1); S.time += 1; const a = game.getExplored(); S.time += 1; const b = game.getExplored(); return a.label + (a.label === b.label ? '' : ' FLICKER'); });
+    ok(e0.label === e0.value + '%' && e1.value === 100 && e1.label === '100%' && /^~\d+%$/.test(fuzz[0]) && /^\d+–\d+%$/.test(fuzz[1]) && fuzz[2] === '?',
+      'R8.4 getExplored() → { value, low, high, label }: exact at depth 3, then ' + fuzz.join(' · '));
+    p = fresh('ranger', false, 3);
     let graded = null; const oGr = G.on('floor:graded', function (e) { graded = e; });
     let sd = null; for (let i = 0; i < S.map.tiles.length && !sd; i++) if (S.map.tiles[i] === C.TILE.STAIRS_DOWN) sd = { x: i % S.map.w, y: (i / S.map.w) | 0 };
-    S.entities = S.entities.filter(function (e) { return e.type !== 'monster'; });
-    const props0 = S.map.props.length; const sp2 = game.W.free(sd.x + 0.5, sd.y + 1.5, 2); p.x = sp2.x; p.y = sp2.y; game.onPlayerMoved(true); step(0.5); oGr();
-    ok(graded && 'SABCD'.indexOf(graded.grade) >= 0 && graded.explored === 100 && game.getClearGrade().grade === graded.grade && (graded.grade === 'D' || S.map.props.length === props0 + 1),
-      'reaching the stairs grades the floor (floor:graded ' + JSON.stringify(graded) + ') and puts a chest by them');
+    S.entities = S.entities.filter(function (e) { return e.type !== 'monster'; }); S.map.explored.fill(1); S.time += 1;
+    const sp2 = game.W.free(sd.x + 0.5, sd.y + 1.5, 2); p.x = sp2.x; p.y = sp2.y; game.onPlayerMoved(true); step(0.5);
+    const notYet = !graded;
+    p.x = sd.x + 0.5; p.y = sd.y + 0.5; game.onPlayerMoved(true); game.ctl.intent = { type: 'stairs', x: sd.x, y: sd.y, st: 'stairs_down' }; step(0.2); oGr();
+    ok(notYet && graded && S.depth === 4 && graded.depth === 3 && 'SABCD'.indexOf(graded.grade) >= 0 && graded.explored === 100 && game.getClearGrade().last === graded &&
+      (graded.grade === 'D' || (graded.chest && S.map.props.some(function (pr) { return pr.gradeFloor !== undefined || (pr.type === 'chest' && Math.hypot(pr.x - S.map.spawn.x, pr.y - S.map.spawn.y) < 5); }))),
+      'R8.8: no grade in the stairs room; floor:graded fires on arriving below, chest by the arrival (' + JSON.stringify(graded) + ')');
     const evR = [], offs = [];
     ['event:start', 'event:update', 'event:end'].forEach(function (n) { offs.push(G.on(n, function (e) { evR.push(n + ':' + e.id); })); });
     const seenEv = {};
@@ -2293,6 +2301,42 @@ ok(back.hp < 1e6 && front[0].hp < 1e6 && front[1].hp < 1e6, 'Whirlwind hits all 
     ok(seenEv.gauntlet && seenEv.keyhunt && seenEv.collapse && seenEv.thief && seenEv.keyOk && seenEv.thiefRuns && seenEv.thiefDone && seenEv.gauntOk && seenEv.collapseOk &&
       evR.some(function (s) { return s.indexOf('event:start') === 0; }) && evR.some(function (s) { return s.indexOf('event:update') === 0; }) && evR.some(function (s) { return s.indexOf('event:end') === 0; }),
       'timed events: Gauntlet, Key Hunt, Cave-in, The Magpie start, update and end (' + rolled + ' of 20 floors rolled one)', JSON.stringify(seenEv));
+
+    section('Revision 8');
+    const learnedR8 = []; const oLr8 = G.on('skill:learned', function (e) { learnedR8.push(e); });
+    p = fresh('warrior', true); p.skillPoints = 1; game.learnSkill('bash'); game.setAutoBuild('aoe'); toLevel(p, 6); oLr8();
+    ok(learnedR8[0] && learnedR8[0].skillId === 'bash' && learnedR8[0].rank === 1 && learnedR8[0].auto === false && learnedR8.some(function (e) { return e.auto === true && e.rank >= 1 && game.SKILLS[e.skillId]; }),
+      'R8.10 skill:learned { skillId, rank, auto } for manual and auto-build learning (' + learnedR8.length + ' events)');
+    // R8.7 out-of-class weapon
+    p = fresh('warrior', true); toLevel(p, 10); p.skills = { bash: 3 }; p.skillBar = ['bash', null, null, null]; game.recomputeStats(p); p.mp = p.stats.mpMax;
+    const tgt8 = dummy(p.x + 1, p.y, 1e7);
+    const inClass = game.playerHit(tgt8, { pct: 100, type: 'phys', skill: false }); tgt8.hp = 1e7;
+    H.wtype = 'bow'; game.recomputeStats(p);
+    const offHit = game.playerHit(tgt8, { pct: 100, type: 'phys', skill: false }); tgt8.hp = 1e7;
+    const info8 = game.getSkillInfo('bash'), used8 = game.useSkill(0);
+    const offPct = p.bonus.offClass; H.wtype = null; game.recomputeStats(p);
+    ok(p.bonus.offClass === 0 && info8.disabled && /Needs a sword or axe or mace/.test(info8.lockedReason) && !used8 && !game.getSkillInfo('bash').disabled,
+      'R8.7: a warrior with a bow cannot use Bash (' + info8.lockedReason + ')');
+    ok(game.SKILL_NEEDS_CLASS_WEAPON.fireball === undefined, 'spells work with any weapon (the damage penalty still applies)');
+    // the −35% (bow is ranged: compare one basic hit's damage via a spec without weapon ranged effects)
+    ok(offHit > 0 && inClass > 0 && offPct === -35, 'R8.7: out-of-class weapon: bonus.offClass −35% (unless G.items.classPenalty says otherwise)');
+    // R8.11 cleave + pierce
+    p = fresh('warrior', true); const main8 = dummy(p.x + 1, p.y, 1e6), side8 = dummy(p.x + 0.9, p.y + 0.7, 1e6), back8 = dummy(p.x - 1.2, p.y, 1e6); step(0.05);
+    game.ctl.targetId = main8.id; G.emit('input:attack', {}); step(0.6);
+    ok(main8.hp < 1e6 && side8.hp < 1e6 && back8.hp === 1e6 && (1e6 - side8.hp) < (1e6 - main8.hp), 'R8.11: basic melee cleaves a short arc (side target hit for less, the one behind untouched)');
+    p = fresh('ranger', true); p.skills = { eagle_eye: 3 }; game.recomputeStats(p);
+    const rr1 = dummy(p.x + 3, p.y, 1e6), rr2 = dummy(p.x + 4.5, p.y, 1e6); step(0.05); game.ctl.targetId = rr1.id; G.emit('input:attack', {}); step(1);
+    ok(p.bonus.pierce === 1 && rr1.hp < 1e6 && rr2.hp < 1e6, 'R8.11: Eagle Eye rank 3 basic shots pierce one foe');
+    // R8.9 action mode
+    p = fresh('warrior', true); S.groundItems.push({ id: G.newId(), x: p.x + 1.5, y: p.y, item: { id: G.newId(), type: 'armor', name: 'Thing', rarity: 'common' } }); S.time += 1;
+    const m1 = game.getActionMode(); const near8 = dummy(p.x + 0.8, p.y + 0.5, 1e6); step(0.05); S.time += 1; const mm2 = game.getActionMode();
+    near8.dead = true; S.time += 1; game.updateMonsters(0); const m3 = game.getActionMode(); G.emit('input:attack', {});
+    ok(m1 === 'loot' && mm2 === 'attack' && m3 === 'loot' && game.ctl.intent && game.ctl.intent.type === 'item', 'R8.9 getActionMode(): loot with a pile in reach, attack with an enemy in melee range; the button then loots');
+    const far8 = { id: G.newId(), x: p.x + 3.5, y: p.y, item: { id: G.newId(), type: 'armor', name: 'Far', rarity: 'common' } }; S.groundItems.length = 0; S.groundItems.push(far8); S.time += 1;
+    const m4 = game.getActionMode(); G.input.move.x = 1; S.time += 1; const m5 = game.getActionMode(); G.input.move.x = 0;
+    ok(m4 === 'attack' && m5 === 'loot', 'moving toward a pile 3.5 tiles away switches the button to loot');
+    const onIt = dummy(far8.x, far8.y, 1e6); step(0.05); G.emit('input:tap', { x: far8.x, y: far8.y });
+    ok(game.ctl.intent && game.ctl.intent.type === 'item', 'a tap on a pile loots even with a monster standing on it');
     oT(); H.mods = null;
   }
 

@@ -118,6 +118,19 @@
     st.pickupRadius = 2 + st.pickupRadius;
 
     bonus.w = readWeapon(p, cls);
+    // R8.7: a weapon outside the class's weaponTypes costs damage (G.items.classPenalty when the items team provides it,
+    // else the lead default −35%) and locks the skills that need a class weapon (game.weaponLock).
+    bonus.offClass = 0;
+    if (p.equipment && p.equipment.weapon && cls.weaponTypes.indexOf(bonus.w.type) < 0) {
+      let pen = -35;
+      if (G.items && G.items.classPenalty) {
+        try {
+          const r = G.items.classPenalty(p.equipment.weapon, p.classId);
+          if (typeof r === 'number') pen = r; else if (r && typeof r.dmgPct === 'number') pen = r.dmgPct; else if (r === null || r === false) pen = 0;
+        } catch (err) { /* keep the default */ }
+      }
+      bonus.offClass = pen;
+    }
     bonus.shatterFire = p.skills.frost_nova > 0 ? 1 : 0;
     bonus.dr = cls.dr || 0;                                     // innate class damage reduction (Warrior)        // sorcerer combo: fire shatters frozen enemies
     p.stats = st;
@@ -196,10 +209,11 @@
     if (i >= 0) p.skillBar[i] = id;
   }
 
-  function learn(p, id) {
+  function learn(p, id, auto) {
     p.skills[id] = (p.skills[id] || 0) + 1;
     p.skillPoints--;
     if (p.skills[id] === 1) slotIfFree(p, id);
+    G.emit('skill:learned', { skillId: id, rank: p.skills[id], auto: !!auto });          // R8.10
   }
 
   game.learnSkill = function (skillId) {
@@ -313,7 +327,7 @@
     while (p.skillPoints > 0) {
       const id = nextAutoSkill(p, mode);
       if (!id) break;
-      learn(p, id);
+      learn(p, id, true);
     }
     layoutBar(p, mode);
     if (!silent) { game.recomputeStats(p); G.emit('skills:changed', {}); }
@@ -351,6 +365,8 @@
     info.cdRemaining = p ? Math.max(0, p.cooldowns[skillId] || 0) : 0;
     info.learnable = can.ok;
     info.lockedReason = can.ok ? null : can.reason;
+    const wl = p && game.weaponLock ? game.weaponLock(p, sk) : null;          // R8.7: needs a class weapon
+    info.disabled = !!wl; if (wl) info.lockedReason = wl;
     info.synergies = (sk.synergies || []).map(function (s) {
       return { from: s.from, name: game.SKILLS[s.from].name, desc: s.desc, active: !!(p && p.skills[s.from] > 0), combo: !!s.combo };
     });
@@ -367,4 +383,19 @@
     if (!p || !p.bonus || !p.bonus.fx || !p.bonus.fx.hoarder) return;
     if (Math.min(60, Math.floor((p.gold || 0) / 100)) !== p.bonus.hoard) game.recomputeStats(p);
   });
+})();
+
+// R8.7: skills that need a class weapon. Warrior swings and Ranger shots need one of the class's weapon types; spells
+// (Sorcerer, Necromancer) and non-attack skills work with anything. weaponLock(p, sk) → lockedReason | null.
+(function () {
+  'use strict';
+  const G = window.G, game = G.game;
+  const NEEDS = { bash: 1, charge: 1, rend: 1, execute: 1, cleave: 1, whirlwind: 1, leap: 1, earthquake: 1,
+    aimed_shot: 1, piercing_shot: 1, poison_arrow: 1, snipe: 1, multishot: 1, rain_of_arrows: 1, explosive_arrow: 1, arrow_storm: 1 };
+  game.SKILL_NEEDS_CLASS_WEAPON = NEEDS;
+  game.weaponLock = function (p, sk) {
+    if (!p || !sk || !NEEDS[sk.id] || !p.bonus || !p.bonus.offClass) return null;
+    const cls = game.CLASSES[p.classId];
+    return 'Needs a ' + cls.weaponTypes.join(' or ') + ' (you hold a ' + (p.bonus.w.type || 'weapon') + ')';
+  };
 })();

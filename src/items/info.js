@@ -107,10 +107,26 @@
     return (w.dmgMin + w.dmgMax) / 2 * w.attackSpeed;
   }
 
+  // ---- out-of-class weapons (R8.7) ----
+  // A weapon type the class does not use (G.game.CLASSES[classId].weaponTypes, else the built-in profile) carries an intrinsic
+  // damage penalty. Combat applies the same function; Power, the verdict and the tooltip read it here.
+  D.PENALTY = { weaponDmgPct: -35, text: 'Out-of-class weapon: -35% damage with it' };
+  I.classPenalty = function (item, classId) {
+    if (!item || item.slot !== 'weapon' || !item.weaponType) return null;
+    const p = G.state.player;
+    const prof = D.classProfile({ classId: classId || (p && p.classId) });
+    if (prof.weapons.indexOf(item.weaponType) >= 0) return null;
+    return { dmgPct: D.PENALTY.weaponDmgPct, text: D.PENALTY.text };
+  };
+  function penFactor(item, prof) {
+    if (!item || item.slot !== 'weapon' || !item.weaponType || prof.weapons.indexOf(item.weaponType) >= 0) return 1;
+    return 1 + D.PENALTY.weaponDmgPct / 100;
+  }
+
   // ---- scoring ----
   function scoreEq(eq, prof) {
     const m = modsOf(eq), w = prof.weights;
-    let s = dpsOf(eq) * w.dps;
+    let s = dpsOf(eq) * w.dps * penFactor(eq.weapon, prof);
     for (const k in m) if (m[k]) s += m[k] * (w[k] || 0);
     if (w[prof.primary] === undefined) s += (m[prof.primary] || 0) * 3;
     return s;
@@ -234,8 +250,9 @@
     const elem = g.fireDmg + g.coldDmg + g.lightningDmg + g.poisonDmg + base('fireDmg', 0) + base('coldDmg', 0) + base('lightningDmg', 0) + base('poisonDmg', 0);
     const w = weaponOf(eq), avg = (w.dmgMin + w.dmgMax + dmgMin + dmgMax) / 2;
     const scale = (1 + dmgPct / 100) * (1 + crit / 100 * critDmg / 100);
-    if (isMartial(p)) return (avg + elem) * w.attackSpeed * (1 + (base('attackSpeed', 0) + g.attackSpeed) / 100) * scale;
-    return (avg * w.attackSpeed * 0.75 + elem) * scale * (1 + (base('skillDmgPct', 0) + g.skillDmgPct) / 100) *
+    const pf = penFactor(eq.weapon, prof);
+    if (isMartial(p)) return pf * (avg + elem) * w.attackSpeed * (1 + (base('attackSpeed', 0) + g.attackSpeed) / 100) * scale;
+    return pf * (avg * w.attackSpeed * 0.75 + elem) * scale * (1 + (base('skillDmgPct', 0) + g.skillDmgPct) / 100) *
       (1 + (base('castSpeed', 0) + g.castSpeed) / 100);
   }
 
@@ -370,6 +387,9 @@
     tip.bleached = !!(item.bleached && item.hidden);
 
     lines.push({ text: typeLine(item), color: COL.grey });
+    const pen = I.classPenalty(item);      // R8.7
+    tip.penalty = pen;
+    if (pen) lines.push({ text: pen.text, color: COL.red });
     // the mythic effect sits directly beneath the "Legendary Mythic …" label
     for (const id of item.effects || []) {
       const fx = I.EFFECTS[id];

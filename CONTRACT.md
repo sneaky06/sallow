@@ -809,7 +809,7 @@ or long-press the sort button to pick a mode; single tap re-sorts. A settings to
 ## R8.6 First-time tips (light tutorial)
 The first time the player meets something new (each rarity tier, sockets, gems/bloodstones, corrupted items, materials, tomes, the
 chute, the surface crate, Curator, relics, Fallen, events, Pallor, the Echo, shrines, lockdowns, dash, Close Call…), show a small
-dismissible card (one or two sentences, icon) that doesn't pause combat unless the player taps it. `state.flags.tipsSeen`, a
+card (one or two sentences, icon) that **pauses the game** until dismissed (lead dev: players skip tips mid-fight); queued if several trigger at once; a short guard so a combat tap does not dismiss it instantly. `state.flags.tipsSeen`, a
 "Tips" toggle in settings, a "Reset tips" button. Tips text as data.
 
 ## R8.7 Out-of-class gear has a penalty

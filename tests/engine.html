@@ -450,6 +450,7 @@ window.G = { manifest: {} };
         sprite: p.sprite, equipment: p.equipment, anim: 'walk', animT: 0, hitFlash: 0, dead: false, rarity: 'boss', hp: 50, stats: { hpMax: 100 }, effects: [], affixes: [] });
       log('echo spawned; it circles the player');
     });
+    btn(s16, 'R8.11 cleave arc', function () { var p = S.player; G.emit('fx:spawn', { type: 'cleave', x: p.x, y: p.y, angle: p.facing, radius: 1.5 }); log('cleave at facing ' + p.facing.toFixed(2)); });
     var dash = { cur: 2, max: 2, t: 0 };
     btn(s16, 'fake 2-charge dash (use one)', function () {
       G.game = G.game || {};

@@ -166,8 +166,8 @@
     text: 'A careful shot for {dmg}% weapon damage with +20% critical chance.',
     cast(p, t, V, aim) { U().sfx('arrow'); K().shoot(p, aim.ang, arrow({ pct: V.dmg, crit: 20 })); } });
   def('eagle_eye', { n: 'Eagle Eye', c: 'ranger', tr: 'marksman', row: 1, col: 0, k: 'passive', tags: ['single'], ic: ['star', '#e8dcb0'], lvl: 3,
-    v: { crit: [3, 2], dmg: [4, 4] }, text: 'Passive. +{crit}% critical chance and +{dmg}% damage.',
-    mods: V => ({ critChance: V.crit, dmgPct: V.dmg }) });
+    v: { crit: [3, 2], dmg: [4, 4] }, text: 'Passive. +{crit}% critical chance and +{dmg}% damage. From rank 3 your basic shots pierce one foe.',
+    mods: V => ({ critChance: V.crit, dmgPct: V.dmg }), bonus: V => ({ pierce: V.crit >= 7 ? 1 : 0 }) });
   def('piercing_shot', { n: 'Piercing Shot', c: 'ranger', tr: 'marksman', row: 1, col: 1, k: 'active', tags: ['single', 'aoe'], ic: ['arrow', '#7fd4ff'], lvl: 6, req: 'aimed_shot',
     mp: [7, 0.5], cd: [2, 0], tg: 'aim', range: 10, v: { dmg: [150, 22] },
     text: 'An arrow that punches through every foe in its path for {dmg}% weapon damage.',

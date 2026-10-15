@@ -185,6 +185,7 @@
     if (spec.skill !== false && !game.MARTIAL[p.classId]) base *= w.aps * 0.75;
     let mult = spec.pct / 100;
     let scale = 1 + st.dmgPct / 100;
+    if (b.offClass) scale *= Math.max(0.1, 1 + b.offClass / 100);          // R8.7 out-of-class weapon
     const myth = game.fxOf(p);
     if (spec.skill !== false) scale *= (1 + st.skillDmgPct / 100) * (myth.blood_price ? 1.4 : 1);
     const pfx = p.effects;

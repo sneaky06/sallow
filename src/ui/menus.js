@@ -54,9 +54,14 @@
       if (G.scenes.getDeathPenalty) { try { pen = G.scenes.getDeathPenalty(); } catch (err) { pen = null; } }
       if (!pen) pen = { retrievable: false, gold: (arg && arg.lost) | 0, items: 0 };
       const old = S.flags.corpse;
-      const msg = pen.retrievable
-        ? 'Your gold (' + (pen.gold | 0) + ') and backpack (' + (pen.items | 0) + ' item' + (pen.items === 1 ? '' : 's') + ') lie where you fell on depth ' + S.depth + '. ' + (ui._echoText ? ui._echoText('corpseNote') : 'Die again and they are lost.')
-        : 'You lose ' + (pen.gold | 0) + ' gold.';
+      // R8.2: getDeathPenalty() -> { retrievable, gold (on the corpse), goldLost, items }. The bag always drops; the ghost guards it.
+      const lost = pen.goldLost != null ? pen.goldLost | 0 : (pen.retrievable ? 0 : pen.gold | 0);
+      const n = pen.items | 0, g = pen.gold | 0;
+      let msg;
+      if (pen.retrievable) {
+        msg = 'Your backpack (' + n + ' item' + (n === 1 ? '' : 's') + ')' + (g > 0 ? ' and ' + g + ' gold' : '') + ' lie where you fell on depth ' + S.depth + '. ' +
+          'Your ghost will guard it: slay it or slip past to reach the corpse. Die again first and it is all lost.' + (lost > 0 ? ' You also lose ' + lost + ' gold.' : ' Your equipped gear, potions and materials are safe.');
+      } else msg = lost > 0 ? 'You lose ' + lost + ' gold.' : 'You lose nothing but time.';
       return [
         h('h1', { text: 'You have died' }),
         h('div', { class: 'ed-dim', text: S.depth > 0 ? 'Slain on depth ' + S.depth + ' of ' + ui._themeName(S.depth) + '.' : 'Slain.' }),
@@ -178,6 +183,10 @@
         toggleRow('Loot labels', 'Hide ground loot below this quality', h('span', { style: 'color:' + rar.color, text: filterLabel }),
           function () { st.lootFilter = FILTERS[(FILTERS.indexOf(cur) + 1) % FILTERS.length]; }),
         toggleRow('Auto-pickup gold', null, !!st.autoPickupGold, function () { st.autoPickupGold = !st.autoPickupGold; }),
+        toggleRow('Auto-pickup Rare+', 'Walk over Rare and better gear to take it', !!st.autoPickupRare, function () { st.autoPickupRare = !st.autoPickupRare; }),
+        toggleRow('Auto-sort bag', 'Keep new loot in your chosen order', st.autoSort !== false, function () { st.autoSort = st.autoSort === false; }),
+        toggleRow('Tips', 'Short hints the first time you meet something new', st.tips !== false, function () { st.tips = st.tips === false; }),
+        ui._resetTips ? ui._btn('Reset tips', function () { ui._resetTips(); ui.toast('Tips will show again.', '#a89f8f'); }) : null,
         toggleRow('Damage numbers', null, !!st.showDamage, function () { st.showDamage = !st.showDamage; }),
         h('div', { class: 'ed-h', text: 'Controls' }),
         ui._hudSettings ? (function () {

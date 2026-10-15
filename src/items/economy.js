@@ -14,6 +14,14 @@
   function plevel() { const p = G.state.player; return Math.max(1, (p && p.level) || 1); }
 
   // ---- selling ----
+  // R8.1: sell, salvage and Curator registration only work in town (bag or surface crate).
+  function inTown(what) {
+    if (G.state.scene === 'town') return true;
+    D.fail((what || 'That') + ' is only possible in town');
+    return false;
+  }
+  D.inTown = inTown;
+
   function sellValue(item) { return Math.max(0, Math.round((item.value || 0) * (item.qty || 1))); }
 
   // ---- gem dust (R3.2): gems socketed in gear that is sold, salvaged or junked are ground to dust ----
@@ -63,6 +71,7 @@
   I.sell = function (invIndex) {
     const p = P();
     const item = p && p.inventory[invIndex];
+    if (item && !inTown('Selling')) return 0;
     if (!item) return 0;
     if (item.locked) { D.fail('Unlock it first'); return 0; }
     const r = sellAt(p, invIndex);
@@ -75,7 +84,7 @@
   // Sets and Legendary Elite/Mythic are never sold, whatever the threshold.
   I.sellAllBelow = function (rarity) {
     const p = P();
-    if (!p) return 0;
+    if (!p || !inTown('Selling')) return 0;
     const limit = rord(rarity);
     let gold = 0, n = 0;
     for (let i = 0; i < C.INV_SIZE; i++) {
@@ -116,7 +125,7 @@
   I.sellAtOrBelow = function (rarityKey) {
     const p = P();
     const out = { count: 0, gold: 0 };
-    if (!p || !C.RARITY[rarityKey]) return out;
+    if (!p || !C.RARITY[rarityKey] || !inTown('Selling')) return out;
     const limit = rord(rarityKey);
     for (let i = 0; i < C.INV_SIZE; i++) {
       if (!sellableAtOrBelow(p.inventory[i], limit)) continue;
@@ -174,7 +183,7 @@
     if (!p) return res;
     const rules = junkRules();
     const sell = rules.action !== 'salvage';
-    if (sell && G.state.scene !== 'town') return res;
+    if (G.state.scene !== 'town') return res;      // R8.1: selling and salvaging are town-only; in the field junk waits for the chute (I.sendJunk)
     for (let i = 0; i < C.INV_SIZE; i++) {
       const it = p.inventory[i];
       if (!it || !I.isJunk(it)) continue;
@@ -275,6 +284,7 @@
     const p = P();
     const item = p && p.inventory[invIndex];
     if (!item) return false;
+    if (!inTown('Salvaging')) return false;
     if (!D.isEquip(item)) return D.fail('Cannot salvage that');
     if (item.locked) return D.fail('Unlock it first');
     const m = salvageAt(p, invIndex).materials;
@@ -574,6 +584,120 @@
     }
     G.emit('sfx', { name: 'equip' });
     D.toast('Created ' + next.name, C.RARITY[next.rarity].color);
+    return true;
+  };
+
+  // ---- the chute and the surface crate (R8.1) ----
+  // state.surface = [item] — everything sent up the chute, in arrival order, no size cap. Plain JSON: the UI/meta must save and
+  // load `state.surface` with the rest of the state (and bump the id counter past its items). In town, each surface item can be
+  // sold, salvaged, registered with the Curator, stashed or taken into the bag.
+  function surface() {
+    const S = G.state;
+    if (!Array.isArray(S.surface)) S.surface = [];
+    return S.surface;
+  }
+  D.surface = surface;
+  I.getSurface = function () { return surface(); };
+
+  // Send bag items up. index | [indices]. Gold, potions and materials never occupy cells, so only real items can be sent. -> count sent
+  I.chuteSend = function (indices) {
+    const p = P();
+    if (!p) return 0;
+    const list = Array.isArray(indices) ? indices : [indices];
+    const sf = surface();
+    let n = 0;
+    for (const i of list) {
+      const it = p.inventory[i];
+      if (!it) continue;
+      p.inventory[i] = null;
+      sf.push(it);
+      n++;
+    }
+    if (n) {
+      G.emit('sfx', { name: 'click' });
+      G.emit('surface:changed', { count: sf.length });
+      invChanged();
+    }
+    return n;
+  };
+
+  // "Send junk": every bag item that I.isJunk (junk rules, never locked / wanted / protected items) goes up. -> { count }
+  I.sendJunk = function () {
+    const p = P();
+    const idx = [];
+    if (p) for (let i = 0; i < p.inventory.length; i++) if (p.inventory[i] && I.isJunk(p.inventory[i])) idx.push(i);
+    const count = I.chuteSend(idx);
+    if (count) D.toast('Sent ' + count + ' junk item' + (count > 1 ? 's' : '') + ' up the chute', '#8fb4ff');
+    return { count: count };
+  };
+  I.previewSendJunk = function () {
+    const p = G.state.player;
+    let n = 0;
+    if (p && p.inventory) for (const it of p.inventory) if (it && I.isJunk(it)) n++;
+    return { count: n };
+  };
+
+  // Take a surface item into the bag (works anywhere). -> bool
+  I.surfaceTake = function (index) {
+    const p = P();
+    const sf = surface();
+    const item = sf[index];
+    if (!p || !item) return false;
+    sf.splice(index, 1);
+    if (!I.addToInventory(item)) { sf.splice(index, 0, item); return D.fail('Inventory full'); }
+    G.emit('surface:changed', { count: sf.length });
+    return true;
+  };
+
+  function surfacePull(index, what) {
+    const p = P();
+    const item = surface()[index];
+    if (!p || !item) return null;
+    if (!inTown(what)) return null;
+    return { p: p, item: item };
+  }
+  function surfaceDone() { G.emit('surface:changed', { count: surface().length }); invChanged(); }
+
+  // town actions on surface items ----
+  I.surfaceSell = function (index) {
+    const r = surfacePull(index, 'Selling');
+    if (!r) return 0;
+    if (r.item.locked) { D.fail('Unlock it first'); return 0; }
+    const gold = sellValue(r.item);
+    if (D.isEquip(r.item)) grindGems(r.p, r.item);
+    surface().splice(index, 1);
+    remember(r.item, gold);
+    D.addGold(r.p, gold, 'sell');
+    surfaceDone();
+    return gold;
+  };
+  I.surfaceSalvage = function (index) {
+    const r = surfacePull(index, 'Salvaging');
+    if (!r) return false;
+    if (!D.isEquip(r.item)) return D.fail('Cannot salvage that');
+    if (r.item.locked) return D.fail('Unlock it first');
+    const m = salvageItem(r.p, r.item).materials;
+    surface().splice(index, 1);
+    const parts = [];
+    for (const k in m) if (m[k]) parts.push('+' + m[k] + ' ' + (k === 'gemdust' ? 'gem dust' : k));
+    D.toast('Salvaged: ' + parts.join(', '), '#8fb4ff');
+    surfaceDone();
+    return true;
+  };
+  I.surfaceRegister = function (index) {
+    const r = surfacePull(index, 'Registering with the Curator');
+    if (!r) return { ok: false };
+    const res = I.collection.register(r.item, 'item');
+    if (res.ok) { surface().splice(index, 1); surfaceDone(); }
+    return res;
+  };
+  I.surfaceStash = function (index) {
+    const r = surfacePull(index, 'Stashing');
+    if (!r) return false;
+    const item = r.item;
+    surface().splice(index, 1);
+    if (!D.putIntoStash(item)) { surface().splice(index, 0, item); return D.fail('Stash full'); }
+    surfaceDone();
     return true;
   };
 })();

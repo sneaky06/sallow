@@ -57,6 +57,7 @@
     for (const c of fissure) occ[c[1] * w + c[0]] |= 3;
     for (const c of [[18, 19], [22, 20], [21, 18], [19, 18]]) prop('crystal', c[0], c[1], true, { light: 4, look: 'rift_shard', corrupt: 0.4, tint: W.riftInfo(0.08).glow });
     prop('waypoint', 23, 17, false, { interact: 'waypoint', light: 3 });
+    prop('surface_crate', 23, 20, true, { interact: 'surface_crate' });
     for (const c of [[15, 15], [25, 15], [15, 25], [25, 25]]) prop('torch', c[0], c[1], false, { light: LAMP });
     prop('campfire', 16, 23, true, { light: LAMP });
 

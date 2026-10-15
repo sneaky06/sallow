@@ -182,6 +182,35 @@
       });
       b.rect(15, 50, 3, 2, 0xd8a030); b.rect(21, 53, 3, 2, 0x9a3a8a); b.rect(27, 50, 2, 2, 0x4a9a5a);
     },
+    // R8.1 chute: a square shaft dropping into the dark, iron-rimmed, under a timber headframe with a pulley; a rope runs
+    // down with a bucket that bobs (2 frames) and a hanging lantern so it can be found from across the room
+    chute: function (b, fr) {
+      b.box(OX, OY, 0.14, 0.14, 0.86, 0.86, 0, 2, mat(IRON, { noise: 0.3 }));            // iron collar
+      b.box(OX, OY, 0.24, 0.24, 0.76, 0.76, 1, 2, function () { return 0x050408; });   // the drop
+      for (let i = 0; i < 4; i++) b.set(CX - 4 + i * 3, CY - 1 + (i & 1), 0x14101c);
+      b.box(OX, OY, 0.14, 0.14, 0.26, 0.26, 0, 30, mat(WOODD, { noise: 0.2 }));         // back post
+      b.box(OX, OY, 0.74, 0.74, 0.86, 0.86, 0, 30, mat(WOODD, { noise: 0.2 }));         // front post
+      b.line(CX - 9, CY - 33, CX + 9, CY - 25, tp(WOOD, 1.25)); b.line(CX - 9, CY - 32, CX + 9, CY - 24, tp(WOODD, 1.1));   // crossbeam
+      b.ell(CX, CY - 29, 3, 3, function (nx, ny) { return nx * nx + ny * ny < 0.35 ? tp(IRON, 0.6) : tp(IRON, 1.3); });     // pulley
+      const by = fr ? 2 : 0;
+      b.line(CX, CY - 27, CX, CY - 12 + by, 0xb8a078);                                   // rope
+      b.rect(CX - 3, CY - 12 + by, 7, 5, tp(WOOD, 1.0)); b.rect(CX - 3, CY - 12 + by, 7, 1, tp(IRON, 1.4)); b.rect(CX - 3, CY - 9 + by, 7, 1, tp(IRON, 0.9));
+      b.line(CX - 3, CY - 12 + by, CX, CY - 15 + by, tp(IRON, 1.2)); b.line(CX + 3, CY - 12 + by, CX, CY - 15 + by, tp(IRON, 1.2));
+      b.rect(CX + 7, CY - 26, 1, 3, tp(IRON, 1)); b.rect(CX + 6, CY - 23, 3, 3, fr ? 0xffe08a : 0xffc860); b.set(CX + 7, CY - 22, 0xfff6d0);   // lantern
+    },
+    // R8.1 surface crate (town): a big rope-slung crate by the fissure where sent items arrive
+    surface_crate: function (b) {
+      b.box(OX, OY, 0.12, 0.16, 0.88, 0.84, 0, 13, function (face, a, c) {
+        const e = face === 0 ? Math.min(a - 0.12, 0.88 - a, c - 0.16, 0.84 - c) : Math.min(a - 0.12, 0.88 - a);
+        if (face && (c < 2 || c > 11)) return tp(IRON, face === 1 ? 1.1 : 0.7);           // iron bands
+        if (e < 0.07) return tp(WOODD, face === 0 ? 1.5 : face === 1 ? 1.2 : 0.8);
+        return mat(WOOD, { plank: 5 })(face, a, c);
+      });
+      b.line(CX - 14, CY - 9, CX + 2, CY - 1, 0xb8a078); b.line(CX - 2, CY - 15, CX + 14, CY - 7, 0xb8a078);   // rope sling
+      b.line(CX - 6, CY - 13, CX + 6, CY - 7, 0x9a845c);
+      b.rect(CX - 1, CY - 22, 2, 9, tp(IRON, 1.2)); b.rect(CX - 2, CY - 23, 4, 2, tp(IRON, 1.4));   // hook
+      b.rect(CX + 8, CY - 6, 4, 3, 0xd8c8a0); b.set(CX + 9, CY - 5, 0x6a3020);              // tag
+    },
     well: function (b) {
       b.cyl(CX, CY, 9, 0, 8, cylMat(STONE, { brick: 1, top: tp(STONE, 1.15) }));
       b.ell(CX, CY - 8, 6, 3, function () { return 0x0c1420; });
@@ -226,10 +255,10 @@
       b.box(OX, OY, 0.3, 0.3, 0.7, 0.7, 0, 8, mat(STONED, { noise: 0.3 }));
     },
   };
-  const FRAMES = { torch: 3, campfire: 3, portal: 4, fountain: 3, waypoint: 2, shrine: 2, crystal: 2, gate: 2 };
+  const FRAMES = { torch: 3, campfire: 3, portal: 4, fountain: 3, waypoint: 2, shrine: 2, crystal: 2, gate: 2, chute: 2 };
   const LIGHT = {   // [radius in tiles, colour key]
     torch: [4.2, 'warm'], campfire: [5, 'warm'], portal: [3, 'violet'], crystal: [2.4, 'cyan'], waypoint: [2.6, 'blue'],
-    shrine: [2.6, 'gold'], dungeon_entrance: [2.2, "red"], fountain: [0, "blue"], corpse: [2, "cyan"],
+    shrine: [2.6, 'gold'], chute: [2.4, 'gold'], surface_crate: [1.4, 'warm'], dungeon_entrance: [2.2, "red"], fountain: [0, "blue"], corpse: [2, "cyan"],
   };
   const NO_OUTLINE = { bones: 1 };
   const cache = Object.create(null);

@@ -47,6 +47,16 @@
       burst(x, y, { n: 7, sp: [1.5, 4.5], vz: [10, 60], life: [0.1, 0.24], size: 1, cols: [c, '#ffffff', '#ffffff'], grav: 180, z: 10 });
       shape('flash', x, y, 0.07, c, 2);
     },
+    // R8.11 cleave: a filled crescent sweeping ~140 degrees around the attacker (x, y = attacker; angle = facing,
+    // radius = reach in tiles), bright leading edge and a fading wake, sparks along the rim
+    cleave: function (x, y, e) {
+      const r = num(e.radius, 1.4), a = num(e.angle, 0), c = colr(e, '#f0e8d8');
+      shape('cleave', x, y, num(e.duration, 0.22), c, r, a, 1);
+      for (let i = 0; i < 6; i++) {
+        const t = a - 1.2 + 2.4 * i / 5;
+        burst(x + Math.cos(t) * r, y + Math.sin(t) * r, { n: 1, sp: [0.5, 1.5], vz: [10, 40], life: [0.12, 0.25], size: 1, cols: [c, '#ffffff'], grav: 160, z: 9 });
+      }
+    },
     slash: function (x, y, e) { shape('slash', x, y, num(e.duration, 0.16), colr(e, '#f0f4ff'), num(e.radius, 1), num(e.angle, 0)); },
     explosion: function (x, y, e) {
       const r = num(e.radius, 1.5), c = colr(e, '#ff8a1e');
@@ -176,6 +186,26 @@
           const skip = k > 0.75 ? 3 : k > 0.5 ? 2 : 1;
           dots(ctx, f, offX, offY, r, 0, 6.283, 1, f.color, f.thick, skip);
           if (f.thick > 1) dots(ctx, f, offX, offY, r * 0.9, 0.1, 6.383, 1, '#ffffff', 1, skip * 2);
+        } else if (f.kind === 'cleave') {
+          // crescent between 0.62r and 1.05r; head sweeps across 2.4 rad, the wake fades behind it
+          const head = f.angle - 1.2 + 2.4 * Math.min(1, k * 1.7), tail = Math.max(f.angle - 1.2, head - 1.6), fade = 1 - Math.max(0, k - 0.55) / 0.45;
+          const P = function (ang, rr) { const wx = f.x + Math.cos(ang) * rr, wy = f.y + Math.sin(ang) * rr; return [(wx - wy) * 16 - offX, (wx + wy) * 8 - offY - 9]; };
+          const SEG = 6;
+          for (let s = 0; s < SEG; s++) {
+            const a0 = tail + (head - tail) * s / SEG, a1 = tail + (head - tail) * (s + 1) / SEG;
+            ctx.globalAlpha = fade * (0.12 + 0.5 * (s + 1) / SEG);
+            ctx.fillStyle = s === SEG - 1 ? '#ffffff' : f.color;
+            ctx.beginPath();
+            let q = P(a0, f.r * 1.05); ctx.moveTo(q[0], q[1]);
+            q = P((a0 + a1) / 2, f.r * 1.08); ctx.lineTo(q[0], q[1]);
+            q = P(a1, f.r * 1.05); ctx.lineTo(q[0], q[1]);
+            q = P(a1, f.r * 0.62); ctx.lineTo(q[0], q[1]);
+            q = P(a0, f.r * 0.7); ctx.lineTo(q[0], q[1]);
+            ctx.fill();
+          }
+          ctx.globalAlpha = fade;
+          dots(ctx, f, offX, offY, f.r * 1.06, tail + (head - tail) * 0.5, head, 9, '#ffffff', 1, 1);
+          ctx.globalAlpha = 1;
         } else if (f.kind === 'slash') {
           const a1 = f.angle - 1.1 + 2.2 * Math.min(1, k * 1.6), a0 = Math.max(f.angle - 1.1, a1 - 1.5 * (1 - k * 0.5));
           dots(ctx, f, offX, offY, f.r, a0, a1, 9, f.color, 2, 1);

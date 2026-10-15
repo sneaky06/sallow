@@ -6,7 +6,14 @@
   const h = ui._h;
 
   const THEME_NAMES = { town: 'Emberdeep', crypt: 'The Crypt', caves: 'Drowned Caves', inferno: 'The Inferno', abyss: 'The Abyss' };
-  ui._themeName = function (depth) { return depth > 0 ? (THEME_NAMES[C.themeForDepth(depth)] || 'Dungeon') : (ui._townName ? ui._townName() : THEME_NAMES.town); };
+  // R8.12: the label names the ACT (story_data ACTS from/to), not the old theme: "Hellscape · 28". The floor name rides underneath.
+  const actName = function (depth) {
+    const A = (G.meta && G.meta.STORY && G.meta.STORY.ACTS) || [];
+    for (let i = 0; i < A.length; i++) if (depth >= A[i].from && (!A[i].to || depth <= A[i].to)) return A[i].name;
+    return null;
+  };
+  ui._actName = actName;
+  ui._themeName = function (depth) { return depth > 0 ? (actName(depth) || THEME_NAMES[C.themeForDepth(depth)] || 'Dungeon') : (ui._townName ? ui._townName() : THEME_NAMES.town); };
 
   // Monster tiers the target bar shows (R3.6). Fixed colours: the R7.1 loot ladder reused blue / yellow / orange for items.
   const rc = function (k, fb) { return function () { return (C.RARITY[k] && C.RARITY[k].color) || fb; }; };
@@ -118,7 +125,10 @@
       el.skillBox.appendChild(b);
     }
 
-    el.atk = h('button', { type: 'button', class: 'ed-atk ed-mv', 'aria-label': 'Attack' }, ui._icon({ shape: 'slash', color: '#ffb0a0', accent: '#b3202a' }, 48), 'Attack');
+    // R8.9: one button, two jobs. G.game.getActionMode() says which one is live; the icon and label follow it.
+    el.atkIco = ui._icon({ shape: 'slash', color: '#ffb0a0', accent: '#b3202a' }, 48);
+    el.atkTxt = document.createTextNode('Attack');
+    el.atk = h('button', { type: 'button', class: 'ed-atk ed-mv', 'aria-label': 'Attack' }, el.atkIco, el.atkTxt);
     el.atk.addEventListener('pointerdown', function (e) {
       e.preventDefault();
       try { el.atk.setPointerCapture(e.pointerId); } catch (err) { /* synthetic pointer */ }
@@ -183,13 +193,16 @@
   let explTick = 0;
   const walk = { map: null, mask: null, n: 0 };
   ui._exploredPct = exploredPct;
+  let exLabel = '', exHint = '';      // R8.4: the game says how sure it is: "~60%", "40-70%", "?"
   function exploredPct() {
     const m = S.map;
+    exLabel = ''; exHint = '';
     if (!m || S.scene !== 'dungeon') return -1;
     if (G.game && typeof G.game.getExplored === 'function') {
       try {
         const g = G.game.getExplored();
-        const v = g && typeof g === 'object' ? (g.pct != null ? g.pct : g.value) : g;
+        const v = g && typeof g === 'object' ? (g.pct != null ? g.pct : (g.value != null ? g.value : (g.low != null ? g.low : 0))) : g;
+        if (g && typeof g === 'object') { exLabel = typeof g.label === 'string' ? g.label : ''; exHint = typeof g.hint === 'string' ? g.hint : ''; }
         if (typeof v === 'number' && isFinite(v)) return Math.max(0, Math.min(100, Math.round(v)));      // game.getExplored() is 0..100
       } catch (err) { /* count it ourselves */ }
     }
@@ -211,6 +224,57 @@
     for (let i = 0; i < mk.length; i++) if (mk[i] && ex[i]) seen++;
     return Math.min(100, Math.floor(seen / walk.n * 100));
   }
+
+  // ---------- attack / loot button (R8.9) and auto-pickup Rare+ ----------
+  let actMode = 'attack';
+  function actionMode() {
+    let m = 'attack';
+    if (G.game && typeof G.game.getActionMode === 'function') {
+      try { const a = G.game.getActionMode(); m = (a === 'loot' || (a && (a.mode === 'loot' || a.loot === true))) ? 'loot' : 'attack'; } catch (err) { m = 'attack'; }
+    }
+    if (m === actMode) return;
+    actMode = m;
+    const loot = m === 'loot';
+    el.atk.classList.toggle('loot', loot);
+    el.atkTxt.nodeValue = loot ? 'Loot' : 'Attack';
+    el.atk.setAttribute('aria-label', loot ? 'Loot' : 'Attack');
+    let url = null;
+    const d = loot ? { shape: 'gold', color: '#ffd94a', accent: '#a8873a' } : { shape: 'slash', color: '#ffb0a0', accent: '#b3202a' };
+    if (G.engine && G.engine.getIconURL) { try { url = G.engine.getIconURL(d, 48); } catch (err) { url = null; } }
+    el.atkIco.style.backgroundImage = url ? 'url("' + url + '")' : '';
+    if (!url) { el.atkIco.classList.add('ed-ico-fb'); el.atkIco.style.backgroundColor = d.color; } else { el.atkIco.classList.remove('ed-ico-fb'); el.atkIco.style.backgroundColor = ''; }
+  }
+  function autoPickupRare(p) {
+    if (!S.settings.autoPickupRare || S.scene !== 'dungeon' || !G.items || typeof G.items.pickup !== 'function') return;
+    const list = S.groundItems || [];
+    let n = 0;
+    for (let i = 0; i < list.length && n < 3; i++) {
+      const g = list[i];
+      if (!g || !g.item || g.item.type === 'gold' || !ui._rarityAtLeast(g.item.rarity, 'rare')) continue;
+      const dx = g.x - p.x, dy = g.y - p.y;
+      if (dx * dx + dy * dy > 2.25) continue;
+      try { G.items.pickup(g.id, true); } catch (err) { /* bag full etc. */ }
+      n++;
+    }
+  }
+
+  // R8.10: a skill learned by auto-build is pulsed on the bar (and on the Skill button) and explained once in a tip card
+  G.on('skill:learned', function (e) {
+    if (!e || !e.auto || !S.player) return;
+    let info = null;
+    if (G.game && G.game.getSkillInfo) { try { info = G.game.getSkillInfo(e.skillId); } catch (err) { info = null; } }
+    if (!info && G.game && G.game.SKILLS) info = G.game.SKILLS[e.skillId];
+    const name = (info && info.name) || String(e.skillId);
+    const line = (info && (info.desc || info.description)) || '';
+    const sentence = typeof line === 'string' ? line.split(/(?<=[.!?])\s/)[0] : '';
+    if (ui._tipCard) ui._tipCard('Learned: ' + name + (e.rank > 1 ? ' (rank ' + e.rank + ')' : ''), sentence || 'Auto-build spent a skill point.', (info && info.icon) || { shape: 'star', color: '#ffd94a', accent: '#ff8a2b' });
+    skDirty = true;
+    const bar = S.player.skillBar || [];
+    const idx = bar.indexOf(e.skillId);
+    const hit = [el.bSkl];
+    if (idx >= 0 && el.skills[idx]) hit.push(el.skills[idx]);
+    hit.forEach(function (b) { b.classList.add('ed-pulse'); setTimeout(function () { b.classList.remove('ed-pulse'); }, 5000); });
+  });
 
   // ---------- slow refreshers ----------
   function refreshSkills(p) {
@@ -260,8 +324,9 @@
   }
 
   function refreshSlow(p) {
+    actionMode(); autoPickupRare(p);
     // area + gold
-    const area = 'Lv ' + (p.level || 1) + '  ' + ui._themeName(S.depth) + (S.depth > 0 ? ' ' + S.depth : '');
+    const area = 'Lv ' + (p.level || 1) + '  ' + ui._themeName(S.depth) + (S.depth > 0 ? ' · ' + S.depth : '');
     if (area !== last.area) { last.area = area; el.areaTxt.nodeValue = area; }
     const gold = p.gold | 0;
     // floor modifiers (R3.7) ride on the gold line under the depth label; the game toasts them on arrival
@@ -281,11 +346,11 @@
     let ex = last.expl;
     if (++explTick >= 5 || last.expl === -2) { explTick = 0; ex = exploredPct(); }
     let explChanged = false;
-    if (ex !== last.expl) {
+    if (ex !== last.expl || exLabel !== last.explL) {
       explChanged = (ex < 0) !== (last.expl < 0);
-      last.expl = ex;
+      last.expl = ex; last.explL = exLabel;
       if (explChanged) el.expl.style.display = ex < 0 ? 'none' : 'block';
-      if (ex >= 0) { el.explTxt.nodeValue = 'Explored ' + ex + '%'; el.explBar.style.width = ex + '%'; }
+      if (ex >= 0) { el.explTxt.nodeValue = 'Explored ' + (exLabel || ex + '%'); el.explBar.style.width = ex + '%'; el.expl.title = exHint; }
     }
     if (fname !== last.floor || palKey !== last.pal || explChanged) {
       if ((fname !== '') !== (last.floor !== '')) el.floor.style.display = fname ? 'block' : 'none';
@@ -635,8 +700,11 @@
       if (b.chest) bp.push('a chest by the stairs');
       if (bp.length) parts.push(bp.join(', '));
     }
-    ui._banner('Floor cleared: grade ' + g, parts.join('  ·  '), GRADE_COL[g.charAt(0)] || '#d8c9a3', 5);
-    ui._sfx(g.charAt(0) === 'S' || g.charAt(0) === 'A' ? 'quest' : 'click');
+    // R8.8: the game fires this on ARRIVAL at the next floor; wait for the floor-name banner so the grade shows on top of it
+    setTimeout(function () {
+      ui._banner('Floor cleared: grade ' + g, parts.join('  ·  '), GRADE_COL[g.charAt(0)] || '#d8c9a3', 5);
+      ui._sfx(g.charAt(0) === 'S' || g.charAt(0) === 'A' ? 'quest' : 'click');
+    }, 900);
   });
 
   const ev = { on: false, total: 0, left: 0, goal: 0, have: 0, hold: 0, text: '', prog: '', name: '', key: '' };

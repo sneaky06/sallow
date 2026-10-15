@@ -61,12 +61,15 @@
       style: JSON.parse(JSON.stringify(p.style || {})) };
   }
 
+  // R8.2: every dungeon death leaves a corpse with the bag (core). The new corpse carries a snapshot of you (`corpse.echo`);
+  // on returning to that depth your Echo rises at the corpse and guards it until it is killed (`corpse.echoSlain`).
+  // (An old save's `flags.echo` — the R6 abandoned-corpse Echo — still spawns as before.)
   game.onRevive = function () {
     const f = G.state.flags, p = G.state.player, old = pending;
     pending = null;
-    if (!old || !f || !p || f.corpse === old || f.echo) return;
-    f.echo = { depth: old.depth, seed: old.seed, x: old.x, y: old.y, gold: old.gold | 0, items: old.items || [], snap: snapshot(p) };
-    U.toast('Something of you stays behind at Depth ' + old.depth + '…', '#bfe6ff');
+    if (!f || !p || !f.corpse || f.corpse === old || f.corpse.echo) return;
+    f.corpse.echo = snapshot(p);
+    f.corpse.echoSlain = false;
   };
 
   // ------------------------------ the Echo's moves ------------------------------
@@ -147,6 +150,16 @@
 
   G.on('scene:changed', function (ev) {
     const S = G.state, f = S.flags, ec = f && f.echo, map = ev && ev.map;
+    const c = f && f.corpse;
+    if (c && c.echo && !c.echoSlain && map && ev.scene === 'dungeon' && (map.depth | 0) === c.depth) {          // R8.2: it guards the corpse
+      const at = W.free(c.x, c.y, 3);
+      if (at) {
+        const e = game.createEcho({ snap: c.echo }, at.x, at.y, c.depth);
+        e.guardCorpse = true; e.home = { x: at.x, y: at.y };
+        S.entities.push(e);
+      }
+      return;
+    }
     if (!ec || !map || ev.scene !== 'dungeon' || (map.depth | 0) !== ec.depth || !ec.snap) return;
     const at = placeEcho(map, ec);
     if (!at) return;
@@ -364,6 +377,14 @@
     }
     if (game.isStunned(e)) { setAnim(e, 'idle'); ai.cast = null; return; }
     const d = Math.hypot(p.x - e.x, p.y - e.y);
+    if (e.home) {          // R8.2: a guard does not chase you far from your corpse
+      const hd = Math.hypot(e.x - e.home.x, e.y - e.home.y);
+      if (hd > 9 || Math.hypot(p.x - e.home.x, p.y - e.home.y) > 12) {
+        ai.cast = null; ai.want = null;
+        if (hd > 0.8) moveBy(e, e.home.x, e.home.y, dt); else setAnim(e, 'idle');
+        return;
+      }
+    }
     if (ai.cast) {
       ai.cast.t -= dt * game.speedMult(e);
       if (ai.spin) moveBy(e, p.x, p.y, dt * 0.6);
@@ -400,6 +421,14 @@
   // Killing the Echo hands back what the abandoned corpse carried, through core's reclaimCorpse() (anything that does not
   // fit drops at your feet), plus a guaranteed rare-or-better drop.
   game.onEchoKilled = function (t) {
+    if (t.guardCorpse) {          // R8.2: the way to your corpse is clear; the bag is still on the corpse
+      const S0 = G.state, c = S0.flags.corpse, p0 = S0.player;
+      if (c) c.echoSlain = true;
+      for (const o of S0.entities) if (o.bossAdd === t.id && !o.dead) { o.hp = 0; game.kill(o, p0); }
+      if (p0 && G.items && G.items.dropLoot) { try { G.items.dropLoot(t.x, t.y, { source: 'legendary', level: t.level, magicFind: p0.stats.magicFind || 0, goldFind: p0.stats.goldFind || 0, floor: 'rare', pallor: game.pallorValue ? game.pallorValue() : 0 }); } catch (err) { console.error('[game] dropLoot failed', err); } }
+      U.fx('nova', t.x, t.y, { radius: 3, color: ECHO_COL }); U.toast('Your Echo falls. Your remains are yours to take.', '#bfe6ff');
+      return;
+    }
     const S = G.state, f = S.flags, p = S.player, ec = f.echo;
     if (ec) {
       f.echo = null;

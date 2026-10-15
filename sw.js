@@ -4,7 +4,7 @@
 // sw.js changed, the new worker downloads a complete fresh copy of the game into its own cache next to the old one,
 // and takes over on the next launch (or at once if the player taps "Update now" in the menu). The running game is
 // never fed a mix of old and new files. Saves live in localStorage, which no cache operation ever touches.
-const VERSION = 'emberdeep-v11';      // cache key prefix stays 'emberdeep-' so old caches are found and deleted
+const VERSION = 'emberdeep-v13';      // cache key prefix stays 'emberdeep-' so old caches are found and deleted
 const STATUS_URL = '__offline-status';
 
 // The shell is listed here; every team's scripts are discovered from src/<team>/manifest.js and hand-drawn art from

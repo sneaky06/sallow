@@ -205,3 +205,28 @@ Status: tests/combat.html → 436/436, 0 console errors.
   camp whose `band` holds the depth): `name`, `role` = the story NPC's vendor role (merchant / healer / stashkeeper / waypoint),
   `campRole` (world role), `look`, `lines`, `campName`, `camp: true`. Without story data they stay "Refugee"/"Camp Trader".
   npc:interact fires as usual; UI decides what a `waypoint` camp NPC opens.
+
+## Revision 8 additions (combat)
+Status: tests/combat.html → 445/445, 0 console errors; real index.html driven through death → guarded corpse → descend → grade: 0 errors.
+
+- **R8.2 Echo guards the corpse.** `revivePlayer()` writes a snapshot of you into the new `state.flags.corpse.echo` (+ `echoSlain:false`).
+  Every return to that depth (until it is killed) spawns the Echo lying at the corpse (`guardCorpse: true`, `home`); it rises
+  (`echo:rise`) when you come within 7 tiles, never chases you more than 9 tiles from home, and walks back if you are 12+ tiles from
+  the corpse. Killing it sets `corpse.echoSlain = true` and drops a rare-or-better item; the bag stays on the corpse (reclaim it as
+  usual, or slip past the Echo to the corpse). An old save's R6 `flags.echo` still spawns the old way; no new ones are created.
+- **R8.4** `G.game.getExplored() → { value, low, high, label, hint? }`: depths 1–3 exact ("62%"), 4–10 rounded ("~60%"), 11–20 a range
+  20–38 points wide placed by the floor seed ("40–70%"), 21+ `{ value: null, label: '?', hint }`. Exact value: `G.game.exploredExact()`.
+- **R8.7** `player.bonus.offClass` = damage % applied while wielding a weapon type outside `CLASSES[c].weaponTypes`: from
+  `G.items.classPenalty(weaponItem, classId)` when it exists (number or `{ dmgPct }`; null/false = no penalty), else −35.
+  Warrior swing skills and Ranger arrow skills (`G.game.SKILL_NEEDS_CLASS_WEAPON`) are disabled with an off-class weapon:
+  `getSkillInfo(id).disabled = true`, `lockedReason` "Needs a sword or axe or mace (you hold a bow)"; useSkill refuses. Spells and
+  non-attack skills keep working (with the damage penalty).
+- **R8.8** The grade is measured when you take the stairs down and awarded on arriving below: `floor:graded { grade, score, explored,
+  time, par, depth (of the floor graded), chest }` fires on the new floor, the chest stands beside the arrival point.
+  `getClearGrade() → { grade: null, explored, time, par, last }` (`last` = the previous floor's grade).
+- **R8.9** `G.game.getActionMode() → 'attack'|'loot'` (0.1 s cache): loot when an item (not loose gold) lies within 2.4 tiles, or within
+  4 tiles in the stick direction, and no enemy is in melee reach. `input:attack` and the held button then loot it; a pile that opened the
+  popup or an item that would not fit is skipped for 6 s. A tap within 0.55 tiles of a ground item always loots.
+- **R8.10** `skill:learned { skillId, rank, auto }` on every learned rank (auto = auto-build).
+- **R8.11** Basic melee cleaves: everyone else in a 1.7-tile, ±0.85 rad arc takes 60% (half the main 120% swing). Eagle Eye rank 3+ →
+  `bonus.pierce = 1`: basic shots pierce one foe. Melee/self aoe skills flash a 2.4-tile ring in their colour on cast.

@@ -279,6 +279,8 @@
   function extraLines(item, tipLines) {
     const out = [];
     const has = function (re) { return (tipLines || []).some(function (l) { return re.test(String(l && l.text)); }); };
+    const pen = item.slot && !wornIn(item) ? penaltyOf(item) : null;          // R8.7 in red, unless the items tooltip already says it
+    if (pen && !has(/not made for|penalty|not a weapon/i)) out.push(h('div', { class: 'ed-tipline ed-bad', text: pen.text }));
     const lookOf = function (it) {
       if (!it) return null;
       if (G.items && G.items.getLook) { try { return G.items.getLook(it); } catch (err) { return null; } }
@@ -398,7 +400,27 @@
   }
 
   // Both ring fingers taken: ask which ring to swap out (items.equip takes the slot as an optional 2nd argument).
+  // R8.7 G.items.classPenalty(item) -> falsy | number | { text, pct }: gear the class cannot use well. Asked once per item.
+  function penaltyOf(item) {
+    if (!item || !G.items || typeof G.items.classPenalty !== 'function') return null;
+    let p = null;
+    try { p = G.items.classPenalty(item); } catch (err) { return null; }
+    if (!p) return null;
+    if (typeof p === 'number') return { text: 'This is not made for your class: -' + Math.round(p <= 1 ? p * 100 : p) + '% damage with it.' };
+    const pct = p.pct != null ? p.pct : (p.damage != null ? p.damage : null);
+    return { text: typeof p.text === 'string' && p.text ? p.text : (typeof p.label === 'string' && p.label ? p.label
+      : 'This is not made for your class' + (pct != null ? ': -' + Math.round(Math.abs(pct) <= 1 ? Math.abs(pct) * 100 : Math.abs(pct)) + '% damage with it.' : ': it weakens you.')) };
+  }
+  ui._penaltyOf = penaltyOf;
   function equip(item, index) {
+    const pen = penaltyOf(item);
+    if (pen && !item.penaltyOk) {
+      ui._confirm('Equip ' + item.name + '?', 'Equip anyway', function () { item.penaltyOk = true; equipNow(item, index); }, { danger: true, note: pen.text });
+      return;
+    }
+    equipNow(item, index);
+  }
+  function equipNow(item, index) {
     const eq = S.player.equipment || {};
     if (item.slot === 'ring' && eq.ring1 && eq.ring2) {
       choose('Replace which ring?', ['ring1', 'ring2'].map(function (slot, i) {
@@ -464,7 +486,7 @@
   }
   ui._sendToCurator = sendToCurator;
   function curatorAction(item, index, source) {
-    if (!wanted(item) || wornIn(item)) return null;
+    if (S.scene !== 'town' || !wanted(item) || wornIn(item)) return null;       // R8.1: handing in is a town errand
     return { label: 'Send to Curator', cls: 'gold', fn: function () { sendToCurator(index, source); } };
   }
   ui._curatorAction = curatorAction;
@@ -719,11 +741,40 @@
     close = ui._modal(ui._dialog([h('div', { class: 'ed-h', text: which === 'stash' ? 'Sort stash by' : which === 'both' ? 'Sort stash and pack by' : 'Sort pack by' }), rows],
       [ui._btn('Cancel', function () { close(); })]));
   }
+  // R8.5: one tap re-sorts by the chosen mode; double-tap or press-and-hold opens the picker.
   function sortButton(which) {
-    const b = ui._btn('Sort', function () { sortPicker(which); });
-    b.setAttribute('aria-label', 'Sort (now by ' + sortMode() + ')');
+    let lastTap = 0, hold = null, held = false;
+    const b = ui._btn('Sort', function () {
+      if (held) { held = false; return; }
+      const now = Date.now();
+      if (now - lastTap < 350) { lastTap = 0; sortPicker(which); return; }
+      lastTap = now;
+      doSort(which, sortMode());
+      ui.toast('Sorted by ' + sortMode() + '. Double-tap to change.', '#a89f8f');
+      ui._refreshNow();
+    });
+    b.addEventListener('pointerdown', function () { held = false; clearTimeout(hold); hold = setTimeout(function () { held = true; sortPicker(which); }, 550); });
+    ['pointerup', 'pointercancel', 'pointerleave'].forEach(function (t) { b.addEventListener(t, function () { clearTimeout(hold); }); });
+    b.setAttribute('aria-label', 'Sort by ' + sortMode() + ' (double-tap to change)');
     return b;
   }
+  // auto-sort (settings.autoSort, default on): whenever something ENTERS the bag or stash, put it in order again
+  (function () {
+    let bag = -1, stash = -1, busy = false;
+    const count = function (a) { let n = 0; for (let i = 0; i < (a || []).length; i++) if (a[i]) n++; return n; };
+    G.on('inventory:changed', function () {
+      if (busy || !S.player) return;
+      const nb = count(S.player.inventory), ns = count(S.stash);
+      const grew = (bag >= 0 && nb > bag) || (stash >= 0 && ns > stash);
+      const mode = sortMode();
+      bag = nb; stash = ns;
+      if (!grew || S.settings.autoSort === false) return;
+      busy = true;
+      try { call('sortInventory', mode); if (G.items && G.items.sortStash) call('sortStash', mode); } finally { busy = false; }
+      bag = count(S.player.inventory); stash = count(S.stash);
+    });
+    G.on('scene:changed', function () { bag = stash = -1; });
+  })();
   ui._sortButton = sortButton; ui._sortMode = sortMode;
 
   // ---------- junk rules (R3.1) ----------
@@ -746,7 +797,7 @@
   function clearJunk() {
     const p = S.player, rules = junkRules();
     if (!G.items || !G.items.processJunk) { ui.toast('Junk rules are not available yet.', '#a89f8f'); return; }
-    if (rules.action === 'sell' && S.scene !== 'town') { ui._sfx('error'); ui.toast('Junk is sold in town. Switch the rule to Salvage to clear it here.', '#a89f8f'); return; }
+    if (S.scene !== 'town') { ui._sfx('error'); ui.toast('Send junk down a chute; sell or salvage it in town.', '#a89f8f'); return; }
     const go = function () {
       let r = null;
       try { r = G.items.processJunk(); } catch (err) { console.error('[ui processJunk]', err); }
@@ -771,8 +822,10 @@
 
   function junkButton() {
     const n = junkCount(), rules = junkRules();
-    const b = ui._btn((rules.action === 'salvage' ? 'Salvage junk' : 'Sell junk') + (n ? ' (' + n + ')' : ''), clearJunk, n ? 'gold' : '');
+    const town = S.scene === 'town';
+    const b = ui._btn((town ? (rules.action === 'salvage' ? 'Salvage junk' : 'Sell junk') : 'Junk') + (n ? ' (' + n + ')' : ''), clearJunk, n && town ? 'gold' : '');
     if (!n) b.disabled = true;
+    if (!town) b.setAttribute('aria-label', 'Junk: send it down a chute');
     return b;
   }
   ui._junkButton = junkButton;
@@ -795,7 +848,7 @@
       row('Keep upgrades', onOff(r.keepUpgrades), r.keepUpgrades ? 'ed-good' : 'ed-bad', function () { r.keepUpgrades = !r.keepUpgrades; }),
       row('Keep gear with gems', onOff(r.keepSocketed), r.keepSocketed ? 'ed-good' : 'ed-bad', function () { r.keepSocketed = !r.keepSocketed; }),
       h('div', { class: 'ed-note', text: 'Set pieces, Legendary items and gear the Collection Book wants are never junk. ' + (r.auto
-        ? (r.action === 'salvage' ? 'Junk is salvaged as you pick it up.' : 'Junk is sold when you reach town.') : 'Nothing happens until you press the junk button.') }),
+        ? 'Junk waits in your bag until you use a chute: one tap there sends it all up to the surface crate.' : 'Junk is only marked. Use "Send junk" at a chute.') }),
     ];
   }
   ui._junkBlock = junkBlock;

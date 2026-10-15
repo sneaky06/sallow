@@ -153,7 +153,7 @@
       if (before && ringSeed(before) !== S.seed) pushRing(before);
       const raw = JSON.stringify({
         v: VERSION, savedAt: Date.now(), seed: S.seed, time: S.time,
-        player: S.player, flags: S.flags, quests: S.quests, stash: S.stash, settings: S.settings,
+        player: S.player, flags: S.flags, quests: S.quests, stash: S.stash, surface: S.surface || [], settings: S.settings,
       });
       ls.setItem(KEY, raw);
       if (ringDue) { ringDue = false; pushRing(raw); }        // at most one ring write per scene change
@@ -266,6 +266,7 @@
     S.flags = flags;
     meta._applyStashBonus(flags);
     S.stash = fit(data.stash, C.STASH_SIZE);
+    S.surface = Array.isArray(data.surface) ? data.surface.filter(function (it) { return it && typeof it === 'object'; }) : [];      // R8.1 items sent up the chute
     if (G.items && G.items.migrateState) { try { G.items.migrateState(); } catch (err) { console.error('[meta migrateState]', err); } }     // R7.1: old rarity keys
     S.seed = (data.seed >>> 0) || 1;
     S.time = +data.time || 0;
@@ -276,7 +277,7 @@
     S.quests = (data.quests && typeof data.quests === 'object') ? data.quests : {};
     if (meta._repairQuests) meta._repairQuests();
 
-    if (G.bumpId) G.bumpId(Math.max(maxId(p, 0), maxId(S.stash, 0), maxId(flags.corpse, 0)));
+    if (G.bumpId) G.bumpId(Math.max(maxId(p, 0), maxId(S.stash, 0), maxId(S.surface, 0), maxId(flags.corpse, 0)));
     return true;
   };
 
@@ -291,6 +292,12 @@
   };
   G.on('collection:tier', function () { meta._applyStashBonus(); });
   G.on('scene:changed', function () { meta._applyStashBonus(); });
+
+  // R8.1: a new hero starts with an empty surface crate (core's startNewGame knows nothing about it)
+  if (G.scenes && typeof G.scenes.startNewGame === 'function') {
+    const newGame = G.scenes.startNewGame;
+    G.scenes.startNewGame = function () { S.surface = []; return newGame.apply(this, arguments); };
+  }
 
   meta.hasSave = function () { return !!read(); };
 

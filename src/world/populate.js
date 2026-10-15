@@ -129,6 +129,25 @@
     const H = { rng, add, canSolid, canSoft, solidIn, softIn, centrepiece };
     for (const lm of ctx.landmarks) gen.dressLandmark(H, lm);
 
+    // ---- the chute (R8.1): one per floor, solid, on the open tile nearest the centre of the walkable area ------------
+    const exitRoom = rooms.find(function (r) { return r.type === 'exit'; });
+    {
+      let sx = 0, sy = 0, cnt = 0;
+      for (let i = 0; i < n; i++) if (dist[i] >= 0) { sx += i % w; sy += (i / w) | 0; cnt++; }
+      const mx = sx / cnt, my = sy / cnt;
+      let best = null, bd = Infinity;
+      for (let y = 2; y < h - 2; y++) {
+        for (let x = 2; x < w - 2; x++) {
+          const d = (x - mx) * (x - mx) + (y - my) * (y - my);
+          if (d >= bd || !canSolid(x, y)) continue;
+          if (inRect(startRoom, x, y, 1) || inRect(arena, x, y, 1) || inRect(exitRoom, x, y, 1) || inLockdown(x, y, 1)) continue;
+          if (ctx.landmarks.some(function (lm) { return inRect(lm, x, y, 1); })) continue;
+          best = { x, y }; bd = d;
+        }
+      }
+      if (best) add('chute', best.x, best.y, true, { interact: 'chute', used: false });
+    }
+
     // ---- props, room by room -----------------------------------------------------------------------------
     for (const r of rooms) {
       const area = r.w * r.h;

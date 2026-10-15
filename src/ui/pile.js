@@ -29,56 +29,74 @@
     return ok;
   }
 
-  let pileClose = null;
+  // R8.3: a compact sheet pinned to the TOP edge (the stick and the action cluster live at the bottom). It is at most ~35% of
+  // the short side tall, scrolls inside, can be collapsed to one 44 px bar, and never pauses the game or blocks the play area.
+  let sheet = null, sheetLayer = null, sheetPile = null, sheetAt = null, sheetCollapsed = false;
+  ui._inits.push(function (layers) { sheetLayer = layers.modal; });
+  function closeSheet() { if (sheet) { sheet.remove(); sheet = null; } sheetPile = null; sheetAt = null; }
+  ui._closePile = closeSheet;
+  ui._updaters.push((function () {
+    let t = 0;
+    return function (dt) {
+      if (!sheet) return;
+      t -= dt; if (t > 0) return; t = 0.25;
+      const p = S.player;
+      if (!p || ui.isOpen() || S.scene === 'menu') { closeSheet(); return; }
+      if (sheetAt && (sheetAt.x - p.x) * (sheetAt.x - p.x) + (sheetAt.y - p.y) * (sheetAt.y - p.y) > 25) closeSheet();      // walked away
+    };
+  })());
   function openPile(pileId) {
-    if (pileClose) { pileClose(); pileClose = null; }
-    if (!S.player || S.scene === 'menu' || ui.isOpen()) return;
+    closeSheet();
+    if (!S.player || S.scene === 'menu' || ui.isOpen() || !sheetLayer) return;
     const first = pileList(pileId);
     if (!first.length) return;
-    let close = null;
-    const box = h('div', { class: 'ed-pile' });
+    const g0 = (S.groundItems || []).filter(function (g) { return g && g.pileId === pileId; })[0];
+    sheetAt = g0 ? { x: g0.x, y: g0.y } : null;
+    sheetPile = pileId;
+    const head = h('div', { class: 'ps-head' }), list = h('div', { class: 'ps-list' });
+    sheet = h('div', { class: 'ed-pilesheet' + (sheetCollapsed ? ' collapsed' : '') }, head, list);
+    sheetLayer.appendChild(sheet);
     const fill = function () {
-      const list = pileList(pileId);
-      if (!list.length) { close(); return; }
-      box.replaceChildren.apply(box, [h('div', { class: 'ed-h', text: 'Pile  ·  ' + list.length + ' item' + (list.length === 1 ? '' : 's') })].concat(
-        list.map(function (g) {
-          const it = g.item, gold = it.type === 'gold';
-          const v = gold ? null : ui._verdict(it);
-          const row = h('button', { type: 'button', class: 'ed-row', 'aria-label': 'Take ' + (it.name || 'item'), onclick: function () {
-            if (take(g.id)) ui._sfx(gold ? 'gold' : 'loot');
-            fill();
-          } }, ui._icon(it.icon, 32),
-            h('span', { class: 'n ' + (gold ? '' : ui._glowText(it.rarity)), style: '--rc:' + ui._rarityColor(it.rarity) + ';color:' + ui._rarityColor(it.rarity) },
-              v === 'up' ? h('b', { class: 'ed-good', text: '▲ ' }) : v === 'down' ? h('b', { class: 'ed-bad', text: '▼ ' }) : null,
-              !gold && ui._wanted(it) ? h('i', { class: 'bk', 'aria-label': 'Collection Book piece' }) : null,
-              gold ? fmt(it.qty || 0) + ' gold' : (it.qty > 1 ? it.qty + ' ' : '') + (it.name || '?'),
-              !gold && Array.isArray(it.sockets) && it.sockets.length ? '  ' + it.sockets.map(function (s) { return s ? '◆' : '◇'; }).join('') : null,
-              !gold && C.RARITY[it.rarity] ? h('small', { text: C.RARITY[it.rarity].name + (it.setId ? ' · Set' : '') + (it.slot ? ' · ' + it.slot : '') }) : null));
-          if (!gold && (it.slot || it.type === 'gem')) {
-            // look before taking: the tooltip, with Take as its action
-            const info = h('button', { type: 'button', class: 'ed-btn ed-pinfo', 'aria-label': 'Look at ' + it.name, onclick: function (e) {
-              e.stopPropagation(); ui._sfx('click');
-              ui._showItem(it, [{ label: 'Take', cls: 'gold', fn: function () { if (take(g.id)) ui._sfx('loot'); fill(); } }], { lock: false });
-            } }, '?');
-            row.appendChild(info);
-          }
-          return row;
-        })));
+      if (!sheet || sheetPile !== pileId) return;
+      const items = pileList(pileId);
+      if (!items.length) { closeSheet(); return; }
+      const takeAll = ui._btn('Take all', function () {
+        let r = null;
+        if (G.items && G.items.pickupPile) { try { r = G.items.pickupPile(pileId); } catch (err) { console.error('[ui pickupPile]', err); } }
+        else pileList(pileId).forEach(function (g) { take(g.id); });
+        if (r && r.left > 0 && r.taken > 0) ui.toast('Your bag is full. ' + r.left + ' left on the ground.', '#a89f8f');
+        ui._sfx(r && !r.taken ? 'error' : 'loot');
+        fill();
+      }, 'gold');
+      const fold = h('button', { type: 'button', class: 'ps-fold', 'aria-label': sheetCollapsed ? 'Show pile' : 'Hide pile', 'aria-expanded': sheetCollapsed ? 'false' : 'true',
+        onclick: function () { ui._sfx('click'); sheetCollapsed = !sheetCollapsed; sheet.classList.toggle('collapsed', sheetCollapsed); fill(); } },
+        (sheetCollapsed ? '▸ ' : '▾ ') + 'Pile · ' + items.length);
+      head.replaceChildren(fold, takeAll, ui._btn('X', closeSheet, 'ed-x'));
+      if (sheetCollapsed) { list.replaceChildren(); return; }
+      list.replaceChildren.apply(list, items.map(function (g) {
+        const it = g.item, gold = it.type === 'gold';
+        const v = gold ? null : ui._verdict(it);
+        const row = h('button', { type: 'button', class: 'ed-row', 'aria-label': 'Take ' + (it.name || 'item'), onclick: function () {
+          if (take(g.id)) ui._sfx(gold ? 'gold' : 'loot');
+          fill();
+        } }, ui._icon(it.icon, 32),
+          h('span', { class: 'n ' + (gold ? '' : ui._glowText(it.rarity)), style: '--rc:' + ui._rarityColor(it.rarity) + ';color:' + ui._rarityColor(it.rarity) },
+            v === 'up' ? h('b', { class: 'ed-good', text: '▲ ' }) : v === 'down' ? h('b', { class: 'ed-bad', text: '▼ ' }) : null,
+            !gold && ui._wanted(it) ? h('i', { class: 'bk', 'aria-label': 'Collection Book piece' }) : null,
+            gold ? fmt(it.qty || 0) + ' gold' : (it.qty > 1 ? it.qty + ' ' : '') + (it.name || '?'),
+            !gold && Array.isArray(it.sockets) && it.sockets.length ? '  ' + it.sockets.map(function (s) { return s ? '◆' : '◇'; }).join('') : null,
+            !gold && C.RARITY[it.rarity] ? h('small', { text: C.RARITY[it.rarity].name + (it.setId ? ' · Set' : '') + (it.slot ? ' · ' + it.slot : '') }) : null));
+        if (!gold && (it.slot || it.type === 'gem')) {
+          const info = h('button', { type: 'button', class: 'ed-btn ed-pinfo', 'aria-label': 'Look at ' + it.name, onclick: function (e) {
+            e.stopPropagation(); ui._sfx('click');
+            ui._showItem(it, [{ label: 'Take', cls: 'gold', fn: function () { if (take(g.id)) ui._sfx('loot'); fill(); } }], { lock: false });
+          } }, '?');
+          row.appendChild(info);
+        }
+        return row;
+      }));
     };
     fill();
-    const takeAll = ui._btn('Take all', function () {
-      let r = null;
-      if (G.items && G.items.pickupPile) { try { r = G.items.pickupPile(pileId); } catch (err) { console.error('[ui pickupPile]', err); } }
-      else pileList(pileId).forEach(function (g) { take(g.id); });
-      if (r && r.left > 0 && r.taken > 0) ui.toast('Your bag is full. ' + r.left + ' left on the ground.', '#a89f8f');
-      ui._sfx(r && !r.taken ? 'error' : 'loot');
-      fill();
-      if (!pileList(pileId).length) close();
-    }, 'gold');
-    close = ui._modal(ui._dialog([box], [takeAll, ui._btn('Leave', function () { close(); })], 'ed-piledlg'), { pause: true });
-    pileClose = function () { close(); };
-    const c0 = close;
-    close = function () { pileClose = null; c0(); };
   }
   ui._openPile = openPile;
   G.on('pile:open', function (e) { if (e && e.pileId != null) openPile(e.pileId); });
@@ -125,16 +143,6 @@
           const k = index();
           if (k < 0) { next(); return; }
           ui._gemGuard(k, 'Sell', function () { const g = ui._itemsCall('sell', k); if (g > 0) ui._sfx('sell'); next(); });
-        } });
-      } else if (G.items && G.items.salvage) {
-        acts.push({ label: 'Salvage', fn: function () {
-          done(it);
-          const k = index();
-          if (k < 0) { next(); return; }
-          const go = function () { ui._itemsCall('salvage', k); next(); };
-          if (ui._gemGuard(k, 'Salvage', go)) return;
-          if (ui._rarityAtLeast(it.rarity, 'rare')) ui._confirm('Salvage ' + it.name + '?', 'Salvage', go, { danger: true });
-          else go();
         } });
       }
       acts.push({ label: 'Keep ▶', cls: 'gold', fn: function () { done(it); next(); } });

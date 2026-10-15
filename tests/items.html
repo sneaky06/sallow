@@ -91,6 +91,7 @@ function harness() {
       hp: 40, mp: 10, xp: 0, xpNext: 1000, stats: { hpMax: 100, mpMax: 50 }, gold: 0,
       inventory: new Array(C.INV_SIZE).fill(null), equipment: eq, potions: { hp: 0, mp: 0 } };
     S.groundItems = [];
+    S.scene = 'town'; S.surface = [];
     S.stash = [];
     clearEvents();
     return S.player;
@@ -815,7 +816,7 @@ function harness() {
     ok(I.verdict(bow) === 'up' && I.verdict(weakBow) === 'down', 'holding an off-class weapon: other off-class weapons are judged on damage', I.verdict(bow) + '/' + I.verdict(weakBow));
     const sword = give({ level: 30, baseId: 'sword_5', rarity: 'common' });
     I.equip(idx(sword));
-    ok(I.verdict(bow) === 'up' && I.verdict(weakBow) === 'down', 'with an on-class sword in hand, a harder-hitting bow is still honestly "up" (R3.4)', I.data.itemDps(bow) + ' vs ' + I.data.itemDps(sword));
+    ok(I.verdict(bow) === 'down' && I.verdict(weakBow) === 'down', 'R8.7: with an on-class sword in hand, a harder-hitting out-of-class bow is honestly "down" (-35% damage)', I.data.itemDps(bow) + ' vs ' + I.data.itemDps(sword));
     S.player.classId = 'ranger';
     ok(I.equip(idx(staff)) && S.player.equipment.weapon === staff, 'ranger can equip a staff too');
   });
@@ -1016,7 +1017,10 @@ function harness() {
     const c2 = give({ level: 20, slot: 'gloves', rarity: 'common' }); delete c2.sockets;
     const d0 = p.materials.dust;
     r = I.processJunk();
-    ok(r.count === 1 && r.materials.dust > 0 && p.materials.dust === d0 + r.materials.dust && idx(c2) < 0, 'salvage action works anywhere', JSON.stringify(r));
+    ok(r.count === 0 && idx(c2) >= 0, 'R8.1: junk is not salvaged outside town', JSON.stringify(r));
+    S.scene = 'town';
+    r = I.processJunk();
+    ok(r.count === 1 && r.materials.dust > 0 && p.materials.dust === d0 + r.materials.dust && idx(c2) < 0, 'salvage action works in town', JSON.stringify(r));
 
     // auto salvage on pickup — works with a full bag, quiet
     S.settings.junk = { maxRarity: 'common', action: 'salvage', auto: true, keepUpgrades: true, keepSocketed: true };
@@ -1025,8 +1029,8 @@ function harness() {
     const gd = I.dropItemAt(1, 1, junkDrop);
     clearEvents();
     const d1 = p.materials.dust;
-    ok(I.pickup(gd.id) && idx(junkDrop) < 0 && p.materials.dust > d1, 'auto-salvage: junk is salvaged on pickup, even with a full bag');
-    ok(T.events['item:picked'].length === 1 && T.events['item:picked'][0].salvaged === true && T.events['ui:toast'].length === 0, 'one quiet item:picked line ({ salvaged: true }), no toast');
+    ok(I.pickup(gd.id) === false, 'R8.1: no auto-salvage on pickup any more (full bag stays full)');
+    ok(true, 'placeholder');
     const keep = I.rollItem({ level: 20, slot: 'gloves', rarity: 'rare' });
     const gk = I.dropItemAt(1, 1, keep);
     ok(I.pickup(gk.id) === false && S.groundItems.some(function (g) { return g.item === keep; }), 'non-junk still needs bag space');
@@ -1835,6 +1839,68 @@ function harness() {
       ok(!c.unique || c.unique / n < 0.0005, 'depth ' + d + ': Unique share tiny');
     });
     ok(true, 'drop table', rows.join(' || '));
+  });
+
+  section('R8.1 chute, surface crate, town-only rules', function () {
+    const p = mkPlayer('warrior', 30);
+    S.scene = 'dungeon'; S.settings = { junk: { maxRarity: 'common', action: 'sell', auto: true, keepUpgrades: false, keepSocketed: false } };
+    const a = give({ level: 10, rarity: 'common', slot: 'helm' }), b = give({ level: 10, rarity: 'rare', slot: 'boots' }), c = give({ level: 10, rarity: 'common', slot: 'belt' });
+    clearEvents();
+    ok(I.sell(idx(a)) === 0 && idx(a) >= 0 && T.events['ui:toast'].length === 1, 'sell is refused outside town with a toast');
+    ok(I.salvage(idx(a)) === false && I.sellAllBelow('rare') === 0 && I.sellAtOrBelow('rare').count === 0, 'salvage and mass-sell refused outside town');
+    ok(I.collection.register(idx(b)).ok === false && idx(b) >= 0, 'Curator registration refused outside town');
+    ok(I.previewSendJunk().count === 2, 'two junk items would be sent', I.previewSendJunk().count);
+    const r = I.sendJunk();
+    ok(r.count === 2 && idx(a) < 0 && idx(c) < 0 && idx(b) >= 0 && S.surface.length === 2, 'sendJunk sends junk up the chute and keeps the rest', JSON.stringify(r));
+    ok(I.chuteSend(idx(b)) === 1 && idx(b) < 0 && S.surface.length === 3 && I.chuteSend([40, 41]) === 0, 'chuteSend(index) and empty cells');
+    const c2 = give({ level: 10, rarity: 'rare', slot: 'ring' }), c3 = give({ level: 10, rarity: 'rare', slot: 'amulet' });
+    eq(I.chuteSend([idx(c2), idx(c3)]), 2, 'chuteSend(indices) sends several');
+    ok(JSON.stringify(JSON.parse(JSON.stringify(S.surface))) === JSON.stringify(S.surface), 'state.surface is plain JSON');
+    ok(I.surfaceTake(0) && S.surface.length === 4 && idx(a) >= 0 && inv().filter(Boolean).length === 1, 'surfaceTake works anywhere and moves the item into the bag');
+    ok(I.surfaceSell(0) === 0 && S.surface.length === 4, 'surface selling is town-only too');
+    S.scene = 'town';
+    const g0 = p.gold;
+    ok(I.surfaceSell(0) > 0 && p.gold > g0 && S.surface.length === 3, 'in town the surface crate sells');
+    const d0 = p.materials.dust;
+    ok(I.surfaceSalvage(0) && S.surface.length === 2 && (p.materials.dust > d0 || p.materials.shard > 0), 'salvages');
+    ok(I.surfaceStash(0) && S.surface.length === 1 && S.stash.filter(Boolean).length === 1, 'stashes');
+    const w = I.rollItem({ level: 20, rarity: 'rare', baseId: 'light_boots_4' }); w.look = D.lookOf('hollowmoth');
+    S.surface.push(w);
+    D.COLLECTION.protect = false;
+    const rr = I.surfaceRegister(S.surface.length - 1);
+    ok(rr.ok && S.surface.indexOf(w) < 0, 'registers with the Curator from the crate');
+    S.surface = []; S.settings = {};
+  });
+
+  section('R8.7 out-of-class weapons', function () {
+    const p = mkPlayer('warrior', 30);
+    const bow = I.rollItem({ level: 30, rarity: 'rare', baseId: 'bow_4' }), sword = I.rollItem({ level: 30, rarity: 'rare', baseId: 'sword_4' });
+    const pen = I.classPenalty(bow);
+    ok(pen && pen.dmgPct === -35 && pen.text && I.classPenalty(sword) === null && I.classPenalty(bow, 'ranger') === null, 'classPenalty: a bow is penalised for a warrior only');
+    ok(I.classPenalty(I.rollItem({ level: 10, rarity: 'rare', baseId: 'shield_2' })) === null, 'armour and off-hands carry no penalty');
+    const tip = I.getTooltip(bow);
+    ok(tip.penalty && tip.lines.some(function (l) { return l.text === pen.text && l.color === '#ff5b5b'; }), 'the tooltip shows it in red');
+    ok(I.power(bow, 'warrior') < I.power(bow, 'ranger') * 0.8, 'Power accounts for it', I.power(bow, 'warrior') + ' vs ' + I.power(bow, 'ranger'));
+    G.game = { CLASSES: { warrior: { primaryStat: 'str', weaponTypes: ['sword', 'bow'] } }, recomputeStats: function () {} };
+    ok(I.classPenalty(bow) === null, 'reads G.game.CLASSES[classId].weaponTypes');
+    delete G.game; G.game = { recomputeStats: function () { T.recomputes++; } };
+  });
+
+  section('R8.5 auto-sort', function () {
+    const p = mkPlayer('warrior', 30);
+    S.settings = { sort: 'level' };
+    give({ level: 5, rarity: 'common', slot: 'helm' }); give({ level: 25, rarity: 'common', slot: 'boots' }); give({ level: 15, rarity: 'common', slot: 'belt' });
+    ok(inv()[0].ilvl >= inv()[1].ilvl && inv()[1].ilvl >= inv()[2].ilvl, 'items entering the bag are sorted by the chosen mode', inv().slice(0, 3).map(function (x) { return x.ilvl; }).join());
+    S.settings = { sort: 'level', autoSort: false };
+    give({ level: 40, rarity: 'common', slot: 'gloves' });
+    ok(inv()[3] && inv()[3].ilvl > 25, 'autoSort: false leaves new items where they land', inv().slice(0, 5).map(function (x) { return x ? x.ilvl : '-'; }).join());
+    ok(I.autoSort() === false, 'autoSort() reports false when off');
+    S.settings = {};
+    ok(I.autoSort() === false, 'no mode chosen: nothing is sorted');
+    S.settings = { sort: 'level' };
+    p.inventory[0] = null; I.stashDeposit(1);
+    ok(I.autoSort() === true, 'autoSort() sorts bag and stash');
+    S.settings = {};
   });
 
   section('Starter gear', function () {

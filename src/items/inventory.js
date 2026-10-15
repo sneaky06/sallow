@@ -94,6 +94,7 @@
       return true;
     }
     if (!putInto(p.inventory, C.INV_SIZE, item)) return false;
+    I.autoSort();
     invChanged();
     return true;
   };
@@ -110,10 +111,6 @@
     let salvaged = null;
     if (item.type === 'gold') {
       D.addGold(p, item.qty || 0, quiet ? null : 'gold');
-    } else if (rules && rules.auto && rules.action === 'salvage' && I.isJunk && I.isJunk(item)) {
-      // R3.1 auto-salvage: junk never enters the bag (works with a full bag); the pickup feed gets one quiet line
-      salvaged = D.salvageItem(p, item).materials;
-      G.emit('inventory:changed', {});
     } else {
       if (!I.addToInventory(item)) return quiet ? false : fail('Inventory full');
       if (!quiet) G.emit('sfx', { name: item.type === 'consumable' ? 'potion' : 'click' });
@@ -328,6 +325,17 @@
     return SORT_KEY[s] ? s : null;
   }
 
+
+  // R8.5 sticky sorting: applied to the bag and the stash whenever items enter them, using the chosen mode (state.settings.sort).
+  // Off when state.settings.autoSort === false or when no mode has been chosen yet. -> bool (true if it sorted)
+  I.autoSort = function () {
+    const s = G.state.settings;
+    if (!s || s.autoSort === false || !SORT_KEY[s.sort]) return false;
+    const p = G.state.player;
+    if (p && p.inventory) sortItems(p.inventory, C.INV_SIZE, s.sort);
+    if (Array.isArray(G.state.stash)) sortItems(G.state.stash, C.STASH_SIZE, s.sort);
+    return true;
+  };
   I.sortInventory = function (mode) {
     const p = P();
     if (!p) return;
@@ -365,6 +373,7 @@
     return S.stash;
   }
   D.stash = stash;
+  D.putIntoStash = function (item) { const ok = putInto(stash(), C.STASH_SIZE, item); if (ok) I.autoSort(); return ok; };
 
   I.stashDeposit = function (invIndex) {
     const p = P();
@@ -377,6 +386,7 @@
       invChanged();
       return fail('Stash full');
     }
+    I.autoSort();
     G.emit('sfx', { name: 'click' });
     invChanged();
     return true;
@@ -393,6 +403,7 @@
       invChanged();
       return fail('Inventory full');
     }
+    I.autoSort();
     G.emit('sfx', { name: 'click' });
     invChanged();
     return true;

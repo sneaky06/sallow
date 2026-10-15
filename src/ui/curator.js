@@ -62,6 +62,7 @@
   }
 
   function register(w) {
+    if (S.scene !== 'town') { ui._sfx('error'); ui.toast('The Curator takes pieces in town. Send them up the chute.', '#a89f8f'); return; }      // R8.1
     ui._sendToCurator(w.index, w.source === 'stash' ? 'stash' : undefined);
     ui._refreshNow();
   }
@@ -73,7 +74,7 @@
     if (!c) { body.appendChild(h('div', { class: 'ed-note', text: 'The Curator has nothing to say yet.' })); return body; }
     const list = wantedList(), pages = pageMap();
     const bag = list.filter(function (w) { return w.source === 'bag'; });
-    const loose = bag.filter(function (w) { return !w.item.locked; }).length;
+    const loose = S.scene === 'town' ? bag.filter(function (w) { return !w.item.locked; }).length : 0;
     const auto = c.isAuto && c.isAuto();
     const all = ui._btn(loose ? 'Hand in all (' + loose + ')' : 'Nothing to hand in', function () {
       let n = 0;

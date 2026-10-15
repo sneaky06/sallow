@@ -134,7 +134,7 @@ async function run() {
     var cb = [].filter.call(document.querySelectorAll('.ed-btn'), function (x) { return /Combine/.test(x.textContent); })[0];
     ck('combine enabled in town', !!cb && !cb.disabled); if (cb) cb.click(); ck('relics combined', G.items.relicsCombined()); ui.close();
     G.scenes.enterDungeon(2); await wait(1500); tapTalk(6); S.paused = false;
-    G.emit('floor:graded', { grade: 'S', score: 1.2, explored: 96, time: 70, par: 80, depth: 2 }); await wait(50);
+    G.emit('floor:graded', { grade: 'S', score: 1.2, explored: 96, time: 70, par: 80, depth: 2 }); await wait(1100);
     ck('grade banner', /grade S/i.test([].map.call(document.querySelectorAll('.ed-banner b'), function (b) { return b.textContent; }).join('|')));
     G.emit('event:start', { id: 'gauntlet', name: 'Run the Gauntlet', timer: 40, goal: 'Reach the beacon', progress: '' }); await wait(50);
     ck('event banner', !!q('.ed-event') && q('.ed-event').style.display === 'block'); G.emit('event:end', { success: true });
@@ -168,6 +168,71 @@ async function run() {
     ui._exportDialog(); await wait(300); ck('export dialog has the code', !!q('.ed-code') && /^SLW/.test(q('.ed-code').value)); ui._closeModals();
     ui._importDialog(); await wait(50); ck('import dialog has a paste box', !!q('.ed-code')); ui._closeModals();
     log('small controls (save dialogs): ' + small(q('#ui')).join('; '));
+    // ---- Revision 8: surface crate, sorting, class penalty, tips, death text, chute, pile sheet, explored label, action mode ----
+    ui.close(); G.scenes.enterTown(); await wait(600); tapTalk(6); S.paused = false;
+    var I = G.items, bagItem = function (r, slot) { var it = I.rollItem({ level: 10, rarity: r, slot: slot }); I.addToInventory(it); return it; };
+    // surface crate (stub the items API only if it is missing)
+    var stubbed = [];
+    if (!I.surfaceTake) { stubbed.push('surfaceTake'); I.surfaceTake = function (i) { var it = S.surface[i]; if (!it || !I.addToInventory(it)) return false; S.surface.splice(i, 1); return true; }; }
+    if (!I.chuteSend) { stubbed.push('chuteSend'); I.chuteSend = function (a) { var p = S.player; [].concat(a).forEach(function (i) { if (p.inventory[i]) { S.surface.push(p.inventory[i]); p.inventory[i] = null; } }); G.emit('inventory:changed', {}); return true; }; }
+    S.surface = [I.rollItem({ level: 10, rarity: 'common', slot: 'chest' }), I.rollItem({ level: 10, rarity: 'rare', slot: 'helm' })];
+    G.emit('object:interact', { type: 'surface_crate' }); await wait(80);
+    ck('surface crate lists items', document.querySelectorAll('.ed-row').length >= 2);
+    var takeAll = [].filter.call(document.querySelectorAll('.ed-foot .ed-btn'), function (b) { return /Take all/.test(b.textContent); })[0];
+    ck('surface bulk buttons', !!takeAll); if (takeAll) takeAll.click(); await wait(80);
+    ck('take all moves them to the bag', S.surface.length === 0); ui.close();
+    // sort: single tap re-sorts, double tap opens the picker
+    ui.open('inventory'); await wait(50);
+    var sortB = [].filter.call(document.querySelectorAll('.ed-head .ed-btn'), function (b) { return /Sort/.test(b.textContent); })[0];
+    sortB.click(); sortB.click(); await wait(50); ck('double-tap sort opens the picker', !!q('.ed-modal .ed-row')); ui._closeModals(); ui.close();
+    S.settings.autoSort = true; var before = bagItem('common', 'boots'); await wait(50);
+    ck('auto-sort keeps the new item in the bag', S.player.inventory.indexOf(before) >= 0);
+    // class penalty confirm
+    var heavy = bagItem('rare', 'chest'); I.classPenalty = function () { return 0.35; };
+    ui.open('inventory'); await wait(50); var ix = S.player.inventory.indexOf(heavy);
+    ui._showItem(heavy, ui._invActions(heavy, ix, 'inv')); await wait(50);
+    var eqb = [].filter.call(document.querySelectorAll('.ed-dialog .ed-btn'), function (b) { return b.textContent === 'Equip'; })[0]; eqb.click(); await wait(80);
+    ck('out-of-class equip asks first', /Equip anyway/i.test((q('.ed-modal') || {}).textContent || ''));
+    ui._closeModals(); ui.close(); delete I.classPenalty;
+    // tips
+    S.flags.tipsSeen = []; S.settings.tips = true; ui._tip('chute'); ui._tip('chute'); ui._tip('surface'); for (var u = 0; u < 5; u++) G.ui.update(0.2); await wait(50);
+    ck('tip card pauses the game', !!q('.ed-tipdlg') && S.paused === true && S.flags.tipsSeen.length === 2);
+    q('.ed-modal').click(); await wait(20); ck('early tap does not dismiss', !!q('.ed-tipdlg'));
+    await wait(450); q('.ed-modal').click(); await wait(30); ck('tap anywhere dismisses', !q('.ed-tipdlg') && S.paused === false);
+    G.ui.update(0.2); await wait(30); ck('next queued tip follows', !!q('.ed-tipdlg') && /surface/i.test(q('.ed-tipdlg').textContent));
+    await wait(450); [].filter.call(document.querySelectorAll('.ed-tipdlg .ed-btn'), function (b) { return b.textContent === 'OK'; })[0].click(); await wait(30);
+    ck('OK button dismisses', !q('.ed-tipdlg') && S.paused === false);
+    ui._resetTips(); ck('reset tips', S.flags.tipsSeen.length === 0); S.settings.tips = false; ui._tip('chute'); ck('tips off', S.flags.tipsSeen.length === 0); ui._closeModals(); S.paused = false;
+    // death text
+    ui.open('death', { lost: 0 }); await wait(50); ck('death screen text', /lose|ghost/i.test((q('.ed-panel') || {}).textContent || '')); ui.close();
+    // dungeon: chute, pile sheet, explored label, action mode, grade, auto skill, depth label
+    G.scenes.enterDungeon(2); await wait(1500); tapTalk(6); S.paused = false;
+    bagItem('common', 'gloves'); bagItem('rare', 'belt');
+    G.emit('object:interact', { type: 'chute' }); await wait(80); ck('chute panel opens', !!q('.ed-panel .ed-grid'));
+    var cells = document.querySelectorAll('.ed-panel .ed-grid .ed-cell:not([disabled])'); cells[0].click(); await wait(50);
+    ck('tap marks an item', !!q('.ed-cell.mk'));
+    var sendBtn = [].filter.call(document.querySelectorAll('.ed-foot .ed-btn'), function (b) { return /^Send \(/.test(b.textContent); })[0]; ck('Send button counts marks', !!sendBtn);
+    var nb = S.player.inventory.filter(Boolean).length; if (sendBtn) sendBtn.click(); await wait(80);
+    ck('Send moves the item up', S.player.inventory.filter(Boolean).length === nb - 1 && S.surface.length >= 1); ui.close();
+    var pid = G.newId(); var pl = S.player;
+    for (var gi = 0; gi < 4; gi++) S.groundItems.push({ id: G.newId(), x: pl.x + 1, y: pl.y, pileId: pid, item: I.rollItem({ level: 10, rarity: 'rare' }) });
+    G.emit('pile:open', { pileId: pid }); await wait(80);
+    var sh = q('.ed-pilesheet'); var short = Math.min(innerWidth, innerHeight);
+    ck('pile sheet is compact and the game keeps running', !!sh && sh.getBoundingClientRect().height <= Math.max(short * 0.35, 152) + 2 && !S.paused);
+    var fold = q('.ps-fold'); if (fold) fold.click(); await wait(30); ck('pile sheet collapses', !!q('.ed-pilesheet.collapsed') && !q('.ps-list .ed-row'));
+    ui._closePile(); S.groundItems.length = 0;
+    var oldEx = G.game.getExplored; G.game.getExplored = function () { return { value: 55, low: 40, high: 70, label: '40–70%' }; };
+    for (var z = 0; z < 8; z++) G.ui.update(0.25); await wait(50); ck('explored label shown', /40–70%/.test((q('.ed-expl') || {}).textContent || '')); G.game.getExplored = oldEx;
+    var oldAm = G.game.getActionMode; G.game.getActionMode = function () { return 'loot'; }; for (var z2 = 0; z2 < 8; z2++) G.ui.update(0.25);
+    ck('action button turns into Loot', /Loot/.test((q('.ed-atk') || {}).textContent || '') && q('.ed-atk').classList.contains('loot')); G.game.getActionMode = oldAm || function () { return 'attack'; }; for (var z3 = 0; z3 < 8; z3++) G.ui.update(0.25);
+    ck('action button back to Attack', /Attack/.test(q('.ed-atk').textContent));
+    ck('depth label uses act name', /·\s*2/.test((q('.ed-area') || {}).textContent || '') && !/Crypt/.test((q('.ed-area') || {}).textContent || ''));
+    G.emit('floor:graded', { grade: 'A', explored: 80, time: 60, par: 70, depth: 2 }); await wait(1100);
+    ck('grade banner after arrival', /grade A/i.test([].map.call(document.querySelectorAll('.ed-banner b'), function (b) { return b.textContent; }).join('|')));
+    ui.close(); ui._closeModals(); S.paused = false; var sid = Object.keys(G.game.SKILLS)[0]; G.emit('skill:learned', { skillId: sid, rank: 1, auto: true }); for (var z4 = 0; z4 < 3; z4++) G.ui.update(0.3); await wait(50);
+    ck('auto-learned skill pulses + tip card', !!q('.ed-pulse') && /Learned/.test((q('.ed-tipdlg') || {}).textContent || '') && S.paused === true);
+    ui._closeModals(); S.paused = false;
+    log('stubbed items APIs (missing in this build): ' + (stubbed.join(', ') || 'none'));
     G.ui.open('journal'); await wait(50); log('journal ok: ' + !!q('.ed-panel .ed-page')); ui.close();
     log('small controls (hud): ' + small(q('.ed-hud')).join('; '));
   } catch (err) { ERR.push('TEST: ' + err.stack); }

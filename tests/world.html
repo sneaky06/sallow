@@ -451,7 +451,7 @@ window.G = { manifest: {} };
         ok(W.propAt(map, p.x, p.y) === p, 'propAt mismatch');
         if (p.solid) ok(!W.isWalkable(map, p.x, p.y), 'solid prop tile reported walkable');
         if (p.interact) {
-          ok(['chest', 'shrine', 'barrel', 'rift_core'].indexOf(p.interact) >= 0 && p.used === false, 'interact fields');
+          ok(['chest', 'shrine', 'barrel', 'rift_core', 'chute'].indexOf(p.interact) >= 0 && p.used === false, 'interact fields');
           let reachAdj = false;
           for (const j of [i - 1, i + 1, i - w, i + w]) if (dry.dist[j] >= 0) reachAdj = true;
           ok(reachAdj, p.type + ' cannot be reached to use');
@@ -471,6 +471,21 @@ window.G = { manifest: {} };
         ok(flood(map, false, mask).dist[down] < 0, 'exit reachable without crossing the boss arena');
       }
 
+      {
+        const chutes = map.props.filter(function (p) { return p.type === 'chute'; });
+        if (ok(chutes.length === 1, 'chute count ' + chutes.length)) {
+          const ch = chutes[0], ci = ch.y * w + ch.x;
+          ok(ch.solid === true && ch.interact === 'chute' && ch.used === false, 'chute fields');
+          ok(dryOpen.dist[ci] >= 0 && [ci - 1, ci + 1, ci - w, ci + w].some(function (j) { return dry.dist[j] >= 0; }), 'chute unreachable / unusable');
+          ok(!inR(start, ch.x, ch.y, 0) && !inR(arena, ch.x, ch.y, 0) && !inR(exit, ch.x, ch.y, 0), 'chute in start/arena/exit room');
+          for (const r of map.rooms) if (r.type === 'lockdown') ok(!inR(r, ch.x, ch.y, 1), 'chute in a lockdown room');
+          let sx = 0, sy = 0, cnt = 0;
+          for (let i = 0; i < n; i++) if (open.dist[i] >= 0) { sx += i % w; sy += (i / w) | 0; cnt++; }
+          const dc = Math.hypot(ch.x - sx / cnt, ch.y - sy / cnt);
+          ok(dc < Math.max(w, h) * 0.3, 'chute far from the centre (' + dc.toFixed(1) + ')');
+          R.chuteDist = (R.chuteDist || []); R.chuteDist.push(dc);
+        }
+      }
       // lockdown rooms (R2.5)
       const locks = map.rooms.filter(function (r) { return r.type === 'lockdown'; });
       ok(locks.length <= 2 && (locks.length === 0 || (!isBoss && depth >= 2)), 'lockdown room count ' + locks.length);
@@ -583,6 +598,7 @@ window.G = { manifest: {} };
       ok(map.props.filter(function (p) { return p.look === 'rift_shard' && p.solid; }).length >= 3 && !map.props.some(function (p) { return p.type === 'fountain'; }), 'rift shards / fountain gone');
       let tn = 0; for (let y = 16; y <= 24; y++) for (let x = 16; x <= 24; x++) if (map.taint[y * w + x]) tn++;
       ok(tn >= 8, 'taint around the fissure (' + tn + ')');
+      { const sc = map.props.filter(function (p) { return p.type === 'surface_crate'; }); ok(sc.length === 1 && sc[0].solid && sc[0].interact === 'surface_crate' && Math.abs(sc[0].x - 21) <= 2 && Math.abs(sc[0].y - 20) <= 2, 'surface crate by the fissure'); }
       one('well'); one('sign'); one('campfire'); one('stall'); one('tree'); one('bush');
       const wp = one('waypoint', 'waypoint'), de = one('dungeon_entrance', 'dungeon_entrance'), st = one('stash', 'stash');
       const sk = map.spawns.find(function (s) { return s.role === 'stashkeeper'; });
@@ -716,7 +732,8 @@ window.G = { manifest: {} };
       const pathMs = [], localMs = [];
       let pathNull = 0, pathCalls = 0, partial = 0;
       for (const m of keep) {
-        const real = flood(m, true, null, true), cells = [];
+        const sealMask = new Uint8Array(m.w * m.h); for (const p of m.props) if (p.secret) sealMask[p.y * m.w + p.x] = 1;
+        const real = flood(m, true, sealMask, true), cells = [];
         for (let i = 0; i < real.dist.length; i++) if (real.dist[i] >= 0) cells.push(i);
         for (let k = 0; k < 40; k++) {
           const a = rng.pick(cells), b = rng.pick(cells);
@@ -860,7 +877,7 @@ window.G = { manifest: {} };
       lines.push('landmarks ' + JSON.stringify(R.landmarks) + '  chained-arena elite ' + R.arenaElite + '/' + R.arenaTotal + '  chest at moat/span ' + R.payoffChest + '/' + R.payoffTotal);
       lines.push('attempts needed ' + JSON.stringify(R.attempts) + '  fallback layout ' + R.fallbacks + '  forced layout swapped for the plain one ' + R.layoutSwaps + ' of ' + R.forced + '  distinct floor names ' + Object.keys(R.names).length);
       lines.push('corruption trend by 10-depth band: taint share ' + JSON.stringify(R.trend.taintShare) + '  fissures/map ' + JSON.stringify(R.trend.fissures) + '  growths+veins/map ' + JSON.stringify(R.trend.growthsAndVeins) + '  rift shrines ' + R.riftShrines + '  core floors ' + R.coreMaps);
-      lines.push(R.cleansedInfo);
+      lines.push(R.cleansedInfo + '  chute distance from centre: ' + stats(R.chuteDist || []));
       lines.push('rooms ' + JSON.stringify(R.roomTypes));
       lines.push('spawns ' + JSON.stringify(R.spawnKinds));
       lines.push('props ' + JSON.stringify(R.propTypes));
