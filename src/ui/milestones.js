@@ -11,21 +11,21 @@
 
   // id, name, description, counter, tier thresholds, permanent bonus per tier [stat, value]
   const DEFS = [
-    { id: 'kills', name: 'Gravedigger', desc: 'Foes slain', stat: 'kills', tiers: [50, 250, 1000, 5000, 20000], mod: ['dmgPct', 1] },
-    { id: 'elites', name: 'Giant Killer', desc: 'Champions, rares and legendaries slain', stat: 'elites', tiers: [5, 25, 100, 400, 1500], mod: ['critDmg', 2] },
-    { id: 'bosses', name: 'Oathbreaker', desc: 'Bosses slain', stat: 'bosses', tiers: [1, 5, 15, 40], mod: ['hpMax', 20] },
-    { id: 'chests', name: 'Grave Robber', desc: 'Chests opened', stat: 'chests', tiers: [10, 50, 200, 800], mod: ['magicFind', 2] },
-    { id: 'goldEarned', name: 'Hoard', desc: 'Gold earned', stat: 'goldEarned', tiers: [1000, 10000, 100000, 1000000, 10000000], mod: ['goldFind', 1] },
-    { id: 'goldSpent', name: 'Big Spender', desc: 'Gold spent', stat: 'goldSpent', tiers: [1000, 10000, 100000, 1000000], mod: null },
-    { id: 'itemsSold', name: 'Peddler', desc: 'Items sold', stat: 'itemsSold', tiers: [10, 100, 500, 2000], mod: ['goldFind', 1] },
-    { id: 'itemsSalvaged', name: 'Scrapper', desc: 'Items salvaged', stat: 'itemsSalvaged', tiers: [10, 100, 500, 2000], mod: ['xpGain', 1] },
-    { id: 'itemsSent', name: 'Chute Runner', desc: 'Items sent up the chute', stat: 'itemsSent', tiers: [10, 100, 500, 2000], mod: null },
-    { id: 'floors', name: 'Delver', desc: 'Floors cleared', stat: 'floors', tiers: [3, 10, 30, 100, 300], mod: ['moveSpeed', 0.5] },
+    { id: 'kills', name: 'Gravedigger', desc: 'Foes slain', stat: 'kills', tiers: [10, 50, 250, 1000, 5000, 20000], mod: ['dmgPct', 1] },
+    { id: 'elites', name: 'Giant Killer', desc: 'Champions, rares and legendaries slain', stat: 'elites', tiers: [2, 5, 25, 100, 400, 1500], mod: ['critDmg', 2] },
+    { id: 'bosses', name: 'Oathbreaker', desc: 'Bosses slain', stat: 'bosses', tiers: [1, 3, 8, 15, 40], mod: ['hpMax', 20] },
+    { id: 'chests', name: 'Grave Robber', desc: 'Chests opened', stat: 'chests', tiers: [5, 10, 50, 200, 800], mod: ['magicFind', 2] },
+    { id: 'goldEarned', name: 'Hoard', desc: 'Gold earned', stat: 'goldEarned', tiers: [200, 1000, 10000, 100000, 1000000, 10000000], mod: ['goldFind', 1] },
+    { id: 'goldSpent', name: 'Big Spender', desc: 'Gold spent', stat: 'goldSpent', tiers: [500, 1000, 10000, 100000, 1000000], mod: null },
+    { id: 'itemsSold', name: 'Peddler', desc: 'Items sold', stat: 'itemsSold', tiers: [5, 10, 100, 500, 2000], mod: ['goldFind', 1] },
+    { id: 'itemsSalvaged', name: 'Scrapper', desc: 'Items salvaged', stat: 'itemsSalvaged', tiers: [5, 10, 100, 500, 2000], mod: ['xpGain', 1] },
+    { id: 'itemsSent', name: 'Chute Runner', desc: 'Items sent up the chute', stat: 'itemsSent', tiers: [5, 10, 100, 500, 2000], mod: null },
+    { id: 'floors', name: 'Delver', desc: 'Floors cleared', stat: 'floors', tiers: [1, 3, 10, 30, 100, 300], mod: ['moveSpeed', 0.5] },
     { id: 'sGrades', name: 'Perfectionist', desc: 'Floors cleared with grade S', stat: 'sGrades', tiers: [1, 5, 15, 40], mod: ['critChance', 0.5] },
-    { id: 'closeCalls', name: 'Hair\'s Breadth', desc: 'Close Calls', stat: 'closeCalls', tiers: [10, 50, 200, 1000, 5000], mod: ['dodge', 0.5] },
+    { id: 'closeCalls', name: 'Hair\'s Breadth', desc: 'Close Calls', stat: 'closeCalls', tiers: [3, 10, 50, 200, 1000, 5000], mod: ['dodge', 0.5] },
     { id: 'flows', name: 'In the Flow', desc: 'Flow chains triggered', stat: 'flows', tiers: [1, 5, 20, 60], mod: ['critChance', 0.5] },
-    { id: 'deaths', name: 'Stubborn', desc: 'Times you have died', stat: 'deaths', tiers: [1, 5, 20, 50], mod: ['hpRegen', 0.5] },
-    { id: 'depth', name: 'Deep Diver', desc: 'Deepest floor reached', stat: 'depth', tiers: [5, 10, 20, 30, 50], mod: ['hpMax', 15], max: true },
+    { id: 'deaths', name: 'Stubborn', desc: 'Times you have died', stat: 'deaths', tiers: [1, 3, 8, 20, 50], mod: ['hpRegen', 0.5] },
+    { id: 'depth', name: 'Deep Diver', desc: 'Deepest floor reached', stat: 'depth', tiers: [3, 5, 10, 20, 30, 50], mod: ['hpMax', 15], max: true },
   ];
   const ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI'];
 

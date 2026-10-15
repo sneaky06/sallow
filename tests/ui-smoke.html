@@ -353,7 +353,7 @@ async function run() {
     ck('Take all empties the crate into the bag', S.surface.length === 0); ui.close();
     // milestones
     S.flags.stats = {}; S.flags.milestones = {}; G.meta.addStat('kills', 60); for (var mz = 0; mz < 3; mz++) G.ui.update(0.8); await wait(40);
-    ck('milestone reached: toast and bonus', S.flags.milestones.kills === 1 && G.meta.getMilestoneMods().dmgPct === 1 && /Milestone: /.test([].map.call(document.querySelectorAll('.ed-toast'), function (t) { return t.textContent; }).join('|')));
+    ck('milestone reached: toast and bonus', S.flags.milestones.kills === 2 && G.meta.getMilestoneMods().dmgPct === 2 && /Milestone: /.test([].map.call(document.querySelectorAll('.ed-toast'), function (t) { return t.textContent; }).join('|')));
     ui.open('journal'); await wait(50); var msb = [].filter.call(document.querySelectorAll('.ed-head .ed-btn'), function (b) { return b.textContent === 'Milestones'; })[0]; ck('Journal has a Milestones page', !!msb);
     if (msb) { msb.click(); await wait(60); ck('Milestones page lists counters with tier pips', document.querySelectorAll('.ed-ms').length >= 10 && !!q('.ed-ms .pips i.on')); } ui.close();
     // piles: tap takes all, long-press opens the list
