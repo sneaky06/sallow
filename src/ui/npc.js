@@ -115,7 +115,7 @@
   }
 
   // R2.7 buyback, shown at the top of the Sell tab: one tap on a row buys it back (no popup — the price is on the row).
-  function buybackRows(p) {
+  function buybackRows(p, max) {
     let list = [];
     if (G.items && G.items.getBuyback) { try { list = G.items.getBuyback() || []; } catch (err) { console.error('[ui buyback]', err); list = []; } }
     if (!list.length) return null;

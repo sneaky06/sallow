@@ -836,3 +836,13 @@ aoe (wider swing/impact fx).
 
 ## R8.12 Depth label
 The HUD depth label uses the act name and floor name (e.g. "Hellscape · 28 · The Throat of the Deep"), not the old theme names.
+
+## R8.13 Surface crate capacity (lead dev, 2026-10-15)
+The surface crate holds at most **20 items** (`C.SURFACE_SIZE`, items team owns the constant via `G.items.SURFACE_SIZE` if core lacks it).
+`chuteSend` refuses items once the crate is full (toast "The crate up top is full"); "Send junk" sends only what fits, best-value first.
+The chute panel shows "Crate 14 / 20". Players must decide what is worth sending and what to drop.
+
+## R8.14 Picking up a pile one-handed
+The pile popup's "Take all" must sit at the bottom of the sheet, inside the thumb zone (same side as the action button), and be large.
+Also: pressing the action button while in LOOT mode next to a pile takes everything that fits (best first) without opening the popup;
+a long-press on the pile or on the LOOT button opens the popup to pick items individually.
