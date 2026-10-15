@@ -4,6 +4,7 @@ Every build pushed to the live site, newest first (from the git history). The fu
 [docs/history/CONTRACT-r1-r10.md](docs/history/CONTRACT-r1-r10.md); the current design is [docs/DESIGN.md](docs/DESIGN.md).
 
 - **2026-10-15** · `8d37c48` · Revision 10 polish: dash crosses the Leap, rift-core finale, Heat HUD and embers, low-effects mode and FPS counter, UI sweep, consolidated docs/DESIGN.md
+- **2026-10-15** · `b623687` · Static boss floors; Wren relic fix; art and sound catalogs
 - **2026-10-15** · `5a4bc88` · R16 Wave A: map, crate, loot filter, sockets, requirements, class goals, inn, floors, save codes
 - **2026-10-15** · `896249e` · R14 depth-only monster scaling with a steeper deep curve; R15 return-trip quests; 526 UI strings moved into src/ui/strings.js; writing guide
 - **2026-10-15** · `3ceba64` · R13: bulk rate starts at 50% and rises to 80% through six trader loyalty quests; sale/salvage/spend tracking for quests and milestones
