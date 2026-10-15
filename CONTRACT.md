@@ -756,7 +756,7 @@ regeneration, renames, harness upkeep) on the smallest model. Rounds are split a
 - Killing them one by one makes the player steadily stronger. Collect **all** relics and they combine at the Elder (or a shrine
   in town) into one far more powerful reward, the story's payoff for hunting them all. Partial sets give nothing extra; the
   combined reward is the prize.
-- Lead default: expand from 4 to 8 fallen adventurers (about two per act plus two in the endgame) so the hunt lasts. Story team
+- **10 fallen adventurers (lead dev decision)**, spread out across the whole descent: roughly three per act plus one in the endgame, never two close together, mixing all four classes. Story team
   writes them; combat builds fights; items/meta build relics and the combining.
 
 ## R7.11 Collection sets and the Curator (lead dev, 2026-10-14)
