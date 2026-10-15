@@ -4,6 +4,7 @@ Every build pushed to the live site, newest first (from the git history). The fu
 [docs/history/CONTRACT-r1-r10.md](docs/history/CONTRACT-r1-r10.md); the current design is [docs/DESIGN.md](docs/DESIGN.md).
 
 - **2026-10-15** · `8d37c48` · Revision 10 polish: dash crosses the Leap, rift-core finale, Heat HUD and embers, low-effects mode and FPS counter, UI sweep, consolidated docs/DESIGN.md
+- **2026-10-15** · `eb97e29` · R11 perk trees: 3 branches x 5 tiers of two-way choices per class, Marks from skill feats, Wagers, Crossroads licences for off-class weapons, Perks screen
 - **2026-10-15** · `28f0d7d` · Cleanups from DESIGN.md open questions; perk-tree proposal (docs/PERKS.md)
 - **2026-10-15** · `b749545` · Contract: R10 polish and verify, R11 perk trees queued
 - **2026-10-14** · `bbdf08a` · Revision 9: Flow chain slow-motion, shrine bargains, the Scavenger, floor monster bias, risky floor ideas, 300-item surface crate, one-handed pile pickup
