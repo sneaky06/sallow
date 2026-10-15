@@ -7,6 +7,7 @@
     { "name": "items",  "runtimeExecutable": "powershell", "runtimeArgs": ["-ExecutionPolicy", "Bypass", "-File", "serve.ps1", "-Port", "8383"], "port": 8383 },
     { "name": "combat", "runtimeExecutable": "powershell", "runtimeArgs": ["-ExecutionPolicy", "Bypass", "-File", "serve.ps1", "-Port", "8384"], "port": 8384 },
     { "name": "combat-attach", "url": "http://localhost:8384" },
+    { "name": "game-attach", "url": "http://localhost:8377" },
     { "name": "ui",     "runtimeExecutable": "powershell", "runtimeArgs": ["-ExecutionPolicy", "Bypass", "-File", "serve.ps1", "-Port", "8385"], "port": 8385 }
   ]
 }

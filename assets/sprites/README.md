@@ -1,0 +1,7 @@
+# assets/sprites/
+
+Container folder. Sub-folders: `abyss_stalker/`, `adv_fallen_1/`, `adv_fallen_10/`, `adv_fallen_2/`, `adv_fallen_3/`, `adv_fallen_4/`, `adv_fallen_5/`, `adv_fallen_6/`, `adv_fallen_7/`, `adv_fallen_8/`, `adv_fallen_9/`, `ashby_ghost/`, `bone_mage/`, `boss_broodmother/`, `boss_choir/`, `boss_gravelord/`, `boss_hollow/`, `boss_prop/`, `boss_prop_rope_anchor/`, `boss_tyrant/`, `boss_world/`, `cave_bat/`, `cave_spider/`, `choir_singer/`, `demon_warrior/`, `dread_knight/`, `echo/`, `fire_imp/`, `gazer/`, `ghoul/`, `goblin/`, `goblin_slinger/`, `grave_rat/`, `hellhound/`, `imp/`, `magma_brute/`, `magpie/`, `minion_golem/`, `minion_mage/`, `minion_skeleton/`, `necromancer/`, `necromancer_base/`, `npc_blacksmith/`, `npc_camp_merchant/`, `npc_curator/`, `npc_elder/`, `npc_healer/`, `npc_innkeeper/`, `npc_merchant/`, `npc_mystic/`, `npc_refugee/`, `npc_refugee_2/`, `npc_refugee_3/`, `npc_stashkeeper/`, `player_base/`, `pyromancer/`, `ranger/`, `ranger_base/`, `scavenger/`, `shadowling/`, `shaman/`, `skeleton/`, `skeleton_archer/`, `slime/`, `sorcerer/`, `sorcerer_base/`, `troll/`, `void_caller/`, `void_wraith/`, `warrior/`, `warrior_base/`, `wraith/`.
+
+One folder per character id (`<id>/<anim>.png`; anims idle, walk, attack, cast, hit, die). Class, monster, boss, Fallen, NPC (`npc_<role>`), `player_base` and `<class>_base`.
+
+See [`docs/ART_CATALOG.md`](../../docs/ART_CATALOG.md) for every file, size and priority.

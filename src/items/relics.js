@@ -14,7 +14,7 @@
     ['fallen_1', 'The First Lamplighter', 'warrior', 3, 'He lit the stair and never came back up it.', [['hpRegen', 3]], null, ''],
     ['fallen_2', 'Brannoc the Unbent', 'warrior', 9, 'Held the stair for forty days; his shield fused to his arm.', [['armor', 40], ['block', 3]], 'dash_shield_bash', 'Your dash ends in a shield bash that staggers enemies.'],
     ['fallen_3', 'The Ropewalker', 'ranger', 6, 'Descended on a rope and counted the knots wrong.', [['moveSpeed', 3]], null, ''],
-    ['fallen_4', 'Wren Halloway, the Cartographer', 'ranger', 16, 'Maps the Deep by counting steps; her arrows are her own bone.', [['dex', 12], ['magicFind', 5]], 'dash_reload', 'Dashing reloads a free shot and the floor map opens on arrival.'],
+    ['fallen_4', 'Wren Halloway, the Cartographer', 'ranger', 16, 'Maps the Deep by counting steps; her arrows are her own bone.', [['dex', 12], ['magicFind', 5]], 'dash_reload', 'Dashing reloads a free shot and each floor's layout shows on your map (unexplored ground still has to be walked).'],
     ['fallen_5', 'The Salt Witch', 'sorcerer', 13, 'Paid for passage with her name; it was not enough.', [['mpMax', 40], ['mpRegen', 2]], null, ''],
     ['fallen_6', 'The Penitent Sexton', 'necromancer', 19, 'Rang the bell for the dead until the dead rang back.', [['resPoison', 12], ['vit', 10]], null, ''],
     ['fallen_7', 'The Debt Collector', 'warrior', 21, 'Came to collect from the rift. The rift pays in kind.', [['goldFind', 15], ['critDmg', 10]], null, ''],
