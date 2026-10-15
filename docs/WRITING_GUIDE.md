@@ -2,13 +2,13 @@
 
 For the lead dev, who wants to rename and rewrite what the player reads without learning to code. Everything below is a **text file you can open in VS Code** (or Notepad). You only ever change the words *between the quote marks*.
 
-Facts as of this writing: the UI label file `src/ui/strings.js` **does not exist yet** (a UI session is creating it). Until it lands, button/menu words are still inside the `src/ui/*.js` files. See section 3.
+Button and menu words live in `src/ui/strings.js` (section 3).
 
 ## Contents
 
 1. [Safe editing in 60 seconds](#1-safe-editing-in-60-seconds)
 2. [Story and dialogue: `src/ui/story_data.js`](#2-story-and-dialogue)
-3. [Menus, buttons, labels](#3-menus-buttons-labels)
+3. [Menus, buttons, labels (UI text)](#3-menus-buttons-labels-ui-text)
 4. [Items](#4-items) (bases, rare names, affixes, uniques, mythics, sets, looks, gems, materials, potions, rarity)
 5. [Monsters, bosses, Fallen, townsfolk](#5-monsters-bosses-the-fallen-townsfolk)
 6. [Skills, perks, classes](#6-skills-perks-classes)
@@ -89,16 +89,43 @@ The outline of the story is in `docs/STORY.md`; keep it in step with what you wr
 
 ---
 
-## 3. Menus, buttons, labels
+## 3. Menus, buttons, labels (UI text)
 
-**Planned home: `src/ui/strings.js`**, created by the UI session. It does not exist yet. When it lands, this section gets a 5-line "how to read it" and the rest below is the same: change the words in quotes, keep keys.
+**File: `src/ui/strings.js`**: every button, menu word, tooltip phrase, toast and banner (about 526 lines) in one place. Story, item, monster and skill words are *not* here (sections 2, 4-6).
 
-**Until then**, UI words are written directly inside the screens, in `src/ui/*.js` (menus.js, hud.js, inventory.js, quests.js, skills.js, perks.js, meta.js ...), looking like `text: 'Floor cleared'` or `h('div', { text: '...' })`. Those files are mixed with code, so for now **tell me the screen and the new words in chat** rather than hand-editing. Two small pieces are already pure data:
+It is one big list of **groups**, one per screen, and each line is `key: 'Text',`:
 
-| What | File | Notes |
-|---|---|---|
-| First-time tip cards | `src/ui/tips.js`, table `TIPS` | each entry is `id: ['Title', 'Body text', icon]`; edit the two strings only |
-| Floor-type names in the banner (`Emberdeep`, `The Crypt`, `Drowned Caves`, `The Inferno`, `The Abyss`) | `src/ui/hud.js` line 8 (`THEME_NAMES`) | edit the words after the colons |
+| Group | Screen |
+|---|---|
+| `common` | words shared by several screens (Accept, Cancel, Sell, Salvage, Stash, slot names like Helm / Boots, Quests, Skills ...) |
+| `title` | title screen and hero creation (New Game, Continue, Choose your hero, Name your hero ...) |
+| `hud` / `hudedit` | in-game overlay, banners, HUD layout editor |
+| `inventory`, `filter`, `pile`, `chute` | bag, junk rules, loot pile, the chute |
+| `menus` | the pause/settings menu |
+| `npc`, `curator`, `quests`, `milestones`, `story`, `perks`, `skills` | town vendors, Collection Book, quest log, milestones, journal, perk and skill screens (their *labels*, not the skill text) |
+| `deeper`, `risk`, `savecode`, `pwa` | deeper-floor prompts, wager warnings, save codes, install prompts |
+| `tips` and `tipcards` | the first-time tip cards: `rar_rareTitle` is the card title, `rar_rareText` its body |
+
+**To change a label**
+
+1. `Ctrl+F` the old words (e.g. `New Game`).
+2. Change only the text between the quotes. Keep the **key** (left of the colon), the quote marks and the trailing comma.
+3. Keep every `{placeholder}` exactly as spelled (`{n}`, `{name}` ...); the game fills them. You may move them within the sentence.
+4. Apostrophes: use `\'` inside single quotes (`Don\'t`), or wrap the text in double quotes.
+5. Leading/trailing spaces are on purpose in some entries (`' deaths'`, `'Paths: '`); they glue onto a number or a label. Keep them.
+6. Save, reload.
+
+```js
+// before
+title: { newGame: 'New Game', continue: 'Continue', ... }
+// after
+title: { newGame: 'Begin Anew', continue: 'Return to the Fire', ... }
+```
+
+If the same word shows on several screens (e.g. "Salvage") it is probably in `common`, so one edit changes them all. If a screen still shows the old word after saving, it may be a lone leftover inside a `src/ui/*.js` file: tell me the screen.
+
+Two things people expect here that live elsewhere: the **title-screen tagline** is `TAGLINE` in `story_data.js`, and the **death screen** text is `ECHO.deathScreen` in `story_data.js`.
+
 
 ---
 
@@ -256,7 +283,13 @@ def('w_brute_force', 'warrior', 'craft', 1, 1, 'Heavy Hand', 'Basic attacks hit 
 | A landmark's name | `world/landmarks.js` |
 | An event / shrine / curse name | `events.js` / `pillars.js` / `deep.js` |
 | A first-time tip | `ui/tips.js` |
-| A button, menu or screen word | `ui/strings.js` once it exists; for now, ask in chat |
+| A button, menu or screen word | `ui/strings.js`: the screen's group, or `common` (section 3) |
+| Title screen buttons (New Game, Continue) | `ui/strings.js` → `title` |
+| Title screen tagline | `story_data.js` → `TAGLINE` |
+| Death screen text | `story_data.js` → `ECHO.deathScreen` |
+| Pause-menu words | `ui/strings.js` → `menus` |
+| Inventory, junk-rule, sell, salvage words | `ui/strings.js` → `inventory`, `filter`, `common` |
+| A first-time tip card (title / body) | `ui/strings.js` → `tipcards` (`xxxTitle` / `xxxText`) |
 | The game title / the town name | section 8 |
 
 **If unsure: send me the exact words you see in the game and the words you want. I'll find the file.**
