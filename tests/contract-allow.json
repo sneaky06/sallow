@@ -1,0 +1,19 @@
+{
+  "_about": "Intentional exceptions for tests/all.html's contract scan. Each entry is  name: reason. Keep reasons honest; an entry here hides a finding. Anything NOT listed here fails the build.",
+  "emittedNoListener": {
+    "player:xp": "documented broadcast in DESIGN §13 (payload { xp, xpNext, gained }); the HUD polls state, so no consumer is needed",
+    "loot:dropped": "documented broadcast in DESIGN §13 for other systems / harnesses; nothing consumes it yet",
+    "echo:rise": "documented broadcast in DESIGN §13 (banner reads entity state instead)",
+    "boss:blackout": "documented broadcast in DESIGN §13; engine/UI have no hook for it yet",
+    "scavenger:race": "documented broadcast in DESIGN §13; UI toast comes from scavenger:appear",
+    "flow:start": "DESIGN §15 Q5: redundant with flow:chain/flow:trigger, kept for the old handover",
+    "milestone:reached": "R12 #8 documented notification; the Journal reads getMilestones() directly",
+    "settings:changed": "documented in DESIGN §11 as emitted by the UI for anyone who wants it",
+    "town:warmed": "documented in DESIGN §10; the engine reads flags.warmth directly each frame (engine/rift.js)"
+  },
+  "listenedNeverEmitted": {
+    "room:wave": "DESIGN §13: 'UI also tolerates optional room:wave' — game may emit it later"
+  },
+  "undefinedCalls": {},
+  "documentedNeverEmitted": {}
+}

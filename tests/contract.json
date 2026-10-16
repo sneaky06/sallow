@@ -1,0 +1,47 @@
+{
+  "_about": "Derived from docs/DESIGN.md (sections 3-13 plus the R12-R16 revisions). 'fn' = must be a function, 'any' = must be defined (table/constant). 'optional' = documented as maybe-absent; reported as info only. Add a name here when DESIGN.md documents it; tests/all.html fails when it is missing at runtime.",
+  "namespaces": ["engine", "world", "items", "game", "ui", "meta", "scenes", "state", "C", "input"],
+  "root": { "fn": ["on", "off", "emit", "newId", "bumpId"], "any": [] },
+  "scenes": {
+    "fn": ["startNewGame", "continueGame", "enterTown", "enterDungeon", "descend", "ascend", "townPortal", "usePortal", "unlockWaypoint", "quitToMenu", "getDeathPenalty", "respawn", "reclaimCorpse"]
+  },
+  "world": {
+    "fn": ["generateTown", "generateDungeon", "tileAt", "isWalkable", "canMoveTo", "moveWithCollision", "hasLineOfSight", "findPath", "updateVisibility", "findFreeTileNear", "propAt", "invalidate", "pickVariant", "actForDepth"],
+    "any": ["VARIANTS", "ACTS", "CORE_DEPTH"]
+  },
+  "game": {
+    "fn": ["createPlayer", "revivePlayer", "spawnMapEntities", "update", "recomputeStats", "gainXp", "spendAttr", "canLearn", "learnSkill", "setSkillSlot", "respec", "getRespecCost", "setAutoBuild", "getSkillInfo", "useSkill", "usePotion", "getPotionCooldown", "getXpForLevel", "getMonsterInfo", "healPlayer", "getStyle", "getActionMode", "getClassAction", "useClassAction", "getFlow", "endFlow", "heatStacks", "acceptBargain", "declineBargain", "getBargainOffer", "lootBonus", "getLockdown", "getExplored", "exploredExact", "getClearGrade", "getEvent", "startEvent", "confirmDescend", "cancelDescend", "previewPallor", "nextPallorValue", "getPallor", "spawnScavenger", "HPM", "DMM", "monsterLevel", "affixPool", "deepAffixes", "kill"],
+    "any": ["CLASSES", "SKILLS", "AFFIXES", "FLOOR_MODS", "EVENTS", "ACT_BOSSES", "FALLEN", "BARGAINS", "CLEAR_GRADES", "DEEP_AFFIX_IDS", "LEVEL_CAP", "XP_MULT", "SPECIAL"],
+    "optional": ["stillT", "wisps", "embers"]
+  },
+  "items": {
+    "fn": ["rollItem", "rollLoot", "dropLoot", "dropItemAt", "pickup", "addToInventory", "equip", "unequip", "useItem", "dropFromInventory", "getEquipmentMods", "getWeapon", "getTooltip", "compare", "power", "verdict", "isUpgrade", "grantStarterGear", "sortInventory", "sortStash", "autoSort", "stashDeposit", "stashWithdraw", "getVendorStock", "buy", "buyPrice", "refreshVendors", "potionPrice", "buyPotion", "gamble", "gambleCost", "upgrade", "upgradeCost", "getBuyback", "buyback", "grantTome", "unsocketGem", "unsocketCost", "socketGem", "combineGems", "gemUpgradeCost", "upgradeGem", "rerollCost", "rerollAffix", "salvagePreview", "isJunk", "sendJunk", "previewSendJunk", "sellAtOrBelow", "previewSellAtOrBelow", "toggleLock", "setLocked", "chuteSend", "getSurface", "surfaceTake", "surfaceSell", "surfaceSalvage", "surfaceRegister", "surfaceStash", "surfaceSpace", "getPile", "pickupPile", "getMatched", "recordKill", "cleanseCost", "cleanse", "grantRelic", "hasRelic", "getRelics", "relicCount", "canCombineRelics", "combineRelics", "getRelicMods", "getRelicEffects", "getActiveEffects", "migrateState", "classPenalty", "bulkRate", "matchFilter", "previewSellFilter", "sellFilter", "addSocket", "socketCost", "socketFailChance", "surfaceSize", "meetsRequirements"],
+    "any": ["data", "EFFECTS", "LOOKS", "RELICS", "AWAKEN_AT", "SURFACE_SIZE", "collection"]
+  },
+  "items.collection": {
+    "fn": ["getPages", "getProgress", "register", "registerAll", "isWanted", "entryOf", "setAuto", "isAuto"]
+  },
+  "ui": {
+    "fn": ["init", "update", "open", "close", "isOpen", "toast"]
+  },
+  "meta": {
+    "fn": ["save", "load", "hasSave", "deleteSave", "initQuests", "getQuests", "acceptQuest", "turnInQuest", "exportCode", "parseCode", "applyImport", "listBackups", "restoreBackup", "npcQuestState", "getMilestones", "getMilestoneMods"],
+    "any": ["LORE", "STORY"]
+  },
+  "engine": {
+    "fn": ["init", "update", "render", "worldToScreen", "screenToWorld", "getIcon", "getIconURL", "getPortrait", "drawMinimap", "sfx", "getPlayerPreview", "gearKey", "rarityGlow", "getPallorLevel", "mapPick"]
+  },
+  "events": [
+    "scene:changed", "input:tap", "input:skill", "input:potion", "input:attack", "input:classaction", "input:ui",
+    "player:damaged", "player:died", "player:levelup", "player:stats", "player:xp",
+    "monster:killed", "object:interact", "npc:interact",
+    "loot:dropped", "item:picked", "inventory:changed", "equipment:changed", "gold:changed", "surface:changed", "pile:open", "lore:found",
+    "skills:changed", "skill:learned", "quest:updated", "quest:completed",
+    "room:locked", "room:cleared", "floor:graded", "event:start", "event:update", "event:end", "stairs:confirm",
+    "shrine:offer", "shrine:accepted", "flow:chain", "flow:trigger", "flow:start",
+    "scavenger:appear", "scavenger:race", "scavenger:grab", "echo:rise", "boss:blackout",
+    "relic:granted", "relic:combined", "collection:registered", "collection:page", "collection:tier", "item:cleansed",
+    "town:warmed", "settings:changed", "milestone:reached",
+    "fx:spawn", "fx:text", "fx:shake", "sfx", "ui:toast"
+  ]
+}

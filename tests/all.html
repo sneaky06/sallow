@@ -1,0 +1,686 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sallow — all checks</title>
+<style>
+  :root { --bg:#0b0a0f; --fg:#e8e2d0; --dim:#8a8576; --ok:#5bd66b; --bad:#ff5b5b; --warn:#ffcf5b; --line:#2a2733; }
+  html,body { margin:0; background:var(--bg); color:var(--fg); font:13px/1.4 system-ui,sans-serif; }
+  #wrap { display:flex; flex-wrap:wrap; gap:16px; padding:12px 16px; align-items:flex-start; }
+  #main { flex:1 1 560px; min-width:0; }
+  h1 { font-size:18px; margin:0 0 8px; }
+  #verdict { display:inline-block; padding:2px 10px; border-radius:4px; font-weight:700; margin-left:8px; background:#333; }
+  #verdict.PASS { background:var(--ok); color:#031; } #verdict.FAIL { background:var(--bad); color:#300; } #verdict.RUNNING { background:var(--warn); color:#310; }
+  button { background:#2a2733; color:var(--fg); border:1px solid #444; padding:6px 12px; border-radius:4px; cursor:pointer; font:inherit; }
+  button:hover { background:#3a3646; }
+  table { border-collapse:collapse; width:100%; margin-top:10px; }
+  td,th { border-bottom:1px solid var(--line); padding:6px 8px; vertical-align:top; text-align:left; }
+  .st { font-weight:700; white-space:nowrap; } .PASS { color:var(--ok); } .FAIL { color:var(--bad); } .running { color:var(--warn); } .pending,.SKIP { color:var(--dim); }
+  .det { font:11px/1.35 ui-monospace,Consolas,monospace; color:#d8c9a8; white-space:pre-wrap; word-break:break-word; margin:4px 0 0; }
+  .det .f { color:var(--bad); } .det .i { color:var(--dim); }
+  #frames { flex:0 0 375px; }
+  iframe { border:1px solid #333; background:#000; width:375px; height:667px; display:block; }
+  #hframe { position:absolute; left:-10000px; top:0; }
+  .lbl { color:var(--dim); font-size:11px; margin:4px 0 2px; }
+  #report { display:none; }
+  textarea#rep { width:100%; height:120px; background:#14121a; color:var(--fg); border:1px solid #333; font:11px monospace; display:none; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="main">
+    <h1>Sallow — all checks <span id="verdict" class="RUNNING">RUNNING</span></h1>
+    <div>
+      <button id="bRun">Run again</button>
+      <button id="bCopy">Copy report</button>
+      <span id="elapsed" style="color:var(--dim);margin-left:8px"></span>
+    </div>
+    <div class="lbl">Options (URL query): ?only=load,contract,run,harness &nbsp; ?skip=run &nbsp; ?classes=warrior &nbsp; ?depths=1,5 &nbsp; ?noauto=1 (wait for the button)</div>
+    <table id="sum"><thead><tr><th>Section</th><th>Result</th><th>Details</th></tr></thead><tbody></tbody></table>
+    <textarea id="rep" readonly></textarea>
+    <pre id="report"></pre>
+  </div>
+  <div id="frames">
+    <div class="lbl">game under test (tests/all.html loads index.html here)</div>
+    <iframe id="gframe" title="game"></iframe>
+    <iframe id="hframe" title="harness"></iframe>
+  </div>
+</div>
+<script>
+(function () {
+'use strict';
+var ROOT = new URL('../', location.href).href;
+var Q = new URLSearchParams(location.search);
+function listParam(k) { return Q.get(k) ? Q.get(k).split(',').map(function (s) { return s.trim(); }).filter(Boolean) : null; }
+var ONLY = listParam('only'), SKIP = listParam('skip') || [];
+function wanted(group) { return (!ONLY || ONLY.indexOf(group) >= 0) && SKIP.indexOf(group) < 0; }
+
+var $ = function (id) { return document.getElementById(id); };
+var gframe = $('gframe'), hframe = $('hframe');
+var sleep = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
+
+// ---------------------------------------------------------------- report model
+var SECTIONS = [], byId = {};
+function section(id, name, group) { var s = byId[id] = { id: id, name: name, group: group || id, status: 'pending', failures: [], infos: [], summary: '' }; SECTIONS.push(s); return s; }
+function fail(s, msg) { s.failed = true; if (s.failures.indexOf(msg) < 0) s.failures.push(msg); }
+function info(s, msg) { if (s.infos.indexOf(msg) < 0) s.infos.push(msg); }
+function esc(t) { return String(t).replace(/[&<>]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]; }); }
+function render() {
+  var rows = SECTIONS.map(function (s) {
+    var det = '';
+    var F = s.failures.slice(0, 40).map(function (m) { return '<div class="f">✗ ' + esc(m) + '</div>'; }).join('');
+    if (s.failures.length > 40) F += '<div class="f">… ' + (s.failures.length - 40) + ' more failures (see Copy report)</div>';
+    var I = s.infos.slice(0, 25).map(function (m) { return '<div class="i">· ' + esc(m) + '</div>'; }).join('');
+    if (s.infos.length > 25) I += '<div class="i">… ' + (s.infos.length - 25) + ' more notes</div>';
+    det = '<div>' + esc(s.summary) + '</div><div class="det">' + F + I + '</div>';
+    return '<tr><td>' + esc(s.name) + '</td><td class="st ' + s.status + '">' + s.status + '</td><td>' + det + '</td></tr>';
+  }).join('');
+  $('sum').tBodies[0].innerHTML = rows;
+}
+function finish(s, summary) { s.status = s.failed ? 'FAIL' : 'PASS'; if (summary) s.summary = summary; render(); }
+function reportText() {
+  var all = SECTIONS.filter(function (s) { return s.status !== 'SKIP'; });
+  var bad = all.filter(function (s) { return s.status !== 'PASS'; });
+  var out = ['SALLOW ALL-CHECKS: ' + (bad.length ? 'FAIL' : 'PASS') + '  (' + (all.length - bad.length) + '/' + all.length + ' sections pass)  ' + new Date().toISOString(), ''];
+  SECTIONS.forEach(function (s) {
+    out.push('[' + s.status + '] ' + s.name + (s.summary ? ' — ' + s.summary : ''));
+    s.failures.forEach(function (m) { out.push('    FAIL ' + m); });
+    s.infos.forEach(function (m) { out.push('    note ' + m); });
+  });
+  return out.join('\n');
+}
+function publish(done) {
+  var all = SECTIONS.filter(function (s) { return s.status !== 'SKIP'; });
+  var bad = all.some(function (s) { return s.status !== 'PASS'; });
+  var v = !done ? 'RUNNING' : (bad ? 'FAIL' : 'PASS');
+  $('verdict').textContent = v; $('verdict').className = v;
+  document.title = 'ALL: ' + v;
+  $('report').textContent = reportText();
+  window.__ALL = { done: !!done, verdict: v, sections: SECTIONS.map(function (s) { return { id: s.id, name: s.name, status: s.status, summary: s.summary, failures: s.failures, infos: s.infos }; }), report: reportText() };
+}
+$('bCopy').onclick = function () {
+  var t = reportText(), ta = $('rep');
+  var shown = function () { ta.style.display = 'block'; ta.value = t; ta.select(); };
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t).then(function () { $('bCopy').textContent = 'Copied ✓'; setTimeout(function () { $('bCopy').textContent = 'Copy report'; }, 1500); }, shown);
+  else { shown(); try { document.execCommand('copy'); } catch (e) { /* the textarea is selected for a manual copy */ } }
+};
+
+// ---------------------------------------------------------------- loading the real game
+// index.html is fetched and rewritten (base href + an error hook before its loader) so it runs unchanged in an iframe,
+// even in a normal tab where the iframe would otherwise be a different origin.
+var HOOK = '(function(){var T=window.__T={errors:[],warns:[],scriptErrors:[],mainLoaded:false};' +
+  'function s(a){return [].map.call(a,function(x){try{return x&&x.stack?String(x.stack).split("\\n").slice(0,3).join(" | "):(typeof x==="object"?JSON.stringify(x):String(x))}catch(e){return String(x)}}).join(" ")}' +
+  'window.addEventListener("error",function(e){T.errors.push("window error: "+(e.message||"error")+" @ "+String(e.filename||"").split("/").slice(-2).join("/")+":"+e.lineno)});' +
+  'window.addEventListener("unhandledrejection",function(e){T.errors.push("unhandled rejection: "+s([e.reason]))});' +
+  'var ce=console.error;console.error=function(){T.errors.push("console.error: "+s(arguments));ce.apply(console,arguments)};' +
+  'var cw=console.warn;console.warn=function(){T.warns.push(s(arguments));cw.apply(console,arguments)};' +
+  'document.addEventListener("error",function(e){var t=e.target;if(t&&t.src)T.scriptErrors.push(t.src)},true);' +
+  'document.addEventListener("load",function(e){var t=e.target;if(t&&t.src&&/core\\/main\\.js$/.test(t.src))T.mainLoaded=true},true);})();';
+
+var INDEX_HTML = null;
+async function loadGame() {
+  if (INDEX_HTML === null) { var r = await fetch(ROOT + (Q.get('index') || 'index.html'), { cache: 'no-store' }); if (!r.ok) throw new Error((Q.get('index') || 'index.html') + ': HTTP ' + r.status); INDEX_HTML = await r.text(); }
+  var html = INDEX_HTML.replace(/<head>/i, function () { return '<head><base href="' + ROOT + '"><script>' + HOOK + '<\/script>'; });
+  gframe.srcdoc = html;
+  var t0 = Date.now();
+  while (Date.now() - t0 < 45000) {
+    await sleep(60);
+    var w = gframe.contentWindow;
+    if (w && w.__T && w.__T.mainLoaded) { await sleep(400); return w; }
+  }
+  var w2 = gframe.contentWindow;
+  throw new Error('the game did not finish loading in 45 s (main.js never ran). Boot error box: "' + ((w2 && w2.document && w2.document.getElementById('boot-error') || {}).textContent || '').trim().slice(0, 300) + '"');
+}
+
+// ---------------------------------------------------------------- 1. load check
+var SRC = {};            // path -> text, filled by the load check, reused by the contract scan
+var MANIFEST = null;     // { team: [files] }
+var CORE_FILES = [], TEAMS = [];
+async function sectionLoad(s) {
+  var w = await loadGame();
+  var G = w.G, T = w.__T;
+  var boot = (w.document.getElementById('boot-error').textContent || '').trim();
+  if (boot) boot.split('\n').forEach(function (l) { fail(s, '#boot-error: ' + l); });
+  T.errors.forEach(function (e) { fail(s, e); });
+  T.scriptErrors.forEach(function (e) { fail(s, 'script failed to load: ' + e.replace(ROOT, '')); });
+  T.warns.filter(function (m) { return /\[loader\] missing/.test(m); }).forEach(function (m) { fail(s, m); });
+  T.warns.filter(function (m) { return !/\[loader\] missing/.test(m); }).slice(0, 5).forEach(function (m) { info(s, 'console.warn: ' + m.slice(0, 200)); });
+  // namespaces
+  var NS = ['engine', 'world', 'items', 'game', 'ui', 'meta', 'scenes', 'state', 'C', 'input'];
+  NS.forEach(function (n) { if (!G[n]) fail(s, 'missing namespace G.' + n); });
+  // manifests: every listed file must exist (fetched too, so the contract scan has the text)
+  var tm = /var TEAMS = \[([^\]]*)\]/.exec(INDEX_HTML), cm = /var CORE = \[([^\]]*)\]/.exec(INDEX_HTML);
+  var q = function (m, d) { return m ? m[1].split(',').map(function (x) { return x.replace(/['"\s]/g, ''); }).filter(Boolean) : d; };
+  TEAMS = q(tm, ['engine', 'world', 'items', 'game', 'ui']); CORE_FILES = q(cm, ['constants.js', 'events.js', 'rng.js', 'state.js', 'scenes.js']);
+  MANIFEST = G.manifest || {};
+  var files = CORE_FILES.map(function (f) { return 'src/core/' + f; }).concat(['src/core/main.js']);
+  TEAMS.forEach(function (t) {
+    if (!MANIFEST[t] || !MANIFEST[t].length) fail(s, 'manifest for team "' + t + '" is empty or missing (src/' + t + '/manifest.js)');
+    (MANIFEST[t] || []).forEach(function (f) { files.push('src/' + t + '/' + f); });
+    files.push('src/' + t + '/manifest.js');
+  });
+  var missing = 0, fetched = 0;
+  await Promise.all(files.map(async function (p) {
+    try {
+      var r = await fetch(ROOT + p, { cache: 'no-store' });
+      if (!r.ok) { missing++; fail(s, 'HTTP ' + r.status + ' for ' + p); return; }
+      SRC[p] = await r.text(); fetched++;
+    } catch (e) { missing++; fail(s, 'cannot fetch ' + p + ' (' + e.message + ') — serve the folder over http (serve.ps1) or run Chrome with --allow-file-access-from-files'); }
+  }));
+  // files on disk in a team folder but absent from its manifest are never loaded
+  finish(s, files.length + ' files listed in index.html loader + manifests, ' + fetched + ' fetched, ' + missing + ' missing; ' + T.errors.length + ' load errors, ' + T.warns.length + ' warnings');
+}
+
+// ---------------------------------------------------------------- 2. contract check
+// Comment stripper that respects strings, template literals and regex literals (crude but enough for this code base).
+function strip(src) {
+  var out = '', i = 0, n = src.length, last = '';
+  while (i < n) {
+    var c = src[i], d = src[i + 1];
+    if (c === '/' && d === '/') { while (i < n && src[i] !== '\n') i++; continue; }
+    if (c === '/' && d === '*') { i += 2; while (i < n && !(src[i] === '*' && src[i + 1] === '/')) { if (src[i] === '\n') out += '\n'; i++; } i += 2; continue; }
+    if (c === '"' || c === "'" || c === '`') {
+      var q = c; out += c; i++;
+      while (i < n && src[i] !== q) { if (src[i] === '\\') { out += src[i] + (src[i + 1] || ''); i += 2; continue; } if (q !== '`' && src[i] === '\n') break; out += src[i++]; }
+      out += q; i++; last = q; continue;
+    }
+    if (c === '/' && /[(,=:\[!&|?{};+\-*%<>~^]|^$/.test(last)) {            // regex literal
+      var j = i + 1, cls = false;
+      while (j < n && src[j] !== '\n') { if (src[j] === '\\') { j += 2; continue; } if (src[j] === '[') cls = true; else if (src[j] === ']') cls = false; else if (src[j] === '/' && !cls) break; j++; }
+      if (j < n && src[j] === '/') { out += src.slice(i, j + 1); i = j + 1; last = '/'; continue; }
+    }
+    out += c; if (!/\s/.test(c)) last = c; i++;
+  }
+  return out;
+}
+function get(o, path) { return path.split('.').reduce(function (a, k) { return a == null ? undefined : a[k]; }, o); }
+
+async function sectionContract(sApi, sEv, sCalls) {
+  var w = gframe.contentWindow, G = w.G;
+  var C = await (await fetch('contract.json', { cache: 'no-store' })).json();
+  var ALLOW = {}; try { ALLOW = await (await fetch('contract-allow.json', { cache: 'no-store' })).json(); } catch (e) { info(sEv, 'no contract-allow.json'); }
+  var A = function (k) { return ALLOW[k] || {}; };
+
+  // ---- (a) documented API exists
+  var checked = 0;
+  C.root.fn.forEach(function (n) { checked++; if (typeof G[n] !== 'function') fail(sApi, 'G.' + n + ' is not a function'); });
+  Object.keys(C).forEach(function (k) {
+    if (k.charAt(0) === '_' || ['namespaces', 'root', 'events'].indexOf(k) >= 0) return;
+    var ns = get(G, k), spec = C[k];
+    if (ns == null) { fail(sApi, 'G.' + k + ' is missing (contract has ' + ((spec.fn || []).length + (spec.any || []).length) + ' names for it)'); return; }
+    (spec.fn || []).forEach(function (n) { checked++; if (typeof ns[n] !== 'function') fail(sApi, 'G.' + k + '.' + n + ' is documented but ' + (ns[n] === undefined ? 'missing' : 'is a ' + typeof ns[n])); });
+    (spec.any || []).forEach(function (n) { checked++; if (ns[n] === undefined) fail(sApi, 'G.' + k + '.' + n + ' is documented but missing'); });
+    (spec.optional || []).forEach(function (n) { if (ns[n] === undefined) info(sApi, 'optional G.' + k + '.' + n + ' not present'); });
+  });
+  finish(sApi, checked + ' documented names checked against the live G (docs/DESIGN.md → tests/contract.json)');
+
+  // ---- (b) events: static scan of every manifest-listed file
+  var paths = Object.keys(SRC).filter(function (p) { return /\.js$/.test(p) && !/manifest\.js$/.test(p); });
+  if (!paths.length) { fail(sEv, 'no source text available (the load check could not fetch src/)'); finish(sEv); fail(sCalls, 'no source text available'); finish(sCalls); return; }
+  var emits = {}, ons = {}, dynamic = 0, STR = '(?:\'([^\']+)\'|"([^"]+)")';
+  var add = function (m, k, p) { (m[k] = m[k] || []).push(p); };
+  var STRIPPED = {};
+  paths.forEach(function (p) {
+    var t = STRIPPED[p] = strip(SRC[p]);
+    var re = new RegExp('\\bG\\.(emit|on)\\(\\s*' + STR, 'g'), m;
+    while ((m = re.exec(t))) add(m[1] === 'emit' ? emits : ons, m[2] || m[3], p.replace('src/', ''));
+    // computed names (G.on(name, …) inside a forEach over a list of names): credit every "a:b" string literal in the 500 chars before
+    var rd = /\bG\.(emit|on)\(\s*[^'"\s)]/g, dm;
+    while ((dm = rd.exec(t))) {
+      dynamic++;
+      var before = t.slice(Math.max(0, dm.index - 500), dm.index), lit = /['"]([a-z_]+:[a-z_]+)['"]/g, lm;
+      while ((lm = lit.exec(before))) add(dm[1] === 'emit' ? emits : ons, lm[1], p.replace('src/', ''));
+    }
+  });
+  var evNames = function (o) { return Object.keys(o).sort(); };
+  var al1 = A('emittedNoListener'), al2 = A('listenedNeverEmitted'), al3 = A('documentedNeverEmitted'), allowed = 0;
+  evNames(emits).forEach(function (e) { if (!ons[e]) { if (al1[e]) allowed++; else fail(sEv, 'emitted but nobody listens: "' + e + '"  (' + uniq(emits[e]).join(', ') + ')'); } });
+  evNames(ons).forEach(function (e) { if (!emits[e]) { if (al2[e]) allowed++; else fail(sEv, 'listened for but never emitted: "' + e + '"  (' + uniq(ons[e]).join(', ') + ')'); } });
+  C.events.forEach(function (e) { if (!emits[e] && !ons[e]) { if (al3[e]) allowed++; else fail(sEv, 'documented in DESIGN §13 but neither emitted nor listened for anywhere in src: "' + e + '"'); } });
+  // events used in src but absent from the documented index
+  evNames(emits).concat(evNames(ons)).filter(function (e, i, a) { return a.indexOf(e) === i && C.events.indexOf(e) < 0; }).forEach(function (e) { info(sEv, 'undocumented event (not in DESIGN §13 / contract.json): "' + e + '"'); });
+  if (dynamic) info(sEv, dynamic + ' G.emit/G.on calls use a computed event name; names were inferred from nearby "a:b" string literals');
+  finish(sEv, evNames(emits).length + ' emitted names, ' + evNames(ons).length + ' listened names, ' + C.events.length + ' documented, ' + allowed + ' allow-listed');
+
+  // ---- (c) G.<ns>.fn( calls whose fn is defined nowhere
+  var NSL = ['items', 'game', 'world', 'engine', 'ui', 'meta', 'scenes'];
+  var aliasRe = new RegExp('\\b(?:const|let|var)\\s+(\\w+)\\s*=\\s*G\\.(' + NSL.join('|') + ')(?=\\s*(?:;|,|\\n|=(?!=)|\\|\\|))', 'g');
+  var aliasRe2 = new RegExp('\\b(\\w+)\\s*=\\s*G\\.(' + NSL.join('|') + ')\\s*=', 'g');          // x = G.game = {...}
+  var calls = {}, unguardedHits = 0, guardedHits = 0, alUC = A('undefinedCalls');
+  paths.forEach(function (p) {
+    var t = STRIPPED[p], aliases = {}, m;
+    NSL.forEach(function (n) { aliases['G.' + n] = n; });
+    aliasRe.lastIndex = 0; while ((m = aliasRe.exec(t))) aliases[m[1]] = m[2];
+    aliasRe2.lastIndex = 0; while ((m = aliasRe2.exec(t))) aliases[m[1]] = m[2];
+    Object.keys(aliases).forEach(function (a) {
+      var ns = aliases[a], obj = G[ns];
+      if (!obj) return;
+      var esc2 = a.replace(/\./g, '\\.');
+      var re = new RegExp('(?:^|[^\\w.$])' + esc2 + '\\.(\\w+)\\s*\\(', 'g'), mm;
+      while ((mm = re.exec(t))) {
+        var fn = mm[1];
+        if (typeof obj[fn] === 'function') continue;
+        // assigned somewhere in this file or the team that owns it? (methods added later at runtime show up in obj already)
+        var key = ns + '.' + fn;
+        var guardRe = new RegExp('(?:^|[^\\w.$])' + esc2 + '\\.' + fn + '\\b(?!\\s*\\()', 'g');
+        var guarded = guardRe.test(t) && !new RegExp('(?:^|[^\\w.$])' + esc2 + '\\.' + fn + '\\s*=[^=]').test(t);
+        var c = calls[key] || (calls[key] = { files: {}, guarded: true, exists: obj[fn] !== undefined });
+        c.files[p.replace('src/', '')] = 1; if (!guarded) c.guarded = false;
+      }
+    });
+  });
+  var shown = 0;
+  Object.keys(calls).sort().forEach(function (k) {
+    var c = calls[k], where = Object.keys(c.files).slice(0, 4).join(', ');
+    if (alUC[k]) return;
+    var what = c.exists ? 'is called as a function but is a ' + typeof get(G, k) : 'is not defined anywhere at runtime';
+    if (c.guarded) { guardedHits++; info(sCalls, 'guarded optional call G.' + k + '(…) ' + what + ' — ' + where); }
+    else { unguardedHits++; fail(sCalls, 'G.' + k + '(…) ' + what + ' — called unguarded in ' + where); }
+  });
+  finish(sCalls, paths.length + ' files scanned; ' + unguardedHits + ' unguarded calls to undefined functions, ' + guardedHits + ' guarded (typeof/&&-checked) ones');
+}
+function uniq(a) { return a.filter(function (x, i) { return a.indexOf(x) === i; }); }
+
+// ---------------------------------------------------------------- 3. scripted run
+var BAD_TEXT = /\bundefined\b|\bNaN\b|\[object\b|\bInfinity\b/;
+function RunCtx(s) { this.s = s; this.label = ''; this.cls = ''; this.errSeen = 0; this.T = null; this.badSeen = {}; this.deaths = 0; }
+RunCtx.prototype.drain = function (w) {
+  var T = w.__T; if (T !== this.T) { this.T = T; this.errSeen = 0; }
+  while (this.errSeen < T.errors.length) fail(this.s, '[' + this.cls + ' · ' + this.label + '] ' + T.errors[this.errSeen++]);
+};
+RunCtx.prototype.scanUi = function (w, where) {
+  var el = w.document.getElementById('ui'); if (!el) return;
+  var d = w.document, tw = d.createTreeWalker(el, 4), node, self = this;
+  while ((node = tw.nextNode())) {
+    if (!BAD_TEXT.test(node.nodeValue)) continue;
+    var par = node.parentElement; if (!par || par.tagName === 'SCRIPT' || par.tagName === 'STYLE') continue;
+    if (!par.getClientRects().length || w.getComputedStyle(par).visibility === 'hidden') continue;      // not visible to the player
+    var holder = par.parentElement || par, ctx = ((holder.innerText || node.nodeValue) + '').replace(/\s+/g, ' ').trim().slice(0, 70);
+    var key = (par.className || par.tagName) + '|' + ctx;
+    if (!this.badSeen[key]) { this.badSeen[key] = 1; fail(this.s, '[' + this.cls + ' · ' + (where || this.label) + '] bad text "' + (BAD_TEXT.exec(node.nodeValue) || [''])[0] + '" in UI element .' + (par.className || par.tagName) + ': "' + node.nodeValue.trim().slice(0, 50) + '" (inside: ' + ctx + ')'); }
+  }
+  // attribute labels that the user hears/reads too
+  var q = el.querySelectorAll('[aria-label],[title]');
+  for (var i = 0; i < q.length; i++) {
+    var a = (q[i].getAttribute('aria-label') || '') + ' ' + (q[i].getAttribute('title') || '');
+    if (BAD_TEXT.test(a)) { var k2 = 'attr|' + a; if (!this.badSeen[k2]) { this.badSeen[k2] = 1; fail(this.s, '[' + this.cls + ' · ' + (where || this.label) + '] bad text in a label attribute: ' + a.trim().slice(0, 80)); } }
+  }
+};
+
+var PANELS = ['inventory', 'character', 'skills', 'perks', 'journal', 'quests', 'map', 'menu', 'settings', 'milestones', 'statsbook', 'classgoals', 'collection', 'relics', 'depth', 'stash', 'surface', 'chute'];
+var ROLES = ['merchant', 'blacksmith', 'mystic', 'healer', 'elder', 'stashkeeper', 'curator', 'refugee', 'camp_merchant'];
+
+async function sectionRun(s) {
+  var classes = listParam('classes'), depths = (listParam('depths') || ['1', '5', '12', '25', '30']).map(Number);
+  var snapshot = {};
+  try { for (var i = 0; i < localStorage.length; i++) snapshot[localStorage.key(i)] = localStorage.getItem(localStorage.key(i)); } catch (e) { /* no storage */ }
+  try {
+    var w = await loadGame();
+    var all = Object.keys(w.G.game.CLASSES);
+    if (classes) all = all.filter(function (c) { return classes.indexOf(c) >= 0; });
+    if (all.length < 4 && !classes) fail(s, 'expected 4 classes, found ' + all.length + ': ' + all.join(', '));
+    for (var ci = 0; ci < all.length; ci++) await runClass(s, all[ci], depths, ci === 0);
+    finish(s, all.length + ' classes × depths ' + depths.join('/') + ' with panels, vendors, death, portal, save/continue');
+  } finally {
+    try { localStorage.clear(); Object.keys(snapshot).forEach(function (k) { localStorage.setItem(k, snapshot[k]); }); } catch (e) { /* ignore */ }
+  }
+}
+
+async function runClass(s, cls, depths, reuseLoaded) {
+  var X = new RunCtx(s); X.cls = cls;
+  var w = gframe.contentWindow;
+  try { localStorage.clear(); } catch (e) { /* ignore */ }
+  w = await loadGame();
+  var G, S, ui;
+  function bind() { G = w.G; S = G.state; ui = G.ui; }
+  bind();
+  async function stage(label, fn) {
+    X.label = label;
+    try { await fn(); } catch (e) { fail(s, '[' + cls + ' · ' + label + '] exception: ' + (e && e.stack ? String(e.stack).split('\n').slice(0, 3).join(' | ') : e)); }
+    X.drain(w);
+  }
+  function dismiss() {
+    var n = 0, d = w.document;
+    for (var i = 0; i < 40; i++) {
+      var t = d.querySelector('.ed-talk');
+      if (t) { t.click(); n++; continue; }
+      var b = [].filter.call(d.querySelectorAll('.ed-dialog .ed-btn,.ed-modal .ed-btn'), function (x) { return /^(close|ok|continue|got it|stay|decline|no)$/i.test(x.textContent.trim()); })[0];
+      if (b) { b.click(); n++; continue; }
+      break;
+    }
+    return n;
+  }
+  function step(dt) {
+    if (S.scene !== 'menu' && !S.paused) {
+      S.time += dt;
+      try { G.game.update(dt); } catch (e) { w.console.error('[game.update]', e); }
+    }
+    try { G.engine.update(dt); G.engine.render(); } catch (e) { w.console.error('[engine]', e); }
+    try { G.ui.update(dt); } catch (e) { w.console.error('[ui.update]', e); }
+  }
+  async function frames(n, dt) { for (var i = 0; i < n; i++) { step(dt || 0.05); if (i % 8 === 7) await sleep(0); } }
+  function levelTo(L) { var g = 0; while (S.player.level < L && g++ < 80) G.game.gainXp(S.player.xpNext); }
+  function finite(p, where) {
+    ['x', 'y', 'hp', 'mp'].forEach(function (k) { if (typeof p[k] !== 'number' || !isFinite(p[k])) fail(s, '[' + cls + ' · ' + where + '] player.' + k + ' = ' + p[k]); });
+  }
+  async function respawnFlow() {
+    // wait for the death panel, then use its button like a player would
+    var t0 = Date.now(), btn = null;
+    while (Date.now() - t0 < 3000) { await sleep(100); step(0.05); btn = w.document.querySelector('.ed-death .ed-btn, .ed-death button'); if (btn) break; }
+    if (!btn) { fail(s, '[' + cls + ' · ' + X.label + '] death screen did not appear within 3 s of dying'); G.scenes.respawn(); }
+    else { X.scanUi(w, 'death screen'); btn.click(); }
+    await sleep(100); step(0.05);
+    if (S.scene !== 'town') fail(s, '[' + cls + ' · ' + X.label + '] after respawn the scene is "' + S.scene + '", expected town');
+    if (!(S.player.hp > 0) || S.player.dead) fail(s, '[' + cls + ' · ' + X.label + '] player not alive after respawn (hp ' + S.player.hp + ')');
+    X.deaths++;
+  }
+  // Simulated hands: stick wandering, attack held, taps, dashes, skills, potions.
+  async function play(secs, depth) {
+    var dt = 0.05, n = Math.round(secs / dt), ang = Math.random() * 6.28, reenter = 0;
+    for (var i = 0; i < n; i++) {
+      var p = S.player, t = i * dt;
+      if (!p) { fail(s, '[' + cls + ' · ' + X.label + '] player vanished'); return; }
+      if (p.dead) {
+        X.label += ' (died)'; info(s, cls + ' died while playing depth ' + depth + ' after ' + t.toFixed(1) + ' s — handled via the death screen');
+        G.input.move.x = G.input.move.y = 0; G.input.attackHeld = false;
+        await respawnFlow(); X.drain(w);
+        if (++reenter > 2) return;
+        G.scenes.enterDungeon(depth); dismiss(); S.paused = false;
+        continue;
+      }
+      if (i % 20 === 0) ang += (Math.random() - 0.5) * 3;
+      // a player who plays: walk at the nearest live enemy (else at loot on the ground), wander when nothing is near
+      var tgt = null, bd = 1e9, ents = S.entities || [];
+      if (i % 6 === 0 || !play.tgt || play.tgt.dead) {
+        for (var ei = 0; ei < ents.length; ei++) { var en = ents[ei]; if (en.type !== 'monster' || en.dead || en.faction === 'player' || en.faction === 'neutral') continue; var dd2 = (en.x - p.x) * (en.x - p.x) + (en.y - p.y) * (en.y - p.y); if (dd2 < bd) { bd = dd2; tgt = en; } }
+        play.tgt = tgt;
+      } else { tgt = play.tgt; bd = (tgt.x - p.x) * (tgt.x - p.x) + (tgt.y - p.y) * (tgt.y - p.y); }
+      var gx = null, gy = null;
+      if (!tgt) { var gi = (S.groundItems || [])[0]; if (gi) { gx = gi.x; gy = gi.y; } }
+      if (tgt) { gx = tgt.x; gy = tgt.y; }
+      if (gx !== null) {
+        var ddx = gx - p.x, ddy = gy - p.y, dl = Math.hypot(ddx, ddy) || 1;
+        var walk = dl > 1.2 && dl < 9 && (i % 60) < 40; G.input.move.x = walk ? ddx / dl : 0; G.input.move.y = walk ? ddy / dl : 0;   // close: stick; far: tap-to-move (pathfinds)
+        if (i % 9 === 4) G.emit('input:tap', { x: gx, y: gy });
+      } else { G.input.move.x = Math.cos(ang); G.input.move.y = Math.sin(ang); }
+      G.input.attackHeld = true;
+      if (i % 11 === 3 && gx === null) G.emit('input:tap', { x: p.x + (Math.random() - 0.5) * 12, y: p.y + (Math.random() - 0.5) * 12 });
+      if (i % 31 === 7) G.emit('input:classaction', {});
+      if (i % 13 === 5) G.emit('input:skill', { slot: (Math.random() * 4) | 0 });
+      if (i % 47 === 20) G.emit('input:potion', { kind: p.hp < p.stats.hpMax * 0.5 ? 'hp' : 'mp' });
+      if (S.paused) { if (ui.isOpen() && ui._current && ui._current() && ui._current().name !== 'death') ui.close(); else if (!dismiss() && !ui.isOpen()) S.paused = false; }
+      step(dt);
+      if (i % 20 === 0) { finite(p, 'play d' + depth); X.drain(w); }
+      if (i % 8 === 7) await sleep(0);
+    }
+    G.input.move.x = G.input.move.y = 0; G.input.attackHeld = false;
+  }
+  async function openPanels(list, where) {
+    for (var i = 0; i < list.length; i++) {
+      var name = list[i];
+      X.label = where + ' panel ' + name;
+      try {
+        ui.close(); ui.open(name);
+        if (!ui.isOpen()) { fail(s, '[' + cls + ' · ' + X.label + '] ui.open("' + name + '") did not open anything (panel not registered?)'); continue; }
+        await sleep(30); step(0.016);
+        X.scanUi(w);
+        var tabs = w.document.querySelectorAll('.ed-panel .ed-tab');
+        for (var k = 0; k < tabs.length && k < 12; k++) {
+          var cur = w.document.querySelectorAll('.ed-panel .ed-tab')[k]; if (!cur) break;
+          cur.click(); X.label = where + ' panel ' + name + ' tab ' + k; X.scanUi(w);
+        }
+      } catch (e) { fail(s, '[' + cls + ' · ' + X.label + '] exception: ' + (e && e.message)); }
+      X.drain(w);
+      ui.close();
+    }
+  }
+  async function vendors() {
+    for (var i = 0; i < ROLES.length; i++) {
+      var role = ROLES[i];
+      X.label = 'vendor ' + role;
+      try {
+        ui.close(); G.emit('npc:interact', { role: role, entity: role === 'refugee' || role === 'camp_merchant' ? { id: 7, name: 'Camper', sprite: null } : null });
+        await sleep(30);
+        if (!ui.isOpen()) { fail(s, '[' + cls + ' · ' + X.label + '] npc:interact opened no panel'); continue; }
+        X.scanUi(w);
+        var nTabs = w.document.querySelectorAll('.ed-panel .ed-tab').length;
+        for (var k = 0; k < nTabs; k++) {
+          var tb = w.document.querySelectorAll('.ed-panel .ed-tab')[k]; if (!tb) break;
+          X.label = 'vendor ' + role + ' tab "' + tb.textContent.trim().slice(0, 14) + '"';
+          tb.click(); X.scanUi(w);
+          // a few buttons inside each tab that are safe to press: toggles/sorts/filter pickers (never confirm dialogs)
+          var safe = [].filter.call(w.document.querySelectorAll('.ed-panel .ed-body .ed-btn'), function (b) { return /gear|stock|your|sort|compare|details/i.test(b.textContent); }).slice(0, 2);
+          for (var j = 0; j < safe.length; j++) { try { safe[j].click(); } catch (e) { /* stale */ } X.scanUi(w, X.label + ' (toggle)'); }
+          dismiss();
+        }
+        info(s, cls + ' ' + role + ': ' + nTabs + ' tab(s)');
+      } catch (e) { fail(s, '[' + cls + ' · ' + X.label + '] exception: ' + (e && e.message)); }
+      X.drain(w);
+      ui.close();
+    }
+  }
+
+  // ---- new game → town
+  await stage('new game', async function () {
+    S.settings.tips = false;
+    G.scenes.startNewGame(cls, 'Test_' + cls);
+    await sleep(300); dismiss(); step(0.05); dismiss();
+    if (S.scene !== 'town') fail(s, '[' + cls + '] after startNewGame scene is "' + S.scene + '"');
+    if (!S.player || S.player.classId !== cls) fail(s, '[' + cls + '] player class is "' + (S.player && S.player.classId) + '"');
+    if (!S.map || S.map.kind !== 'town') fail(s, '[' + cls + '] no town map');
+    finite(S.player, 'new game');
+    await frames(40); X.scanUi(w, 'town HUD');
+    if (!(S.player.inventory || []).some(Boolean) && !Object.keys(S.player.equipment || {}).some(function (k) { return S.player.equipment[k]; })) fail(s, '[' + cls + '] starter gear missing');
+  });
+  await stage('title screen', async function () { /* checked after the reload below */ });
+  await stage('town panels', async function () { S.paused = false; await openPanels(PANELS, 'town'); });
+  await stage('town interactions', async function () {
+    var types = ['dungeon_entrance', 'waypoint', 'stash', 'surface_crate', 'chest', 'shrine'];
+    for (var i = 0; i < types.length; i++) { X.label = 'object:interact ' + types[i]; ui.close(); G.emit('object:interact', { type: types[i], prop: { type: types[i], x: 1, y: 1, interact: types[i] } }); await sleep(20); X.scanUi(w); X.drain(w); ui.close(); }
+  });
+  await stage('vendors', vendors);
+  await stage('character build', async function () {
+    G.game.setAutoBuild('balanced');
+    levelTo(10);
+    for (var i = 0; i < 16; i++) { try { G.items.addToInventory(G.items.rollItem({ level: 10 + i, magicFind: 0 })); } catch (e) { w.console.error('[rollItem]', e); } }
+    S.player.gold += 20000; G.emit('gold:changed', { gold: S.player.gold, delta: 20000 }); G.emit('inventory:changed', {});
+    await openPanels(['inventory', 'skills', 'character'], 'leveled');
+  });
+
+  // ---- depths
+  for (var di = 0; di < depths.length; di++) {
+    var d = depths[di];
+    await stage('depth ' + d, async function () {
+      S.paused = false;
+      levelTo(Math.min(60, Math.max(S.player.level, Math.round(d * 1.8))));
+      G.game.healPlayer(true);
+      G.scenes.enterDungeon(d); dismiss(); S.paused = false;
+      if (S.scene !== 'dungeon' || S.depth !== d) fail(s, '[' + cls + '] enterDungeon(' + d + ') left scene=' + S.scene + ' depth=' + S.depth);
+      if (!S.map || S.map.depth !== d) fail(s, '[' + cls + '] map for depth ' + d + ' missing/wrong');
+      if (S.map && !S.entities.length) fail(s, '[' + cls + '] depth ' + d + ' spawned no entities');
+      await frames(20); X.scanUi(w, 'depth ' + d + ' HUD on arrival');
+      await play(d === 1 ? 15 : 10, d);
+      X.scanUi(w, 'depth ' + d + ' HUD after play');
+      info(s, cls + ' d' + d + ': lvl ' + (S.player && S.player.level) + ', ' + S.entities.length + ' entities, ' + S.groundItems.length + ' ground items, kills ' + S.flags.kills);
+    });
+    if (d === 5 || (depths.indexOf(5) < 0 && di === 1)) {
+      await stage('dungeon panels', async function () { S.paused = false; await openPanels(['inventory', 'skills', 'map', 'menu', 'journal', 'quests'], 'dungeon'); });
+      await stage('die and respawn', async function () {
+        S.paused = false; ui.close(); dismiss();
+        var dd = S.depth, gold0 = S.player.gold;
+        G.game.kill(S.player);
+        await sleep(1100);
+        await respawnFlow();
+        if (!S.flags.corpse) info(s, cls + ': dying at depth ' + dd + ' left no corpse in flags (gold ' + gold0 + ')');
+        X.scanUi(w, 'town after respawn'); await frames(20);
+        // return to the floor with the corpse / echo
+        G.scenes.enterDungeon(dd); dismiss(); S.paused = false;
+        await frames(20);
+        if (S.flags.corpse && !(S.map.props || []).some(function (p) { return p.type === 'corpse'; })) fail(s, '[' + cls + '] corpse flag set but no corpse prop on the rebuilt floor');
+        X.scanUi(w, 'corpse floor');
+        await play(3, dd);
+        if (S.flags.corpse) { G.emit('object:interact', { type: 'corpse' }); X.scanUi(w, 'after reclaim'); }
+        ui.close();
+      });
+    }
+    if (d === 12 || (depths.indexOf(12) < 0 && di === 2)) {
+      await stage('portal out and back', async function () {
+        S.paused = false; ui.close(); G.game.healPlayer(true);
+        var dd = S.depth;
+        G.scenes.townPortal();
+        if (S.scene !== 'town' || S.flags.portalDepth !== dd) fail(s, '[' + cls + '] town portal: scene=' + S.scene + ' portalDepth=' + S.flags.portalDepth + ' (expected town, ' + dd + ')');
+        await frames(10);
+        var pr = (S.map.props || []).filter(function (p) { return p.type === 'portal'; })[0];
+        if (!pr) fail(s, '[' + cls + '] no portal prop in town after using the town portal');
+        X.scanUi(w, 'town after portal');
+        G.emit('object:interact', { type: 'portal', prop: pr });
+        if (S.scene !== 'dungeon' || S.depth !== dd) fail(s, '[' + cls + '] portal back: scene=' + S.scene + ' depth=' + S.depth + ' (expected dungeon ' + dd + ')');
+        await frames(20); X.scanUi(w, 'after portal back');
+      });
+    }
+  }
+
+  // ---- stairs and waypoint
+  await stage('stairs up/down', async function () {
+    G.scenes.enterDungeon(2); dismiss(); S.paused = false; await frames(10);
+    G.scenes.descend(); await frames(10); if (S.depth !== 3) fail(s, '[' + cls + '] descend from 2 gave depth ' + S.depth);
+    G.scenes.ascend(); await frames(10); if (S.depth !== 2) fail(s, '[' + cls + '] ascend from 3 gave depth ' + S.depth);
+    G.scenes.ascend(); await frames(5); G.scenes.ascend(); await frames(10); if (S.scene !== 'town') fail(s, '[' + cls + '] ascending from depth 1 ends in "' + S.scene + '"');
+    X.scanUi(w, 'back in town');
+  });
+
+  // ---- save → reload → continue
+  var snap = null;
+  await stage('save', async function () {
+    G.scenes.enterTown(); dismiss(); S.paused = false; await frames(10);
+    G.meta.save();
+    var p = S.player;
+    snap = { name: p.name, classId: p.classId, level: p.level, gold: p.gold, bag: p.inventory.filter(Boolean).length, maxDepth: S.flags.maxDepth, deaths: S.flags.deaths, equipped: Object.keys(p.equipment || {}).filter(function (k) { return p.equipment[k]; }).length };
+    if (!G.meta.hasSave()) fail(s, '[' + cls + '] meta.save() ran but hasSave() is false');
+  });
+  X.label = 'reload'; X.drain(w);
+  w = await loadGame(); bind(); X.T = null;
+  await stage('title screen', async function () {
+    await sleep(200); X.scanUi(w, 'title screen after reload');
+    if (S.scene !== 'menu') fail(s, '[' + cls + '] after reload scene is "' + S.scene + '", expected menu (title)');
+  });
+  await stage('continue', async function () {
+    if (!G.meta.hasSave()) { fail(s, '[' + cls + '] hasSave() false after reload'); return; }
+    var btn = [].filter.call(w.document.querySelectorAll('#ui button'), function (b) { return /^\s*continue/i.test(b.textContent); })[0];
+    if (btn) btn.click(); else { info(s, cls + ': no "Continue" button found on the title screen; used G.scenes.continueGame()'); G.scenes.continueGame(); }
+    await sleep(300); dismiss(); await frames(20);
+    var p = S.player;
+    if (!p) { fail(s, '[' + cls + '] continue produced no player'); return; }
+    if (S.scene === 'menu') fail(s, '[' + cls + '] still on the title screen after Continue');
+    var now = { name: p.name, classId: p.classId, level: p.level, gold: p.gold, bag: p.inventory.filter(Boolean).length, maxDepth: S.flags.maxDepth, equipped: Object.keys(p.equipment || {}).filter(function (k) { return p.equipment[k]; }).length };
+    ['name', 'classId', 'level', 'gold', 'bag', 'maxDepth', 'equipped'].forEach(function (k) { if (now[k] !== snap[k]) fail(s, '[' + cls + '] save/continue changed ' + k + ': ' + snap[k] + ' → ' + now[k]); });
+    finite(p, 'continue');
+    X.scanUi(w, 'town after continue');
+    await openPanels(['inventory', 'skills'], 'after continue');
+    G.scenes.enterDungeon(3); dismiss(); S.paused = false; await play(3, 3);
+  });
+  info(s, cls + ': ' + X.deaths + ' death(s) during the run');
+  render();
+}
+
+// ---------------------------------------------------------------- 4. team harnesses
+function waitFor(fn, ms, what) {
+  return new Promise(function (res, rej) {
+    var t0 = Date.now();
+    (function tick() {
+      var v; try { v = fn(); } catch (e) { v = null; }
+      if (v) return res(v);
+      if (Date.now() - t0 > ms) return rej(new Error('timed out after ' + Math.round(ms / 1000) + ' s waiting for ' + what));
+      setTimeout(tick, 150);
+    })();
+  });
+}
+function openHarness(file) {
+  return new Promise(function (res, rej) {
+    var done = false;
+    hframe.onload = function () { if (!done) { done = true; res(hframe.contentWindow); } };
+    hframe.src = file + '?all=' + Date.now();
+    setTimeout(function () { if (!done) rej(new Error('did not load')); }, 30000);
+  });
+}
+function countLines(text) {
+  var lines = String(text).split('\n'), pass = 0, bad = [];
+  lines.forEach(function (l) { if (/^\s*PASS\b/.test(l)) pass++; else if (/^\s*FAIL\b/.test(l)) bad.push(l.trim()); });
+  return { pass: pass, fail: bad.length, bad: bad };
+}
+var HARNESSES = [
+  { id: 'engine', file: 'engine.html', name: 'Harness: engine (touch/joystick tests only — the page is otherwise a visual zoo)', run: async function (w) {
+    await sleep(1200); var res = await waitFor(function () { return w.__h && w.__h.touchTests(); }, 20000, 'engine harness'); var c = countLines(res.join('\n')); return { pass: c.pass, fail: c.fail, bad: c.bad, note: res.length ? '' : 'no tests ran' }; } },
+  { id: 'world', file: 'world.html', name: 'Harness: world (generation checks, depth 1–60)', run: async function (w) {
+    await sleep(800); w.document.getElementById('bCheck').click();
+    await waitFor(function () { return w.__result && /assertions/.test(w.document.getElementById('out').textContent); }, 300000, 'world checks');
+    var R = w.__result; var bad = R.failures.slice(0, 40); return { pass: R.asserts - R.failed, fail: R.failed, bad: bad, note: R.summary.split('\n')[0] + (w.__errors && w.__errors.length ? ' · script errors: ' + w.__errors.slice(0, 3).join(' | ') : '') }; } },
+  { id: 'items', file: 'items.html', name: 'Harness: items', run: async function (w) {
+    await waitFor(function () { return w.T && w.T.done; }, 120000, 'items harness'); var bad = w.T.results.filter(function (r) { return !r.pass; }).map(function (r) { return 'FAIL ' + r.group + ' / ' + r.name + (r.detail ? ' — ' + r.detail : ''); }); return { pass: w.T.pass, fail: w.T.fail, bad: bad }; } },
+  { id: 'combat', file: 'combat.html', name: 'Harness: combat', run: async function (w) {
+    await sleep(800); w.document.getElementById('runtests').click();
+    var r = await waitFor(function () { return w.__results; }, 300000, 'combat tests'); var c = countLines(r.text); return { pass: r.passed, fail: r.failed, bad: c.bad, note: r.errors && r.errors.length ? r.errors.length + ' console errors: ' + r.errors.slice(0, 2).join(' | ') : '' }; } },
+  { id: 'ui', file: 'ui.html', name: 'Harness: ui (R7 + save checks)', run: async function (w) {
+    await sleep(1500); var pass = 0, bad = [], dev = w.document.getElementById('dev');
+    var run = async function (label) {
+      var b = [].filter.call(dev.querySelectorAll('button'), function (x) { return x.dataset.dev === label; })[0]; if (!b) { bad.push('FAIL button "' + label + '" not found in ui.html'); return; }
+      var out = dev.querySelector('pre'); out.textContent = ''; b.click();
+      await sleep(1200); var c = countLines(out.textContent); pass += c.pass; bad = bad.concat(c.bad); if (!c.pass && !c.fail) bad.push('FAIL "' + label + '" printed no results: ' + out.textContent.slice(0, 120));
+    };
+    await run('R7: run checks'); await run('save: run checks'); return { pass: pass, fail: bad.length, bad: bad, note: w.__errors && w.__errors.length ? w.__errors.length + ' page errors' : '' }; } },
+  { id: 'smoke', file: 'ui-smoke.html', name: 'Harness: ui-smoke (real game, R6–R16 UI flows)', run: async function (w) {
+    await waitFor(function () { var o = w.document.getElementById('out'); return o && /\nEND\s*$/.test(o.textContent); }, 240000, 'ui-smoke');
+    var txt = w.document.getElementById('out').textContent, c = countLines(txt), m = /ERRORS \((\d+)\)\n([\s\S]*)\nEND/.exec(txt), errs = m ? +m[1] : 0, bad = c.bad.slice();
+    if (m && errs) m[2].split('\n').filter(Boolean).forEach(function (l) { bad.push('ERROR ' + l); });
+    return { pass: c.pass, fail: c.fail + errs, bad: bad }; } },
+];
+async function sectionHarness(h, s) {
+  var w = await openHarness(h.file);
+  var r = await h.run(w);
+  r.bad.slice(0, 60).forEach(function (m) { fail(s, m); });
+  if (r.fail > r.bad.length) fail(s, '… and ' + (r.fail - r.bad.length) + ' more failures not listed');
+  if (!r.pass && !r.fail) fail(s, 'the harness reported no results');
+  if (r.note) info(s, r.note);
+  finish(s, r.pass + ' passed, ' + r.fail + ' failed');
+}
+
+// ---------------------------------------------------------------- driver
+var running = false;
+async function main() {
+  if (running) return; running = true;
+  SECTIONS.length = 0; SRC = {}; var t0 = Date.now();
+  var sLoad = section('load', '1. Load check (index.html)', 'load');
+  var sApi = section('api', '2a. Contract: documented API exists', 'contract');
+  var sEv = section('events', '2b. Contract: events emitted / listened', 'contract');
+  var sCalls = section('calls', '2c. Contract: calls to undefined G.* functions', 'contract');
+  var sRun = section('run', '3. Scripted run (4 classes × depths, panels, vendors, death, portal, save/continue)', 'run');
+  var hs = HARNESSES.map(function (h) { return section('h-' + h.id, '4. ' + h.name, 'harness'); });
+  SECTIONS.forEach(function (s) { if (!wanted(s.group)) { s.status = 'SKIP'; s.summary = 'skipped by ?only= / ?skip='; } });
+  render(); publish(false);
+  var tick = setInterval(function () { $('elapsed').textContent = Math.round((Date.now() - t0) / 1000) + ' s'; publish(false); }, 1000);
+  async function guard(s, fn) {
+    if (s.status === 'SKIP') return;
+    s.status = 'running'; render();
+    try { await fn(); } catch (e) { fail(s, 'section crashed: ' + (e && e.message ? e.message : e)); }
+    if (s.status === 'running') finish(s, s.summary || '');
+  }
+
+  await guard(sLoad, function () { return sectionLoad(sLoad); });
+  if (sLoad.status === 'SKIP' && wanted('contract')) { try { await sectionLoad({ failures: [], infos: [] }); } catch (e) { /* the contract section reports missing sources */ } }
+  if (wanted('contract')) {
+    [sApi, sEv, sCalls].forEach(function (s) { s.status = 'running'; });
+    try { await sectionContract(sApi, sEv, sCalls); } catch (e) { [sApi, sEv, sCalls].forEach(function (s) { if (s.status === 'running') { fail(s, 'contract check crashed: ' + e.message); finish(s); } }); }
+  }
+  await guard(sRun, function () { return sectionRun(sRun); });
+  for (var i = 0; i < HARNESSES.length; i++) { await guard(hs[i], function () { return sectionHarness(HARNESSES[i], hs[i]); }); }
+  clearInterval(tick);
+  $('elapsed').textContent = Math.round((Date.now() - t0) / 1000) + ' s total';
+  render(); publish(true); running = false;
+}
+$('bRun').onclick = function () { main(); };
+window.addEventListener('load', function () { if (!Q.get('noauto')) setTimeout(main, 100); else { publish(false); $('verdict').textContent = 'READY'; } });
+})();
+</script>
+</body>
+</html>
