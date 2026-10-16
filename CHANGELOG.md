@@ -4,6 +4,7 @@ Every build pushed to the live site, newest first (from the git history). The fu
 [docs/history/CONTRACT-r1-r10.md](docs/history/CONTRACT-r1-r10.md); the current design is [docs/DESIGN.md](docs/DESIGN.md).
 
 - **2026-10-15** · `8d37c48` · Revision 10 polish: dash crosses the Leap, rift-core finale, Heat HUD and embers, low-effects mode and FPS counter, UI sweep, consolidated docs/DESIGN.md
+- **2026-10-15** · `d6447a4` · Audit reports, regression check page, service-worker version bump
 - **2026-10-15** · `f0dd9a2` · Hotfix: load errors from the Wren relic text; town portal restored
 - **2026-10-15** · `b623687` · Static boss floors; Wren relic fix; art and sound catalogs
 - **2026-10-15** · `5a4bc88` · R16 Wave A: map, crate, loot filter, sockets, requirements, class goals, inn, floors, save codes
