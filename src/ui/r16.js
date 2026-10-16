@@ -20,7 +20,14 @@
     if (body) add('killsBody_' + body);
   });
   G.on('player:damaged', function (e) { add('hitsTaken'); if (e && e.amount > 0) add('damageTaken', Math.round(e.amount)); });
-  G.on('player:died', function (e) { add('deathsBy_' + String((e && (e.cause || e.by || e.source)) || (e && e.noRetrieve ? 'boss' : 'unknown'))); });
+  // combat sends { cause } on player:died; a key is made of the cause words only, and the book keeps at most 40 different ones
+  G.on('player:died', function (e) {
+    const raw = e && (e.cause || e.by || e.source);
+    let c = (typeof raw === 'string' ? raw : (e && e.noRetrieve ? 'boss' : 'unknown')).toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 24) || 'unknown';
+    const st = stats();
+    if (!(('deathsBy_' + c) in st) && Object.keys(st).filter(function (k) { return k.indexOf('deathsBy_') === 0; }).length >= 40) c = 'other';
+    add('deathsBy_' + c);
+  });
   G.on('input:potion', function (e) { const p = S.player, k = e && e.kind; if (p && p.potions && p.potions[k] > 0) add('potions_' + k); });
   G.on('input:classaction', function () { add('dashes'); });
   G.on('input:skill', function () { add('skillsCast'); });
@@ -114,10 +121,19 @@
     if (r && r.cosmetic) parts.push(TX.goals.cosmetic + (typeof r.cosmetic === 'string' ? r.cosmetic : ''));
     return parts.join(' · ');
   };
+  // the game owns the goals (ids, rules, counters, rewards); the story table adds the name and a line of flavour, keyed by those ids
+  function goalList() {
+    let list = [];
+    if (G.game && typeof G.game.getClassGoals === 'function') { try { list = G.game.getClassGoals() || []; } catch (err) { list = []; } }
+    const T = (meta.STORY && meta.STORY.CLASS_GOALS) || {};
+    return list.map(function (g) {
+      const part = /_(branch|tree20|flow8|depth30)$/.exec(g.id), s = T[g.id] || (part && T.common && T.common[part[1]]) || null;
+      return s ? Object.assign({}, g, { name: s.name || g.name, flavour: s.flavour || '' }) : g;
+    });
+  }
   ui._register('classgoals', {
     render: function () {
-      let list = [];
-      if (G.game && typeof G.game.getClassGoals === 'function') { try { list = G.game.getClassGoals() || []; } catch (err) { list = []; } }
+      const list = goalList();
       const done = list.filter(function (g) { return g.done; }).length;
       const body = h('div', { class: 'ed-body' },
         h('div', { class: 'ed-note', style: 'margin-bottom:6px', text: TX.goals.classFeatsThatPay }),
@@ -127,6 +143,7 @@
           return h('div', { class: 'ed-ms' },
             h('div', { class: 't' }, h('b', { class: g.done ? 'ed-gold' : null, text: (g.done ? '✓ ' : '') + g.name }), h('span', { class: g.done ? 'ed-gold' : 'ed-dim', text: goal > 1 ? fmt(n) + ' / ' + fmt(goal) : (g.done ? TX.goals.done : TX.goals.open) })),
             h('small', { text: g.desc || '' }),
+            g.flavour ? h('small', { class: 'ed-dim', text: g.flavour }) : null,
             goal > 1 ? h('div', { class: 'ed-prog' + (g.done ? ' done' : '') }, h('i', { style: 'width:' + Math.round(Math.min(1, n / goal) * 100) + '%' })) : null,
             g.reward ? h('small', { class: g.done ? 'ed-gold' : null, text: (g.done ? TX.goals.earned : TX.goals.reward) + rewardOf(g.reward) }) : null);
         }) : h('div', { class: 'ed-box ed-note', text: TX.goals.noGoalsYet }));
@@ -136,7 +153,8 @@
   G.on('classgoal:done', function (e) {
     ui._sfx('quest');
     let nm = e && e.id;
-    if (G.game && G.game.getClassGoals) { try { const g = (G.game.getClassGoals() || []).filter(function (x) { return x.id === (e && e.id); })[0]; if (g) nm = g.name; } catch (err) { /* ignore */ } }
+    const g = goalList().filter(function (x) { return x.id === (e && e.id); })[0];
+    if (g) nm = g.name;
     ui._banner(TX.goals.classGoalComplete, nm + (e && e.reward ? ' · ' + rewardOf(e.reward) : ''), '#ffe45b', 5);
     ui._refresh();
   });

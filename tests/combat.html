@@ -2065,7 +2065,7 @@ ok(back.hp < 1e6 && front[0].hp < 1e6 && front[1].hp < 1e6, 'Whirlwind hits all 
     pileAt(10, p.x + 1.5, p.y, [armor('E'), armor('F')]); G.emit('input:attack', {}); step(2, function () { return S.groundItems.length > 0; });
     ok(!evs.length && !S.groundItems.length, 'R12: the LOOT action takes the whole pile');
     pileAt(11, p.x + 2, p.y, [armor('G'), armor('H')]); G.emit('input:longpress', { x: p.x + 2, y: p.y });
-    ok(evs.length === 1 && evs[0].pileId === 11 && S.groundItems.length === 2 && game.openPileAt(p.x + 2, p.y), 'R12: only a long-press (input:longpress / G.game.openPileAt) opens the pile list');
+    ok(evs.length === 0 && S.groundItems.length === 2 && game.openPileAt === undefined, 'R12/R17: the dead input:longpress / openPileAt path is gone (the LOOT button hold opens piles from the HUD)');
     oP(); G.items.getPile = realGetPile; G.items.pickupPile = realPickupPile; S.groundItems.length = 0;
 
     section('Close Call (combat pitch)');
@@ -2526,7 +2526,7 @@ ok(back.hp < 1e6 && front[0].hp < 1e6 && front[1].hp < 1e6, 'Whirlwind hits all 
     game.kill(qq, null); G.scenes.respawn();
     ok(!qq.perks.r_steady && !qq.wager && lostP[0] === 'r_steady', 'dying before town loses the wagered perk (perk:lost)');
     oLo();
-    S.flags.perkWagerAct = null; game.buyPerk('r_running', { wager: true }); G.scenes.enterTown();
+    S.flags.perkWagerAct = null; game.buyPerk('r_running', { wager: true }); G.emit('floor:graded', { grade: 'B' }); G.scenes.enterTown();
     ok(qq.perks.r_running === 'won' && !qq.wager, 'reaching town alive wins the wager for good (perk:won)');
     // auto-build
     const autoBad = [];
@@ -2590,6 +2590,103 @@ ok(back.hp < 1e6 && front[0].hp < 1e6 && front[1].hp < 1e6, 'Whirlwind hits all 
     ok(S.flags.classGoals.w_charge_stun.n === 1 && n16 === 50, 'a Shoulder Charge stun counts toward Battering Ram');
     oG16();
     ok(['ranger', 'sorcerer', 'necromancer'].every(function (c) { fresh(c, true); const gl = game.getClassGoals(); return gl.length >= 6 && gl.length <= 10 && gl.every(function (g) { return g.name && g.desc && g.goal > 0 && (g.reward.mark || g.reward.title); }); }), 'every class has 6–10 goals with a Mark or title reward');
+
+    // ------------------------------------------------------------------
+    section('R17 game audit fixes');
+    // GM-1 / #7: every game.perk* hook has a caller outside its definition (a dead hook means a dead perk)
+    {
+      const hooks = Object.keys(game).filter(function (k) { return /^perk[A-Z]/.test(k) && typeof game[k] === 'function'; });
+      const files = (G.manifest && G.manifest.game) || [];
+      let src = '', readable = true;
+      for (const f of files) {
+        try { const x = new XMLHttpRequest(); x.open('GET', '../src/game/' + f, false); x.send(); if (x.status !== 200) throw new Error(x.status); src += x.responseText + '\n'; } catch (e) { readable = false; }
+      }
+      const dead = hooks.filter(function (k) { return k !== 'perkFeat'; }).filter(function (k) { /* perkFeat is the quests' entry point (ui/quests.js), not a combat hook */ const re = new RegExp('game\\.' + k + '\\b(?!\\s*=\\s*function)', 'g'); return !(src.match(re) || []).length; });
+      ok(!readable || (hooks.length >= 15 && !dead.length), 'R17 #7: every game.perk* hook (' + hooks.length + ') has a caller in src/game', dead.join(', ') || (readable ? '' : 'sources not readable'));
+      ok(typeof game.perkLootRolls === 'function', 'perkLootRolls exists');
+    }
+    // #7: Spoils of War / Trophy Hunter roll elite loot twice
+    {
+      const pw = fresh('warrior', true); toLevel(pw, 30); S.entities = S.entities.filter(function (e) { return e.type !== 'monster'; }); game.live.foes.length = 0;
+      const el = game.createMonster('skeleton', pw.x + 3, pw.y, 5, 'rare'); S.entities.push(el); const d0 = H.drops; el.hp = 0; game.kill(el, pw); const base = H.drops - d0;
+      ['w_edge_discipline', 'w_executioner', 'w_unyielding', 'w_spoils'].forEach(function (id) { game.buyPerk(id, { mark: true }); });
+      pw.perks.w_edge_discipline = pw.perks.w_executioner = pw.perks.w_unyielding = pw.perks.w_spoils = 'point'; game.recomputeStats(pw);
+      const el2 = game.createMonster('skeleton', pw.x + 3, pw.y, 5, 'rare'); S.entities.push(el2); const d1 = H.drops; el2.hp = 0; game.kill(el2, pw);
+      const nm = game.createMonster('skeleton', pw.x + 3, pw.y, 5, 'normal'); S.entities.push(nm); const d2 = H.drops; nm.hp = 0; game.kill(nm, pw);
+      ok(base >= 1 && (d2 - d1) === base * 2 && (H.drops - d2) === 1, 'Spoils of War: an elite drops twice as many rolls, a normal monster still one', base + ' / ' + (d2 - d1) + ' / ' + (H.drops - d2));
+    }
+    // #9: milestone Marks
+    {
+      const pm = fresh('warrior', true); const m0 = game.getPerkPoints().marks;
+      ok(game.grantMark('milestone_test_0') === true && game.getPerkPoints().marks === m0 + 1, 'R17 #9: G.game.grantMark(reason) grants a Mark');
+      ok(game.grantMark('milestone_test_0') === false && game.getPerkPoints().marks === m0 + 1, 'the same reason never pays twice');
+      void pm;
+    }
+    // #9: player:died carries a cause
+    {
+      const pd = fresh('warrior', true); S.entities = S.entities.filter(function (e) { return e.type !== 'monster'; }); game.live.foes.length = 0;
+      let ev = null; const oD = G.on('player:died', function (e) { ev = e; });
+      const mk = game.createMonster('ghoul', pd.x + 2, pd.y, 30, 'normal'); S.entities.push(mk);
+      pd.hp = 1; game.applyHit(pd, { phys: 1e12 }, { src: mk });
+      ok(ev && ev.cause && ev.cause.kind === 'monster' && ev.cause.id === 'ghoul' && typeof ev.cause.name === 'string' && 'noRetrieve' in ev, 'R17 #9: player:died { noRetrieve, cause: { kind: monster, id, name } }', JSON.stringify(ev));
+      G.scenes.respawn(); const pl = fresh('warrior', true); ev = null; pl.hp = 1;
+      game.applyHit(pl, { fire: 1e12 }, { dot: true, cause: 'lava', causeName: 'Lava' });
+      ok(ev && ev.cause.kind === 'lava', 'lava deaths say so');
+      const pb = fresh('warrior', true); ev = null; const bs = game.createBoss(10, pb.x + 3, pb.y); S.entities.push(bs); game.applyHit(pb, { phys: 1e12 }, { src: bs });
+      ok(ev && ev.cause.kind === 'boss', 'boss deaths say so', JSON.stringify(ev));
+      oD();
+    }
+    // GM-4 / #10: a Wager is won only by coming home after clearing a floor
+    {
+      const pg = fresh('ranger', true); toLevel(pg, 30); S.flags.perkWagerAct = null;
+      game.buyPerk('r_steady', { wager: true });
+      G.scenes.enterTown();
+      ok(pg.wager === 'r_steady' && pg.perks.r_steady === 'wager', 'R17 #10: taking a Wager and portalling straight home does not win it');
+      G.scenes.enterDungeon(1); G.emit('floor:graded', { grade: 'B' }); G.scenes.enterTown();
+      ok(!pg.wager && pg.perks.r_steady === 'won', 'clearing a floor (stairs down) and coming home wins it');
+    }
+    // GM-3 / #10: Flow refunds have an internal cooldown; invulnerable Close Calls never chain
+    {
+      const pf = fresh('warrior', true); const CD = function () { pf.cooldowns.bash = 9; pf.cooldowns.cleave = 9; };
+      const t0 = S.time; let resets = 0;
+      for (let i = 0; i < 12; i++) { S.time = t0 + i * 1.1; CD(); game.onCloseCall(pf); if (pf.cooldowns.bash === 0) resets++; }
+      ok(resets >= 1 && resets <= 2, 'R17 #10: Flow ×5+ refunds cooldowns at most once per ~8 s (12 Close Calls in 13 s → ' + resets + ' refund(s))');
+      game.endFlow(); S.time = t0 + 100;
+      const fl0 = game.getFlow().chain; game.closeCall({ r: 2, x: pf.x, y: pf.y }, { invuln: true });
+      ok(game.getFlow().chain === fl0 && game.getEffect(pf, 'close_call'), 'an invulnerable Close Call gives the buff but does not feed the Flow chain');
+      const st1 = game.getEffect(pf, 'close_call').stacks; S.time += 0.8; game.closeCall({ r: 2, x: pf.x, y: pf.y }, { invuln: true });
+      ok(game.getEffect(pf, 'close_call').stacks === st1 && game.getFlow().chain === fl0, 'and it cannot repeat within 4 s');
+    }
+    // GM-6 / #11: taps work while the stick is held
+    {
+      const ps = fresh('warrior', true); S.entities = S.entities.filter(function (e) { return e.type !== 'monster'; }); game.live.foes.length = 0; S.groundItems.length = 0;
+      const near = { id: G.newId(), x: ps.x + 0.5, y: ps.y, item: { id: G.newId(), type: 'armor', name: 'Near', rarity: 'rare' } }; S.groundItems.push(near);
+      G.input.move.x = -1; G.emit('input:tap', { x: near.x, y: near.y }); const held0 = game.ctl.intent && game.ctl.intent.type; step(0.2);
+      const consumed = S.groundItems.indexOf(near) < 0 || !game.ctl.intent;
+      G.input.move.x = 0;
+      ok(held0 === 'item' && consumed, 'R17 #11: a loot tap made while the stick is held is executed, not discarded', held0 + ' / ' + consumed);
+      S.groundItems.length = 0; const far = { id: G.newId(), x: ps.x + 6, y: ps.y, item: { id: G.newId(), type: 'armor', name: 'Far', rarity: 'rare' } }; S.groundItems.push(far);
+      G.input.move.x = -1; G.emit('input:tap', { x: far.x, y: far.y }); step(0.3); const kept = game.ctl.intent && game.ctl.intent.type === 'item'; step(1.5); const gone = !game.ctl.intent;
+      G.input.move.x = 0; S.groundItems.length = 0; game.ctl.intent = null;
+      ok(kept && gone, 'a tap that is out of reach waits ~1 s for you to steer to it, then lapses (the stick never auto-walks)', kept + ' / ' + gone);
+    }
+    // #14: a new class is data, not code
+    {
+      const R = game.CLASSES.ranger;
+      game.CLASSES.rogue = Object.assign({}, R, { id: 'rogue', name: 'Rogue', martial: true, goalPrefix: undefined, weaponSkills: ['aimed_shot'] });
+      let err = null, pr = null;
+      try {
+        game.registerClassGoals('rogue'); pr = fresh('rogue', true); game.setAutoBuild('balanced'); toLevel(pr, 12); game.recomputeStats(pr);
+        S.entities = S.entities.filter(function (e) { return e.type !== 'monster'; });
+      } catch (e) { err = e; }
+      const gids = (game.CLASS_GOALS.rogue || []).map(function (g) { return g.id; }), rids = game.CLASS_GOALS.ranger.map(function (g) { return g.id; });
+      ok(!err && pr && pr.classId === 'rogue', 'R17 #14: a dummy class (same first letter as the Ranger) creates, levels and auto-builds without touching a table', err && err.stack);
+      ok(gids.length >= 4 && gids.every(function (id) { return rids.indexOf(id) < 0; }) && gids[0].indexOf('rogue_') === 0, 'class-goal ids come from CLASSES[id].goalPrefix, else the full class id (no first-letter collision)', gids.join(','));
+      ok(!!game.MARTIAL.rogue && !game.MARTIAL.sorcerer && !!game.MARTIAL.ranger, 'MARTIAL is read from CLASSES[id].martial');
+      ok(game.echoKitFor('fire_bolt') && game.echoKitFor('aimed_shot'), 'Echo kits exist for known skills, and are derived from skill metadata when no hand entry exists');
+      delete game.CLASSES.rogue; delete game.CLASS_GOALS.rogue; fresh('warrior', true);
+    }
+
     oT(); H.mods = null;
   }
 

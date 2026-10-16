@@ -165,6 +165,9 @@
     let end = goal;
     if (!found) {
       if (!capped || best === start) return null;
+      // No real progress (target across a gap/pool): report unreachable so AI leashes instead of staring at the lip.
+      const bdx = (best % w) - sx, bdy = ((best / w) | 0) - sy;
+      if (bdx * bdx + bdy * bdy < 2.25) return null;
       end = best;
     }
 

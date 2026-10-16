@@ -12,6 +12,7 @@
   const PERKS = game.PERKS = {};
   const ORDER = {};          // classId → branch → tier → [idA, idB]
   function def(id, c, b, t, o, name, text, h) {
+    if (PERKS[id]) console.error('[game] duplicate perk id ' + id + ' (ids must be unique across classes — prefix with the class)');
     const d = Object.assign({ id: id, classId: c, branch: b, tier: t, opt: o, name: name, text: text, cost: COST[t], keystone: t === 5 }, h || {});
     PERKS[id] = d;
     ((ORDER[c] = ORDER[c] || {})[b] = ORDER[c][b] || {})[t] = ORDER[c][b][t] || [];
@@ -228,7 +229,7 @@
     else if (pts.points >= d.cost) how = 'point';
     else return false;
     perksOf(p)[id] = how;
-    if (how === 'wager') { p.wager = id; G.state.flags.perkWagerAct = act(); }
+    if (how === 'wager') { p.wager = id; p.wagerFloors = 0; G.state.flags.perkWagerAct = act(); }
     game.recomputeStats(p);
     G.emit('perk:bought', { id: id, how: how });
     return true;
@@ -276,11 +277,16 @@
     G.emit('perk:lost', { id: id });
     U.toast('Your wager is lost: ' + PERKS[id].name, '#c96a6a');
   });
+  // A Wager is won by coming home alive after clearing at least one floor (taking its stairs down) since the stake was laid —
+  // taking it and opening a town portal at once wins nothing (audit GM-4). Dying loses it (above).
+  G.on('floor:graded', function () { const p = G.state.player; if (p && p.wager) p.wagerFloors = (p.wagerFloors | 0) + 1; });
   G.on('scene:changed', function (e) {
     const p = G.state.player;
     if (!p || !e || e.scene !== 'town' || !p.wager) return;
+    if ((p.wagerFloors | 0) < 1) return;
     const id = p.wager;
     p.wager = null;
+    p.wagerFloors = 0;
     perksOf(p)[id] = 'won';
     G.emit('perk:won', { id: id });
     U.toast('Wager won: ' + PERKS[id].name + ' is yours.', '#ffd94a');
@@ -313,9 +319,18 @@
     if (p.feats[id]) return;
     p.feats[id] = true;
     G.emit('perk:mark', { feat: id, marks: game.getPerkPoints(p).marks });
-    U.toast('Mark earned (' + id.replace(/_/g, ' ') + ')', '#ffd94a');
+    if (id.indexOf('mark_') !== 0) U.toast('Mark earned (' + id.replace(/_/g, ' ') + ')', '#ffd94a');          // milestone Marks are announced by the milestone toast
   }
   game.perkFeat = function (id) { feat(G.state.player, id); };
+  // One Mark for a one-time reason (ui/milestones calls it with 'milestone_<id>_<tier>'); repeating a reason grants nothing. Returns true when a Mark was added.
+  game.grantMark = function (reason) {
+    const p = G.state.player;
+    if (!p || !reason) return false;
+    const key = 'mark_' + reason;
+    if (p.feats && p.feats[key]) return false;
+    feat(p, key);
+    return true;
+  };
   G.on('floor:graded', function (e) {
     const p = G.state.player;
     if (!p || !e || e.grade !== 'S') return;
@@ -360,8 +375,9 @@
     if (!p || !p.autoBuild) return;
     const plan = (PLANS[p.classId] || {})[p.autoBuild] || [];
     const list = [];
+    if (!ORDER[p.classId]) return;          // a class without a perk tree
     if (p.bonus && p.bonus.w && p.equipment && p.equipment.weapon && !classWeapon(p)) {          // holding off-class: the licence first
-      for (const o of ORDER[p.classId].cross[1]) if (PERKS[o].licence.indexOf(p.bonus.w.type) >= 0) list.push(o);
+      for (const o of ORDER[p.classId].cross[1]) if (PERKS[o].licence && PERKS[o].licence.indexOf(p.bonus.w.type) >= 0) list.push(o);
     }
     for (const id of list.concat(plan)) {
       if (PERKS[id].keystone || legal(p, id)) continue;

@@ -38,23 +38,54 @@
     G.emit('room:locked', { room: room });
   }
 
+  // One flood fill from the player over the room (gates are down, so the room is all that is reachable): replaces ~100 A* runs per wave.
+  // Returns a Set of tile keys (y * map.w + x) the player can walk to, or null when there is no player/room.
+  function reachable(map, room, p) {
+    const w = map.w, seen = new Set(), q = [], sx = Math.floor(p.x), sy = Math.floor(p.y);
+    if (!inRect(room, sx, sy)) return null;
+    seen.add(sy * w + sx); q.push(sx, sy);
+    for (let h = 0; h < q.length; h += 2) {
+      const x = q[h], y = q[h + 1];
+      for (let k = 0; k < 4; k++) {
+        const nx = x + (k === 0 ? 1 : k === 1 ? -1 : 0), ny = y + (k === 2 ? 1 : k === 3 ? -1 : 0), key = ny * w + nx;
+        if (!inRect(room, nx, ny) || seen.has(key) || !W.walkable(nx + 0.5, ny + 0.5)) continue;
+        seen.add(key); q.push(nx, ny);
+      }
+    }
+    return seen;
+  }
+
+  // Starts a wave: the flood fill and the roster are decided now, the monsters are created 2 per frame (see stepSpawns).
   function spawnWave(map, room) {
     const S = G.state, p = S.player, depth = Math.max(1, map.depth | 0);
     room.wave++;
-    const last = room.wave >= room.waves;
     const n = 3 + Math.min(4, Math.floor(depth / 4)) + (room.wave - 1);
-    const type = game.pickMonsterType(depth, map.theme);
+    const cells = [], seen = reachable(map, room, p);
+    if (seen) for (let y = room.y; y < room.y + room.h; y++) for (let x = room.x; x < room.x + room.w; x++) {
+      if (seen.has(y * map.w + x) && W.tile(x + 0.5, y + 0.5) !== C.TILE.DOOR && Math.hypot(x + 0.5 - p.x, y + 0.5 - p.y) > 2.5) cells.push({ x: x + 0.5, y: y + 0.5 });
+    }
     lock.ids.length = 0;
-    for (let i = 0; i < n; i++) {
-      let spot = null;
-      for (let k = 0; k < 12 && !spot; k++) {
-        const x = room.x + 0.5 + Math.floor(U.rng.next() * room.w), y = room.y + 0.5 + Math.floor(U.rng.next() * room.h);
-        // must be floor the player can actually walk to with the gates down — never strand a wave behind a wall
-        if (W.walkable(x, y) && W.tile(x, y) !== C.TILE.DOOR && Math.hypot(x - p.x, y - p.y) > 2.5 && W.path(p.x, p.y, x, y, 800)) spot = { x: x, y: y };
-      }
-      if (!spot) continue;
-      const rare = last && i === 0, tier = rare ? (depth >= 8 ? 'legendary' : 'rare') : 'normal';      // R3.6: legendary in the last wave from depth 8
-      const e = game.createMonster(rare ? type : (i % 3 === 2 ? game.pickMonsterType(depth, map.theme) : type), spot.x, spot.y, depth + (tier === 'legendary' ? 3 : rare ? 2 : 0), tier);
+    lock.pend = { n: n, i: 0, last: room.wave >= room.waves, type: game.pickMonsterType(depth, map.theme), cells: cells };
+    U.sfx('cast');
+    U.toast('Wave ' + room.wave + ' / ' + room.waves, '#ff9a6a');
+  }
+
+  // is the monster standing on (or right beside) a tile the flood fill reached? (null set = the player left the room: fail-safe handles it)
+  function reaches(seen, map, e) {
+    if (!seen) return true;
+    const x = Math.floor(e.x), y = Math.floor(e.y);
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (seen.has((y + dy) * map.w + x + dx)) return true;
+    return false;
+  }
+
+  function stepSpawns(map, room) {
+    const S = G.state, depth = Math.max(1, map.depth | 0), pe = lock.pend;
+    for (let c = 0; c < 2 && pe.i < pe.n; c++) {
+      const i = pe.i++;
+      if (!pe.cells.length) continue;
+      const spot = pe.cells[Math.floor(U.rng.next() * pe.cells.length)];
+      const rare = pe.last && i === 0, tier = rare ? (depth >= 8 ? 'legendary' : 'rare') : 'normal';      // R3.6: legendary in the last wave from depth 8
+      const e = game.createMonster(rare ? pe.type : (i % 3 === 2 ? game.pickMonsterType(depth, map.theme) : pe.type), spot.x, spot.y, depth + (tier === 'legendary' ? 3 : rare ? 2 : 0), tier);
       e.lockdown = true;
       e.ai.st = 'chase'; e.ai.atk = 0.8 + U.rng.next() * 0.6;
       S.entities.push(e);
@@ -62,8 +93,7 @@
       U.fx('smoke', spot.x, spot.y, { color: '#b98cff' });
       U.fx('ring', spot.x, spot.y, { radius: 0.6, color: '#b98cff', duration: 0.4 });
     }
-    U.sfx('cast');
-    U.toast('Wave ' + room.wave + ' / ' + room.waves, '#ff9a6a');
+    if (pe.i >= pe.n) lock.pend = null;
   }
 
   function release(map, room, cleared) {
@@ -128,16 +158,17 @@
       if (lock.next <= 0) spawnWave(map, room);
       return;
     }
+    if (lock.pend) { stepSpawns(map, room); return; }          // the wave arrives 2 monsters a frame, not all in one
     // Every 2 s: a wave monster nobody can walk to (wedged behind furniture, the far side of a pit) is pulled back in.
     lock.reach = (lock.reach || 0) - dt;
     const check = lock.reach <= 0;
     if (check) lock.reach = 2;
-    let alive = false;
+    let alive = false, seen = null;
     for (let i = 0; i < lock.ids.length; i++) {
       const e = game.byId(lock.ids[i]);
       if (!e || e.dead) continue;
       alive = true;
-      if (check && Math.hypot(e.x - p.x, e.y - p.y) > 1.2 && !e.fly && !W.path(p.x, p.y, e.x, e.y, 800)) {
+      if (check && !e.fly && Math.hypot(e.x - p.x, e.y - p.y) > 1.2 && !reaches(seen || (seen = reachable(map, room, p)), map, e)) {
         const spot = W.free(p.x + U.rand(-2, 2), p.y + U.rand(-2, 2), 3);
         if (spot && inRect(room, Math.floor(spot.x), Math.floor(spot.y))) {
           U.fx('teleport', e.x, e.y, {}); e.x = spot.x; e.y = spot.y; e.ai.path = null; U.fx('teleport', e.x, e.y, {});

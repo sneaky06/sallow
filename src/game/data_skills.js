@@ -14,6 +14,9 @@
       sprite: { body: 'humanoid', color: '#9a3b2e', accent: '#c9c2b0', scale: 1, weapon: 'sword' },
       icon: { shape: 'sword', color: '#d8d2c4', accent: '#9a3b2e' },
       baseAttrs: { str: 10, dex: 5, int: 3, vit: 8 }, primaryStat: 'str', weaponTypes: ['sword', 'axe', 'mace'],
+      // class data (audit #14): martial = skills swing with the weapon (not a fixed cast rate); goalPrefix keeps the saved class-goal ids;
+      // weaponSkills need a class weapon (R8.7); sprite.accent colours non-bow ranged shots
+      martial: true, goalPrefix: 'w', weaponSkills: ['bash', 'charge', 'rend', 'execute', 'cleave', 'whirlwind', 'leap', 'earthquake'],
       // R6.3 class action: one charge, but it hits — foes in the path are knocked aside and struck
       action: { id: 'dash', kind: 'charge', name: 'Shoulder Charge', desc: 'Barge about 3.5 tiles toward your stick, knocking foes in your path aside for 60% weapon damage. Untouchable for a moment.',
         icon: { shape: 'shield', color: '#c9c2b0', accent: '#9a3b2e' }, cd: 4.5, d: 3.5, inv: 0.3, charges: 1 },
@@ -29,6 +32,7 @@
       sprite: { body: 'humanoid', color: '#3f6b3a', accent: '#b89a5a', scale: 1, weapon: 'bow' },
       icon: { shape: 'bow', color: '#b89a5a', accent: '#3f6b3a' },
       baseAttrs: { str: 5, dex: 10, int: 4, vit: 7 }, primaryStat: 'dex', weaponTypes: ['bow', 'dagger'],
+      martial: true, goalPrefix: 'r', weaponSkills: ['aimed_shot', 'piercing_shot', 'poison_arrow', 'snipe', 'multishot', 'rain_of_arrows', 'explosive_arrow', 'arrow_storm'],
       action: { id: 'dash', kind: 'roll', name: 'Dash', desc: 'Dash about 3 tiles toward your stick (or away from the nearest enemy), untouchable for a moment. 2 charges.',
         icon: { shape: 'leap', color: '#b89a5a' }, cd: 3, d: 3, inv: 0.35, charges: 2 },
       hp: 42, hpLvl: 7, mp: 30, mpLvl: 2, mpRegen: 1.5, mpOnHit: 1, starter: { dmgMin: 3, dmgMax: 6, attackSpeed: 1.3, weaponType: 'bow' },
@@ -43,6 +47,7 @@
       sprite: { body: 'caster', color: '#3a4f9a', accent: '#ffb347', scale: 1, weapon: 'staff' },
       icon: { shape: 'staff', color: '#ffb347', accent: '#3a4f9a' },
       baseAttrs: { str: 3, dex: 4, int: 11, vit: 6 }, primaryStat: 'int', weaponTypes: ['staff', 'wand'],
+      martial: false, goalPrefix: 's', weaponSkills: [],
       action: { id: 'dash', kind: 'blink', name: 'Blink', desc: 'Vanish and reappear about 3.5 tiles toward your stick (or away from the nearest enemy). 2 charges.',
         icon: { shape: 'star', color: '#b98cff', accent: '#3a4f9a' }, cd: 3.5, d: 3.5, inv: 0.25, charges: 2 },
       hp: 36, hpLvl: 6, mp: 40, mpLvl: 4, mpRegen: 2.6, starter: { dmgMin: 3, dmgMax: 6, attackSpeed: 1.0, weaponType: 'staff' },
@@ -57,6 +62,7 @@
       sprite: { body: 'caster', color: '#3b2a4a', accent: '#8ee06a', scale: 1, weapon: 'wand' },
       icon: { shape: 'skull', color: '#d9d4c0', accent: '#8ee06a' },
       baseAttrs: { str: 3, dex: 4, int: 10, vit: 7 }, primaryStat: 'int', weaponTypes: ['wand', 'staff', 'dagger'],
+      martial: false, goalPrefix: 'n', weaponSkills: [],
       action: { id: 'dash', kind: 'roll', name: 'Grave Step', desc: 'Slip about 3 tiles through the dark toward your stick (or away from the nearest enemy), untouchable for a moment. 2 charges.',
         icon: { shape: 'skull', color: '#b98cff', accent: '#3b2a4a' }, cd: 3.5, d: 3, inv: 0.3, charges: 2, fx: 'teleport' },
       hp: 38, hpLvl: 6, mp: 40, mpLvl: 4, mpRegen: 2.3, starter: { dmgMin: 1, dmgMax: 3, attackSpeed: 1.5, weaponType: 'wand' },

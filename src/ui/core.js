@@ -262,7 +262,7 @@
       modals.splice(i, 1);
       m.el.remove();
       if (!modals.length) root.classList.remove('ed-modal-open');
-      if (m.pause && !cur) S.paused = false;
+      if (m.pause && !cur && !modals.some(function (x) { return x.pause; })) S.paused = false;      // another pausing modal still holds the game
     };
     m.el = h('div', { class: 'ed-modal', onclick: function (e) { if (e.target === m.el && opts.dismiss !== false) m.close(); } }, content);
     modals.push(m);

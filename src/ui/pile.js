@@ -111,6 +111,30 @@
     if (r && r.left > 0) ui.toast(r.taken > 0 ? TX.chute.yourBagIsFull + r.left + TX.hud.leftOnTheGround : 'Your bag is full.', '#a89f8f');
   });
 
+  // A press-and-hold (0.45 s, finger still) on the playfield opens the pile list for the pile under the finger.
+
+  (function longPress() {
+    const E = G.engine;
+    let down = null, timer = 0;
+    const cancel = function () { clearTimeout(timer); timer = 0; down = null; };
+    window.addEventListener('pointerdown', function (e) {
+      cancel();
+      if (!e.target || e.target.tagName !== 'CANVAS' || !S.player || S.scene === 'menu' || ui.isOpen() || !E || !E.screenToWorld) return;
+      down = { id: e.pointerId, x: e.clientX, y: e.clientY };
+      timer = setTimeout(function () {
+        const d = down; cancel();
+        if (!d || !S.player || ui.isOpen()) return;
+        const w = E.screenToWorld(d.x, d.y);
+        // open the pile standing at that spot (the game's own hold-to-open lives on the LOOT button)
+        let best = null, bd = 2.2;
+        for (const g of (S.groundItems || [])) { if (!g || !g.item || g.item.type === 'gold') continue; const dd = Math.hypot(g.x - w.x, g.y - w.y); if (dd < bd) { bd = dd; best = g; } }
+        if (best && best.pileId != null) G.emit('pile:open', { pileId: best.pileId, long: true });
+      }, 450);
+    }, true);
+    window.addEventListener('pointermove', function (e) { if (down && e.pointerId === down.id && Math.hypot(e.clientX - down.x, e.clientY - down.y) > 14) cancel(); }, true);
+    ['pointerup', 'pointercancel'].forEach(function (t) { window.addEventListener(t, function (e) { if (down && e.pointerId === down.id) cancel(); }, true); });
+  })();
+
   // ---------- review new finds (pitch) ----------
   // Items gain foundAt (state.time) when picked up (R5.7, items team); stamp it here too if a pickup arrives without one.
   G.on('item:picked', function (e) {

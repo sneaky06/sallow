@@ -12,8 +12,8 @@
   // guaranteed crit. 4 → also every dash charge back. 5+ → also every skill cooldown reset ("FLOW ×n"). The chain resets after
   // 8 s without a Close Call. Slow motion always ends: by its own timer, by a real-time fallback (also while paused), and on
   // death or any scene change.
-  const flow = { n: 0, last: -99, t: 0, timer: 0 };
-  const SLOW = 0.35, SLOW_T = 0.45;
+  const flow = { n: 0, last: -99, t: 0, timer: 0, trig: -99, refill: -99 };
+  const SLOW = 0.35, SLOW_T = 0.45, FLOW_GAP = 1, REFILL_CD = 8;          // min seconds between Flow triggers / between charge+cooldown refunds
   function endSlow() {
     flow.t = 0;
     if (flow.timer) { clearTimeout(flow.timer); flow.timer = 0; }
@@ -27,13 +27,18 @@
     flow.last = now;
     G.emit('flow:chain', { count: flow.n });
     if (flow.n < 3) return;
+    if (now - flow.trig < FLOW_GAP) return;          // audit GM-3: Flow cannot retrigger within a second of the last one
+    flow.trig = now;
     G.state.timeScale = SLOW;
     flow.t = SLOW_T * ((G.state.player && G.state.player.bonus || {}).flowSlowMult || 1);          // perk Bullet Time
     if (flow.timer) clearTimeout(flow.timer);
     flow.timer = setTimeout(function () { flow.timer = 0; if (G.state.timeScale === SLOW) G.state.timeScale = 1; }, Math.round(flow.t / SLOW * 1000) + 200);
     game.addEffect(p, { id: 'flow_crit', t: 6 });
-    if (flow.n >= 4 && game.ctl) { game.ctl.dashN = -1; game.ctl.dashCd = 0; }
-    if (flow.n >= 5) for (const id in p.cooldowns) p.cooldowns[id] = 0;
+    if (flow.n >= 4 && now >= flow.refill) {          // the refund (dash charges + every cooldown) has an internal cooldown
+      flow.refill = now + REFILL_CD;
+      if (game.ctl) { game.ctl.dashN = -1; game.ctl.dashCd = 0; }
+      if (flow.n >= 5) for (const id in p.cooldowns) p.cooldowns[id] = 0;
+    }
     U.text(p.x, p.y - 1.7, flow.n > 3 ? 'FLOW ×' + flow.n : 'FLOW', '#7fffd4', true);
     U.fx('nova', p.x, p.y, { radius: 2.5, color: '#7fffd4' }); U.sfx('shrine');
     G.emit('flow:start', { chain: flow.n });          // deprecated alias of flow:trigger (kept for one release)
@@ -44,8 +49,8 @@
     if (flow.t > 0 && (flow.t -= dt) <= 0) endSlow();
     if (flow.n && G.state.time - flow.last > ((G.state.player && G.state.player.bonus || {}).flowWindow || 8)) flow.n = 0;
   }
-  G.on('scene:changed', function () { endSlow(); flow.n = 0; });
-  G.on('player:died', function () { endSlow(); flow.n = 0; });
+  G.on('scene:changed', function () { endSlow(); flow.n = 0; flow.trig = flow.refill = -99; });
+  G.on('player:died', function () { endSlow(); flow.n = 0; flow.trig = flow.refill = -99; });
 
   // ============================== shrine bargains ==============================
   // Shrines World marks as bargains (prop.bargain: true or a bargain id, shrineKind 'bargain') offer a deal instead of a buff

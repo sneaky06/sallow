@@ -55,6 +55,17 @@
     return m;
   }
 
+  // Imported or hand-edited items: a stack count must be a whole number from 1 to the stack limit.
+  function sanitizeItems(list) {
+    if (!Array.isArray(list)) return;
+    const max = Math.max(999, (G.items && G.items.data && G.items.data.MAX_STACK) || 0);      // generous: this only stops absurd counts, never trims a real stack
+    for (const it of list) {
+      if (!it || typeof it !== 'object' || it.qty === undefined) continue;
+      const q = Math.floor(+it.qty);
+      it.qty = isFinite(q) && q >= 1 ? Math.min(q, max) : 1;
+    }
+  }
+
   function fit(arr, n) {
     const out = Array.isArray(arr) ? arr.slice(0, n) : [];
     while (out.length < n) out.push(null);
@@ -70,13 +81,14 @@
     const p = data.player || {};
     return { savedAt: data.savedAt || 0, name: String(p.name || 'Hero').slice(0, 20), classId: p.classId, level: p.level | 0, depth: (data.flags && data.flags.maxDepth) | 0, seed: data.seed, raw: raw };
   }
+  // Entries read from storage remember their stored string (non-enumerable `_s`), so writeRing only touches the slots that changed.
   function readRing() {
     const ls = store(), out = [];
     if (!ls) return out;
     for (let i = 0; i < RING; i++) {
-      let e = null;
-      try { e = JSON.parse(ls.getItem(BAK + i)); } catch (err) { e = null; }
-      if (e && typeof e === 'object' && typeof e.raw === 'string') out.push(e);
+      let e = null, s = null;
+      try { s = ls.getItem(BAK + i); e = JSON.parse(s); } catch (err) { e = null; }
+      if (e && typeof e === 'object' && typeof e.raw === 'string') { Object.defineProperty(e, '_s', { value: s, enumerable: false }); out.push(e); }
     }
     return out;
   }
@@ -87,7 +99,9 @@
     for (;;) {                                   // quota full: shed the oldest entry and retry
       try {
         for (let i = 0; i < RING; i++) {
-          if (list[i]) ls.setItem(BAK + i, JSON.stringify(list[i])); else ls.removeItem(BAK + i);
+          let old = null;
+          try { old = ls.getItem(BAK + i); } catch (err) { old = null; }
+          if (list[i]) { const s = list[i]._s || JSON.stringify(list[i]); if (s !== old) ls.setItem(BAK + i, s); } else if (old !== null) ls.removeItem(BAK + i);
         }
         return true;
       } catch (err) {
@@ -140,30 +154,43 @@
   meta.save = function () {
     const ls = store();
     if (!ls || !S.player || meta._noSave) return false;
+    let raw;
     try {
-      // Never overwrite the only copy of something we could not read (a save from a newer or older build, or a
-      // damaged one): park it under its own key first. A later build with a migration can still pick it up.
-      const before = ls.getItem(KEY);
-      if (!guarded) {
-        guarded = true;
-        if (before && !parse(before)) ls.setItem(KEY + '.unreadable', before);
-        else if (before) ls.setItem(KEY + '.prev', before);      // last good save of the previous session
-      }
-      // a different hero is about to replace the one on disk (New Game): keep the old one in the ring first
-      if (before && ringSeed(before) !== S.seed) pushRing(before);
-      const raw = JSON.stringify({
+      raw = JSON.stringify({
         v: VERSION, savedAt: Date.now(), seed: S.seed, time: S.time,
         player: S.player, flags: S.flags, quests: S.quests, stash: S.stash, surface: S.surface || [], settings: S.settings,
       });
-      ls.setItem(KEY, raw);
-      if (ringDue) { ringDue = false; pushRing(raw); }        // at most one ring write per scene change
-      if (!savedOnce) { savedOnce = true; if (G.ui && G.ui._askPersist) G.ui._askPersist(); }
-      return true;
-    } catch (err) {
-      console.warn('[meta.save]', err);
-      return false;
+    } catch (err) { return failed(err); }
+    // The main save is written first, in its own try: the safety copies below can fail without costing the session.
+    let before = null;
+    try { before = ls.getItem(KEY); } catch (err) { before = null; }
+    // Never overwrite the only copy of something we could not read (a save from a newer or older build, or a
+    // damaged one): park it under its own key first. A later build with a migration can still pick it up.
+    if (!guarded && before) {
+      try {
+        if (!parse(before)) {
+          try { ls.setItem(KEY + '.unreadable', before); } catch (err) { ls.removeItem(KEY + '.prev'); ls.setItem(KEY + '.unreadable', before); }
+        } else ls.setItem(KEY + '.prev', before);                  // last good save of the previous session
+      } catch (err) { console.warn('[meta.save.prev]', err); }
     }
+    guarded = true;
+    try { ls.setItem(KEY, raw); } catch (err) { return failed(err); }
+    if (saveFailing) { saveFailing = false; if (G.ui && G.ui.toast) G.ui.toast(G.ui.S.save.savedAgain, '#a89f8f'); }
+    try {
+      // a different hero replaced the one on disk (New Game): keep the old one in the ring
+      if (before && ringSeed(before) !== S.seed) pushRing(before);
+      if (ringDue) { ringDue = false; pushRing(raw); }        // at most one ring write per scene change, and only the changed slot
+    } catch (err) { console.warn('[meta.save.ring]', err); }
+    if (!savedOnce) { savedOnce = true; if (G.ui && G.ui._askPersist) G.ui._askPersist(); }
+    return true;
   };
+  // one toast per failure streak, until a save works again
+  let saveFailing = false;
+  function failed(err) {
+    console.warn('[meta.save]', err);
+    if (!saveFailing) { saveFailing = true; if (G.ui && G.ui.toast) G.ui.toast(G.ui.S.save.couldNotSave, '#ff7b6b'); }
+    return false;
+  }
 
   // ---------- export / import (save codes) ----------
   // Codes (all plain text, base64url after the tag):
@@ -358,11 +385,12 @@
     p.dead = false;
     p.anim = 'idle'; p.animT = 0; p.hitFlash = 0;
     if (!(p.hp > 0)) p.hp = 1;
-    if (!(p.gold >= 0)) p.gold = 0;
+    if (!(p.gold >= 0) || !isFinite(p.gold)) p.gold = 0;
+    sanitizeItems(p.inventory); sanitizeItems(Object.keys(p.equipment).map(function (k) { return p.equipment[k]; })); sanitizeItems(data.stash); sanitizeItems(data.surface);
 
     const f = (data.flags && typeof data.flags === 'object') ? data.flags : {};
     const flags = { maxDepth: 1, waypoints: [1], portalDepth: 0, visits: 0, kills: 0, deaths: 0, corpse: null, sealed: false };
-    for (const k in f) flags[k] = f[k];
+    for (const k in f) if (k !== '__proto__' && k !== 'constructor' && k !== 'prototype') flags[k] = f[k];
     if (!Array.isArray(flags.waypoints) || !flags.waypoints.length) flags.waypoints = [1];
     flags.portalDepth = Math.max(0, flags.portalDepth | 0);
     flags.sealed = false;       // a lockdown never survives a reload: the player always resumes in town
@@ -380,8 +408,9 @@
     S.seed = (data.seed >>> 0) || 1;
     S.time = +data.time || 0;
     if (data.settings && typeof data.settings === 'object') {
-      for (const k in data.settings) S.settings[k] = data.settings[k];
+      for (const k in data.settings) if (k !== '__proto__' && k !== 'constructor' && k !== 'prototype') S.settings[k] = data.settings[k];
       delete S.settings.junkRarity;      // replaced by settings.junk (R3.1)
+      if (G.ui && G.ui._migrateFilters) G.ui._migrateFilters(S.settings);      // old filter shapes -> settled ones (see filter.js)
     }
     S.quests = (data.quests && typeof data.quests === 'object') ? data.quests : {};
     if (meta._repairQuests) meta._repairQuests();

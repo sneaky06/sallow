@@ -112,7 +112,7 @@
 
   // ---- floating text ----
   const TN = 48, texts = [];
-  for (let i = 0; i < TN; i++) texts.push({ on: false, x: 0, y: 0, t: 0, dur: 1, img: null, scale: 1, dx: 0, crit: false });
+  for (let i = 0; i < TN; i++) texts.push({ on: false, x: 0, y: 0, t: 0, dur: 1, img: null, atlas: null, str: '', scale: 1, dx: 0, crit: false });
   let tHead = 0;
 
   const shake = { t: 0, dur: 0, amt: 0, x: 0, y: 0 };
@@ -122,8 +122,8 @@
     const x = +e.x, y = +e.y;
     if (!isFinite(x) || !isFinite(y)) return;
     // a hand-drawn strip fx/<type>.png plays instead (once over the duration, sized to the radius)
-    const strip = U.assets && U.assets.fx(e.type);
-    if (strip) { shape('sprite', x, y, num(e.duration, Math.min(1, strip.length * 0.06)), e.type, num(e.radius, 1), num(e.angle, 0)); fxs[(fxHead + FXN - 1) % FXN].frames = strip; return; }
+    const strip = U.assets && U.assets.fx(e.type, [e.dtype, e.element, e.rarity]);       // fx/<type>_<element|rarity>.png first
+    if (strip) { shape('sprite', x, y, num(e.duration, strip.fps ? strip.length / strip.fps : Math.min(1, strip.length * 0.06)), e.type, num(e.radius, 1), num(e.angle, 0)); fxs[(fxHead + FXN - 1) % FXN].frames = strip; return; }
     (SPAWN[e.type] || SPAWN.spark)(x, y, e);
   });
   G.on('fx:text', function (e) {
@@ -133,7 +133,12 @@
     const t = texts[tHead]; tHead = (tHead + 1) % TN;
     const crit = !!e.crit;
     t.on = true; t.x = x; t.y = y; t.t = 0; t.dur = crit ? 1.1 : 0.85; t.crit = crit;
-    t.img = U.text(String(e.text).slice(0, 28) + (crit ? '!' : ''), U.safeColor(e.color, crit ? '#ffe45b' : '#ffffff'));
+    const col = U.safeColor(e.color, crit ? '#ffe45b' : '#ffffff');
+    let s = typeof e.text === 'number' ? U.shortNumber(e.text) : String(e.text).slice(0, 28);
+    if (/^\d{5,}$/.test(s)) s = U.shortNumber(+s);
+    s = s.toUpperCase() + (crit ? '!' : '');
+    if (/^[+-]?\d[\d.,]*[KMB]?!?$/.test(s)) { t.atlas = U.glyphAtlas(col); t.str = s; t.img = null; }      // damage numbers: drawn from the digit atlas, no canvas per value
+    else { t.atlas = null; t.img = U.text(s, col); }
     t.scale = crit ? 2 : 1; t.dx = Math.round((rnd() - 0.5) * 16);
   });
   G.on('fx:shake', function (e) {
@@ -251,11 +256,11 @@
         const t = texts[i];
         if (!t.on) continue;
         const k = t.t / t.dur, sc = t.crit && t.t < 0.09 ? 3 : t.scale;
-        const w = t.img.width * sc, h = t.img.height * sc;
+        const w = (t.atlas ? U.glyphWidth(t.str) : t.img.width) * sc, h = 9 * sc;
         const sx = Math.round((t.x - t.y) * 16 - offX + t.dx - w / 2);
         const sy = Math.round((t.x + t.y) * 8 - offY - 24 - 22 * (1 - (1 - k) * (1 - k)) - h / 2);
         if (k > 0.7) ctx.globalAlpha = Math.max(0, (1 - k) / 0.3);
-        ctx.drawImage(t.img, sx, sy, w, h);
+        if (t.atlas) U.drawGlyphs(ctx, t.atlas, t.str, sx, sy, sc); else ctx.drawImage(t.img, sx, sy, w, h);
         ctx.globalAlpha = 1;
       }
     },

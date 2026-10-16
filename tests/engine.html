@@ -409,11 +409,91 @@ window.G = { manifest: {} };
       if (hasTouch) { start(4, cfg.cx, cfg.cy, [[4, cfg.cx, cfg.cy]]); ok('lost touch (no end event) is released, new touch grabs', J.active && J.id === 't4'); end(4, cfg.cx, cfg.cy, []); }
       else end(3);
       S.settings.hud = keep; if (!keep) delete S.settings.hud;
+      loaderTests(ok);
       log(res.join('\n'));
       window.__touch = res;
       return res;
     }
     btn(s14, 'run touch tests', touchTests);
+
+    // ------------------------------------------------------------ R17 loader tests (synchronous, no network): every path, folder and format the
+    // art / sound catalogs describe is accepted; wrong ones are rejected without throwing; nothing is capped
+    function loaderTests(ok) {
+      var A = E._.assets, U = E._, quiet = console.warn;
+      console.warn = function () {};               // rejections warn by design; keep the report readable
+      try {
+        var cv = function (w, h, paint) { var c = U.makeCanvas(w, h), x = c.getContext('2d'); if (paint) paint(x, w, h); return c; };
+        var blob = function (x, w, h) { x.fillStyle = '#c0a060'; x.fillRect(w * 0.3, h * 0.3, w * 0.4, h * 0.5); };
+        var parses = function (p) { return typeof A.parse(p) === 'object'; };
+        // ---- art paths from ART_CATALOG / the folder READMEs
+        var good = ['tiles/crypt.png', 'tiles/crypt_ossuary.png', 'sprites/goblin/walk.png', 'sprites/goblin/walk_8.png', 'sprites/boss_tyrant/attack_p2.png', 'sprites/npc_refugee_2/idle.png',
+          'sprites/player_base/idle.png', 'sprites/warrior_base/walk.png', 'gear/generic_sword/attack.png', 'gear/pallid_greatsword/walk.png', 'props/chest.png', 'props/barrel_crypt.png',
+          'icons/sword.png', 'icons/potion_hp.png', 'icons/items/heavy_helm_3.png', 'icons/uniques/some_unique.png', 'icons/gems/ruby_5.png', 'icons/blood/fury_1.png', 'icons/materials/mat_dust.png',
+          'icons/consumables/flask_rejuv.png', 'icons/relics/wren_ring.png', 'icons/skills/bash.png', 'icons/perks/brawler.png', 'icons/class/warrior.png', 'icons/status/burning.png', 'icons/gold_small.png',
+          'projectiles/arrow.png', 'portraits/npc_elder.png', 'fx/hit.png', 'fx/lootbeam_legendary.png', 'ui/joystick_base.png', 'ui/logo.png', 'ui/frames/panel.png', 'ui/buttons/button_normal.png',
+          'ui/hud/orb_frame.png', 'ui/inventory/slot_helm.png', 'ui/map/frame.png', 'ui/markers/target_boss.png', 'ui/perks/node_keystone_owned.png', 'ui/rarity/frame_mythic.png', 'ui/skills/link_on.png',
+          'ui/splash/splash_1170x2532.png', 'ui/appicon/appicon_1024.png'];
+        var bad = good.length;
+        good.forEach(function (p) { if (parses(p)) bad--; });
+        ok('every catalog art path parses (' + good.length + ' samples' + (bad ? ', ' + bad + ' rejected' : '') + ')', bad === 0);
+        var junk = ['icons/foo/bar.png', 'ui/nope/x.png', 'tiles/a/b.png', 'sprites/a/b/c.png', 'Sprites/Goblin.png', 'sprites/goblin.PNG', 'sprites/gob lin.png', 'readme.md', '../sprites/a.png', 'icons/items/a/b.png'];
+        var mis = 0;
+        junk.forEach(function (p) { if (parses(p)) mis++; });
+        ok('unknown nesting / case / extensions are rejected, not mis-bound (' + mis + ' wrongly accepted)', mis === 0);
+        // ---- no cap, { file, fps } entries
+        var list = [];
+        for (var i = 0; i < 4200; i++) list.push(i % 3 === 0 ? { file: 'props/zz_cap_' + i + '.png', fps: 6 } : 'props/zz_cap_' + i + '.png');
+        ok('4200 listed files are all indexed (no 3000 cap)', A.register(list) === 4200);
+        ok('{ file, fps } entries are accepted', A.stats().listed >= 4200 && A.rejected().every(function (r) { return !/zz_cap/.test(r.path); }));
+        // ---- sound paths: every folder of the SOUND_DESIGN tree
+        var snd = { 'sound/hit.m4a': 'root', 'sound/sfx/player/step_stone.m4a': 'sfx/player', 'sound/sfx/skills/warrior/skill_bash_cast_2.m4a': 'sfx/skills/warrior', 'sound/sfx/monsters/crypt/mon_x_hurt.m4a': 'sfx/monsters/crypt',
+          'sound/sfx/bosses/gravelord/boss_gl_roar.m4a': 'sfx/bosses/gravelord', 'sound/ui/click.m4a': 'ui', 'sound/ambience/amb_crypt.m4a': 'ambience', 'sound/music/music_crypt.m4a': 'music', 'sound/stingers/sting_death.m4a': 'stingers',
+          'sound/x.mp3': 'root', 'sound/x.ogg': 'root', 'sound/x.wav': 'root', 'sound/x.aac': 'root' };
+        var sbad = [];
+        Object.keys(snd).forEach(function (p) { var r = U.audio.soundPath(p); if (!r || r.bank !== snd[p]) sbad.push(p); });
+        ok('all documented sound folders and formats are accepted (' + sbad.join(', ') + ')', sbad.length === 0);
+        ok('bad sound paths are rejected', !U.audio.soundPath('sound/Hit.m4a') && !U.audio.soundPath('sound/a b.m4a') && !U.audio.soundPath('sound/hit.flac') && !U.audio.soundPath('snd/hit.m4a'));
+        // ---- frame counts and wrong sizes
+        var painted = function (frames, cell, rows, drawn) { return cv(frames * cell, rows * cell, function (x) { for (var f = 0; f < (drawn || frames); f++) for (var r = 0; r < rows; r++) { x.fillStyle = '#a0a0c0'; x.fillRect(f * cell + cell * 0.4, r * cell + cell * 0.3, cell * 0.2, cell * 0.55); } }); };
+        ok('character sheet with 12 frames loads', A.inject('sprites/zz_a/walk.png', painted(12, 96, 5)));
+        A.inject('sprites/zz_a/idle.png', painted(4, 96, 5));
+        ok('12-frame walk keeps all 12 (n=' + (A.sprite('zz_a') && A.sprite('zz_a').anims.walk.n) + ')', A.sprite('zz_a') && A.sprite('zz_a').anims.walk.n === 12);
+        ok('5- and 3-frame sheets load', A.inject('sprites/zz_a/attack.png', painted(5, 96, 5)) && A.inject('sprites/zz_a/hit.png', painted(3, 96, 5)));
+        A.inject('sprites/zz_a/die.png', painted(8, 96, 5, 5));
+        ok('frames empty in every direction at the end are trimmed (8 -> ' + A.sprite('zz_a').anims.die.n + ')', A.sprite('zz_a').anims.die.n === 5);
+        A.inject('sprites/zz_a/cast.png', cv(6 * 96, 480, function (x) { for (var f = 0; f < 6; f++) { x.fillStyle = '#fff'; x.fillRect(f * 96 + 40, f === 5 ? 300 : 20, 10, 10); } }));
+        ok('a last frame drawn only in a lower direction row is kept (not trimmed)', A.sprite('zz_a').anims.cast.n === 6);
+        ok('8-direction and 192 px boss cells load', A.inject('sprites/zz_b/walk_8.png', painted(12, 96, 8)) && A.inject('sprites/zz_b/idle_8.png', painted(4, 192, 8)) && A.sprite('zz_b').anims.idle.cell === 192);
+        ok('boss phase sheets load and mark the sheet phased', A.inject('sprites/zz_b/idle_p2.png', painted(4, 192, 5)) && A.sprite('zz_b').phased === true && !!A.sprite('zz_b').anims.idle_p2);
+        ok('per-file fps is stored', A.inject('sprites/zz_a/walk.png', painted(12, 96, 5), { fps: 14 }) && A.sprite('zz_a').anims.walk.fps === 14);
+        ok('unknown animation / wrong cell are rejected', !A.inject('sprites/zz_a/dance.png', painted(4, 96, 5)) && !A.inject('sprites/zz_a/walk.png', cv(97, 480)) && !A.inject('sprites/zz_a/walk.png', cv(100, 480)));
+        ok('fx strips take any frame count', A.inject('fx/zz_hit.png', cv(1536, 128)) && A.inject('fx/zz_odd.png', cv(128 * 5, 128), { fps: 20 }) && A.fx('zz_odd').length === 5 && A.fx('zz_odd').fps === 20);
+        ok('props: 12 frames and themed names load, a wrong-size tile sheet does not', A.inject('props/zz_torch.png', cv(96 * 12, 128)) && A.inject('props/zz_torch_crypt.png', cv(96, 128)) && !A.inject('tiles/zz.png', cv(100, 100)));
+        // ---- keyed icons: they neither become an icon called "items" nor replace every icon of a shape
+        var d = { shape: 'helm', color: '#889', accent: '#445' };
+        ok('keyed icon files are accepted', A.inject('icons/items/zz_helm_1.png', cv(64, 64, blob)) && A.inject('icons/gems/zz_ruby_2.png', cv(64, 64, blob)));
+        ok('...and do NOT replace the shape icon of other items', !A.hasIcon(d) && !A.hasIcon({ shape: 'items' }) && !A.hasIcon({ shape: 'gems' }));
+        ok('...they are found by key (group/id and bare id) for the right item only', A.hasIcon(d, 'items/zz_helm_1') && A.hasIcon(d, 'zz_ruby_2') && !A.hasIcon(d, 'items/zz_helm_2'));
+        var painted64 = E.getIcon(d, 32, 'items/zz_helm_1');
+        ok('getIcon(desc, size, key) draws the hand-drawn icon, getIcon(desc, size) the procedural one', painted64 !== E.getIcon(d, 32) && painted64.width === 32);
+        ok('a shape icon (icons/<shape>.png) still replaces that shape', A.inject('icons/zz_shape.png', cv(64, 64, blob)) && A.hasIcon({ shape: 'zz_shape' }));
+        ok('ui sub-folders load by folder/name', A.inject('ui/frames/zz_panel.png', cv(96, 96)) && !!A.ui('frames/zz_panel') && !A.ui('zz_panel'));
+        // ---- font coverage
+        var missing = [];
+        ('×…▲▼·→✓★≥≤•▶—–’“' + 'éüñåçÖß').split('').forEach(function (ch) { if (U.fold(ch).indexOf('?') >= 0) missing.push(ch); });
+        ok('font draws x . ellipsis . up/down triangles . middle dot . arrows . check . comparison and accented letters (missing: ' + missing.join('') + ')', missing.length === 0);
+        ok('accents fold to the base letter', U.fold('Renée Über Niño') === 'RENEE UBER NINO' && U.fold('CLOSE CALL ×2') === 'CLOSE CALL ×2');
+        ok('unknown characters still draw ?', U.fold('中') === '?');
+        ok('damage numbers abbreviate from 10,000 (' + [9999, 14350, 143512, 1234567, 2e9].map(U.shortNumber).join(' ') + ')', U.shortNumber(9999) === '9999' && U.shortNumber(14350) === '14.3K' && U.shortNumber(143512) === '143K' && U.shortNumber(1234567) === '1.2M' && U.shortNumber(2e9) === '2B');
+        var tc = document.createElement('canvas'); tc.width = 100; tc.height = 30; var tx2 = tc.getContext('2d');
+        var at = U.glyphAtlas('#ffffff');
+        U.drawGlyphs(tx2, at, '12,345!', 2, 2, 1);
+        var px = tx2.getImageData(0, 0, 100, 30).data, lit = 0; for (var q = 3; q < px.length; q += 4) if (px[q]) lit++;
+        ok('digit atlas draws numbers (' + lit + ' px) and is cached per colour', lit > 60 && U.glyphAtlas('#ffffff') === at && U.glyphAtlas('#ff0000') !== at);
+      } finally { console.warn = quiet; }
+    }
+
+
 
     var s15 = section('R6.4 high-res art (templates fed back through the loader)');
     var origSprite = null;

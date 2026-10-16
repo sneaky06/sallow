@@ -1,6 +1,6 @@
 // R8.6 first-time tips: a small card the first time the player meets something new. Data table first, triggers below.
-// state.flags.tipsSeen = [ids]; state.settings.tips (false = off); ui._resetTips() clears the list. A card never pauses the
-// game; tapping it opens the full text (and then the game waits). It fades by itself after a few seconds.
+// state.flags.tipsSeen = [ids] (an id is remembered when its card is SHOWN, so a tip lost to a scene change comes back); state.settings.tips
+// (false = off); ui._resetTips() clears the list. A card pauses the game until dismissed, so it is held back while a fight is on.
 (function () {
   'use strict';
   const G = window.G, S = G.state, C = G.C;
@@ -47,19 +47,36 @@
   // ---------- the card ----------
   // A centred card that PAUSES the game until it is dismissed (players skip tips in fights otherwise): tap anywhere or press OK.
   // Taps in the first 0.4 s are ignored so a combat tap does not skip it. Several tips at once are queued, one after another.
-  let layer = null, curEl = null, curClose = null, shownAt = 0;
+  let layer = null, curEl = null, curClose = null, curId = null, shownAt = 0;
   const queue = [];
   ui._inits.push(function (layers) { layer = layers.modal; });
 
-  function hide() { if (curClose) { const c = curClose; curClose = null; curEl = null; c(); } }
-  function show(title, text, icon) {
+  // no card while the death screen or a panel is the death screen, a lockdown is sealed, a boss is awake nearby, or the hero was hit in the last 3 seconds
+  let lastHit = -99;
+  G.on('player:damaged', function () { lastHit = S.time || 0; });
+  function fightOn() {
+    const p = S.player;
+    const cur = ui._current();
+    if (!p || p.dead || (cur && cur.def.locked)) return true;      // the death screen is never talked over
+    if (S.flags && S.flags.sealed) return true;
+    if (S.scene !== 'dungeon') return false;
+    if ((S.time || 0) - lastHit < 3) return true;
+    const ents = S.entities || [];
+    for (let i = 0; i < ents.length; i++) { const e = ents[i]; if (e && !e.dead && e.rarity === 'boss' && Math.hypot(e.x - p.x, e.y - p.y) < 16) return true; }
+    return false;
+  }
+
+  function hide() { curId = null; if (curClose) { const c = curClose; curClose = null; curEl = null; c(); } }
+  function show(title, text, icon, id) {
     if (!layer) return;
+    if (id) { const s = seen(); if (s.indexOf(id) < 0) s.push(id); }
     const done = function () { if (Date.now() - shownAt < 400) return; ui._sfx('click'); hide(); };
     const body = h('div', { class: 'ed-tipbody' }, ui._icon(icon, 32), h('div', null, h('div', { class: 'ed-h', text: title }), h('p', { text: text })));
     const off = ui._btn(TX.tips.turnTipsOff, function () { if (Date.now() - shownAt < 400) return; S.settings.tips = false; queue.length = 0; hide(); ui.toast(TX.tips.tipsOffYouCan, '#a89f8f'); });
     const close = ui._modal(ui._dialog([body, h('div', { class: 'ed-note', style: 'margin-top:6px', text: TX.tips.tapAnywhereToContinue + (queue.length ? '  ·  ' + queue.length + TX.tips.more : '') })],
       [ui._btn(TX.tips.ok, done, 'gold'), off], 'ed-tipdlg'), { pause: true, dismiss: false });
     curClose = close;
+    curId = id || null;
     curEl = layer.lastChild;
     shownAt = Date.now();
     if (curEl) curEl.addEventListener('click', function (e) { if (!e.target.closest || !e.target.closest('.ed-btn')) done(); });
@@ -70,22 +87,20 @@
   // Public: the first-time tip `id` (remembered in flags.tipsSeen).
   ui._tip = function (id) {
     if (!S.player || S.settings.tips === false || !TIPS[id]) return;
-    const s = seen();
-    if (s.indexOf(id) >= 0) return;
-    s.push(id);
-    queue.push(TIPS[id]);
+    if (seen().indexOf(id) >= 0 || queue.some(function (q) { return q[3] === id; }) || (curId === id)) return;
+    queue.push(TIPS[id].concat([id]));
     if (queue.length > 6) queue.shift();
   };
 
   ui._updaters.push((function () {
     let poll = 0;
     return function (dt) {
-      if (curEl && !curEl.isConnected) { curEl = null; curClose = null; }       // closed from outside (scene change)
+      if (curEl && !curEl.isConnected) { curEl = null; curClose = null; curId = null; }       // closed from outside (scene change)
       if (!S.player || S.scene === 'menu') return;
       poll -= dt;
       if (poll <= 0) { poll = 0.5; scan(); }
       // wait while any panel or dialog is open; the next card follows the dismissal of the last one
-      if (!curEl && queue.length && !document.querySelector('#ui .ed-modal')) { const t = queue.shift(); show(t[0], t[1], t[2]); }
+      if (!curEl && queue.length && !document.querySelector('#ui .ed-modal') && !fightOn()) { const t = queue.shift(); show(t[0], t[1], t[2], t[3]); }
     };
   })());
 
@@ -125,5 +140,5 @@
   G.on('relic:granted', function () { ui._tip('relic'); });
   G.on('event:start', function () { ui._tip('event'); });
   G.on('room:locked', function () { ui._tip('lockdown'); });
-  G.on('scene:changed', function (e) { curEl = null; curClose = null; queue.length = 0; if (e && e.scene === 'town' && S.flags && S.flags.pallorUnlocked) ui._tip('pallor'); });
+  G.on('scene:changed', function (e) { curEl = null; curClose = null; curId = null; queue.length = 0; if (e && e.scene === 'town' && S.flags && S.flags.pallorUnlocked) ui._tip('pallor'); });
 })();

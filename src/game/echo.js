@@ -97,11 +97,32 @@
   const TELE = { strike: 0.35, cleave: 0.45, shot: 0.45, beam: 0.5, zone: 0.9, leap: 0.7, nova: 0.6, spin: 0.35, buff: 0.25, summon: 0.6, trap: 0.3, blink: 0.2, ring: 0.5, curse: 0.6, attack: 0.3 };
   const ECHO_COL = '#bfe6ff';
 
+  // A class added later gets an Echo kit without a hand table: KIT overrides, else a move derived from the skill's targeting and tags.
+  function deriveKit(sk) {
+    const tags = sk.tags || [];
+    if (tags.indexOf('summon') >= 0) return null;          // needs a monster id: only a KIT entry can summon
+    const aoe = tags.indexOf('aoe') >= 0;
+    switch (sk.tg) {
+      case 'melee': return aoe ? ['cleave'] : ['strike'];
+      case 'enemy': case 'aim': return ['shot'];
+      case 'point': return ['zone', { r: 2.6 }];
+      case 'corpse': return ['zone', { r: 2.4, tele: 0.8 }];
+      case 'dir': return tags.indexOf('mobility') >= 0 ? ['blink'] : null;
+      case 'self':
+        if (aoe) return ['nova', { r: 3.4 }];
+        if (tags.indexOf('buff') >= 0) return ['buff', { dealt: 20 }];
+        if (tags.indexOf('defense') >= 0) return ['buff', { taken: -30 }];
+        return null;
+      default: return null;
+    }
+  }
+  game.echoKitFor = function (id) { const sk = game.SKILLS[id]; return KIT[id] || (sk ? deriveKit(sk) : null); };
+
   function buildKit(snap) {
     const moves = [], shares = game.getStyle(snap.style).shares;
     moves.push({ id: 'attack', kind: 'attack', name: 'Attack', w: Math.max(0.08, shares.attack || 0.3), cd: 0, mult: 1, o: {} });
     for (const id of snap.bar || []) {
-      const sk = id && game.SKILLS[id], k = KIT[id];
+      const sk = id && game.SKILLS[id], k = id && game.echoKitFor(id);
       if (!sk || !k || !(snap.skills[id] > 0)) continue;
       const rank = snap.skills[id], V = game.applySynergies({ skills: snap.skills }, sk, game.skillValues(sk, rank));
       const o = k[1] || {};

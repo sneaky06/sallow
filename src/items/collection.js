@@ -26,6 +26,13 @@
     buffs: [['hpMax', 15], ['dmgPct', 1], ['armor', 12], ['critChance', 0.5], ['magicFind', 2], ['goldFind', 3], ['xpGain', 1], ['resAll', 1],
       ['moveSpeed', 0.5], ['hpRegen', 1], ['critDmg', 3], ['mpMax', 12]],
     setBuffMult: 3,                       // set pages and unique-family pages pay this many times a normal page
+    // IT-6: a page's buff is chosen by its id, never by its position in the build order (adding a look family would shift every page).
+    // These 47 pages shipped with these slots; they are frozen. New pages hash their id into the list (append to `buffs`, never reorder).
+    legacyBuff: { rusted_mail: 0, gravewarden: 1, tallow_iron: 2, ash_plate: 3, bellfounder: 4, chainpriest: 5, pallbearer: 6, cinder_king: 7, abyss_carapace: 8,
+      grave_wrap: 9, ratcatcher: 10, mosshide: 11, hollowmoth: 0, cinderfox: 1, nightjar: 2, sallowskin: 3, wyrmscale: 4, veilrunner: 5, candlewick: 6, penitent: 7,
+      ossuary: 8, ashen_choir: 9, starless: 10, rookmask: 11, pale_court: 0, voidweave: 1, emberhymn: 2, pitted_iron: 3, bonecarved: 4, hearthwood: 5, blackiron: 6,
+      gravesilver: 7, emberforged: 8, pallid: 9, abyssal: 10, starfallen: 11, juggernaut: 0, shadowstep: 1, pale_king: 2, archmagi: 3, lich_emperor: 4, cinderlord: 5,
+      rimewalkers: 6, ironbound: 7, nightstalker: 8, cinderweave: 9, gravecaller: 10 },
     pageTitle: function (page) { return 'Keeper of ' + page.name; },     // only set pages grant a title
     // 5 / 15 / all pages: materials, a bigger buff, a stash tab (stashRows extra rows the UI/meta adds), a title
     tiers: [
@@ -138,7 +145,9 @@
     const pg = byId[id];
     if (!pg) return null;
     const CO = D.COLLECTION;
-    const b = CO.buffs[pg.index % CO.buffs.length];
+    let bi = CO.legacyBuff[id];
+    if (bi === undefined) { bi = 2166136261; for (let i = 0; i < id.length; i++) bi = Math.imul(bi ^ id.charCodeAt(i), 16777619); bi = (bi >>> 0) % CO.buffs.length; }
+    const b = CO.buffs[bi];
     const big = pg.by === 'unique';
     const out = { buff: [[b[0], Math.round(b[1] * (big ? CO.setBuffMult : 1) * 100) / 100]] };
     if (pg.kind === 'set') out.title = CO.pageTitle(pg);

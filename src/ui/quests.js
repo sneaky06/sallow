@@ -120,7 +120,8 @@
       goal: m.kind === 'depth' ? m.goal : 1, rewards: Object.assign({}, m.rewards), main: true };
   }
   function bountyView(b) {
-    return { id: b.id, name: b.name, desc: b.desc, giver: 'elder', status: b.status, progress: Math.min(b.progress, b.goal),
+    const def = BOUNTIES[b.kind];      // name and text are read from the table every time, so a rewrite also reaches bounties already in a save
+    return { id: b.id, name: def ? def.name : b.name, desc: def ? def.desc(b.goal) : b.desc, giver: 'elder', status: b.status, progress: Math.min(b.progress, b.goal),
       goal: b.goal, rewards: Object.assign({}, b.rewards), main: false };
   }
 
@@ -312,6 +313,7 @@
     if (rewards.gold) {
       p.gold = (p.gold || 0) + rewards.gold;
       G.emit('gold:changed', { gold: p.gold, delta: rewards.gold });
+      if (G.meta && G.meta.addStat) G.meta.addStat('goldEarned', rewards.gold | 0);
       parts.push(rewards.gold + TX.filter.gold2);
     }
     if (rewards.xp) {

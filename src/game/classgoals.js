@@ -17,7 +17,7 @@
     warrior: [
       { id: 'w_charge_stun', name: 'Battering Ram', desc: 'Stun 50 enemies with Shoulder Charge.', goal: 50, reward: { mark: 1 } },
       { id: 'w_cleave_three', name: 'Reaper of Ranks', desc: 'Hit three or more enemies with one basic swing 200 times.', goal: 200, reward: { mark: 1 } },
-      { id: 'w_act_bosses', name: 'Kingbreaker', desc: 'Kill the six act bosses as a Warrior.', goal: 6, reward: { title: 'Kingbreaker' } },
+      { id: 'w_act_bosses', name: 'Kingbreaker', desc: 'Kill the six act bosses as a Warrior.', goal: 6, actBosses: true, reward: { title: 'Kingbreaker' } },
     ],
     ranger: [
       { id: 'r_long_kill', name: 'Far Shot', desc: 'Kill 100 enemies from 8 or more tiles away.', goal: 100, reward: { mark: 1 } },
@@ -32,11 +32,16 @@
     necromancer: [
       { id: 'n_minion_kills', name: 'The Host', desc: 'Your minions kill 1,000 enemies.', goal: 1000, reward: { mark: 1 } },
       { id: 'n_corpses', name: 'Pyre Keeper', desc: 'Detonate 200 corpses.', goal: 200, reward: { mark: 1 } },
-      { id: 'n_army', name: 'Legion', desc: 'Command 8 minions at once.', goal: 1, reward: { title: 'of the Legion' } },
+      { id: 'n_army', name: 'Legion', desc: 'Command 8 minions at once.', goal: 1, army: 8, reward: { title: 'of the Legion' } },
     ],
   };
+  // ids are prefixed by CLASSES[c].goalPrefix (the four launch classes keep their saved first-letter ids); a class without one uses its full id
+  const prefixOf = function (c) { const k = game.CLASSES && game.CLASSES[c]; return (k && k.goalPrefix) || c; };
   const GOALS = game.CLASS_GOALS = {};
-  for (const c in SPECIFIC) GOALS[c] = COMMON.map(function (g) { return Object.assign({}, g, { id: c[0] + '_' + g.id }); }).concat(SPECIFIC[c]);
+  game.registerClassGoals = function (c, specific) {
+    GOALS[c] = COMMON.map(function (g) { return Object.assign({}, g, { id: prefixOf(c) + '_' + g.id }); }).concat(specific || SPECIFIC[c] || []);
+  };
+  for (const c in game.CLASSES) game.registerClassGoals(c);
 
   function store() { const f = G.state.flags || (G.state.flags = {}); if (!f.classGoals || typeof f.classGoals !== 'object') f.classGoals = {}; return f.classGoals; }
   function defOf(id) { const p = G.state.player; const list = p && GOALS[p.classId]; return list ? list.find(function (g) { return g.id === id; }) : null; }
@@ -74,7 +79,7 @@
     return list.map(function (g) { const s = S[g.id] || { n: 0, done: false }; return { id: g.id, name: g.name, desc: g.desc, goal: g.goal, n: Math.min(g.goal, s.n), done: !!s.done, reward: Object.assign({}, g.reward) }; });
   };
 
-  const pre = function () { const p = G.state.player; return p ? p.classId[0] + '_' : 'x_'; };
+  const pre = function () { const p = G.state.player; return p ? prefixOf(p.classId) + '_' : 'x_'; };
   // ---- common goals ----
   G.on('perk:bought', function () {
     const p = G.state.player;
@@ -96,8 +101,11 @@
     const p = G.state.player, m = e && e.monster;
     if (!p || !m) return;
     if (m.rarity === 'boss' && game.ACT_BOSSES && Object.values(game.ACT_BOSSES).indexOf(m.monsterId) >= 0) {
-      const S = store(), k = 'w_act_bosses_' + m.monsterId;
-      if (p.classId === 'warrior' && !S[k]) { S[k] = { n: 1, done: true }; game.goalAdd('w_act_bosses'); }
+      const S = store(), list = GOALS[p.classId] || [];
+      for (const g of list) {          // goals flagged actBosses count each act boss once
+        const k = g.id + '_' + m.monsterId;
+        if (g.actBosses && !S[k]) { S[k] = { n: 1, done: true }; game.goalAdd(g.id); }
+      }
     }
   });
   game.goalKill = function (p, t, killer) {          // combat.js: every kill, with who did it
@@ -108,6 +116,13 @@
     if ((game.stillT || 0) < 0.2) game.goalAdd('r_moving_kill');
   };
   game.goalTick = function (p) {
-    if (p.classId === 'necromancer') { let n = 0; for (const m of game.live.allies) if (!m.dead && m.summon) n++; if (n >= 8) game.goalAdd('n_army'); }
+    const list = GOALS[p.classId];
+    if (!list) return;
+    for (const g of list) {          // goals flagged `army: N` complete when N minions stand at once
+      if (!g.army) continue;
+      let n = 0;
+      for (const m of game.live.allies) if (!m.dead && m.summon) n++;
+      if (n >= g.army) game.goalAdd(g.id);
+    }
   };
 })();

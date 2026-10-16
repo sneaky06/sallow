@@ -12,8 +12,15 @@ anything you haven't made keeps its generated version, so you can work one file 
 ## How to add a file
 
 1. Save it under `assets/` with the exact path from ART_LIST.md / SOUND_LIST.md (all lower case, e.g. `assets/sprites/warrior/walk.png`).
-2. Add the path to `assets/assets.js`, e.g. `'sprites/warrior/walk.png',` or `'sound/hit.mp3',`.
-3. Reload the game. A listed file that is missing or the wrong size is ignored and the generated version stays.
+2. Add the path to `assets/assets.js`, e.g. `'sprites/warrior/walk.png',` or `'sound/sfx/weapons/wpn_sword_swing.m4a',`. There is no limit on the number of entries.
+   An entry can also be an object to set the playback rate of that file's frames: `{ file: 'sprites/goblin/walk.png', fps: 14 }` (characters, props and
+   fx strips; `loop: false` makes a normally looping idle/walk play once and hold its last frame). Without `fps` the default timing below is used.
+3. Reload the game. A listed file that is missing, mis-sized or in an unknown folder is ignored, the generated version stays, and the browser console prints
+   **one warning that names the file and says what is wrong** (open the game with `?assetdebug=1` to also log every file as it loads or is released; with
+   Settings → Show FPS on, the counter ends in `ART <loaded>/<listed>`, plus `X<n>` = how many were rejected).
+4. Loading is lazy: a character, gear piece, prop, effect or tileset is fetched and decoded the first time the game needs it and released again when it has
+   not been used for a while or you leave the floor, so painting the whole catalogue does not run a phone out of memory. Until a file is ready the generated
+   art is drawn, so a brand-new sighting can pop in a frame late; icons, portraits and projectiles load in the background at start-up.
 
 ## The format in one paragraph
 
@@ -32,8 +39,8 @@ more); keep a clean silhouette so characters read against dark floors.
 - **Value contrast:** keep floors dark and in a narrow value range; characters, loot and props clearly lighter or darker.
   Base colours desaturated (cold stone, bruise purple, bog green, rust, bone, dried blood); saturated colour only as accents.
 - Rarity colours are the brightest things on screen; avoid these exact hues elsewhere:
-  `#c8c8c8` common, `#5b8cff` magic, `#ffe45b` rare, `#b65bff` epic, `#ff8a2b` legendary, `#3ddc6a` set, `#ff3b4e` mythic
-  (the rarity ladder is being renamed in R7.1; the game reads colours from code, so no art changes are needed for that).
+  `#c8c8c8` common, `#4ddc6a` uncommon, `#5b8cff` rare, `#b65bff` magic, `#ffe45b` legendary elite, `#ff8a2b` mythic, `#ff3b3b` unique, `#ff6aa8` rift
+  (the values of `C.RARITY` in `src/core/constants.js`; the game reads colours from code, so no art changes are needed if they change again).
 
 ### Tools
 
@@ -103,7 +110,9 @@ Rows a theme doesn't use can be left transparent (the generated tile is used).
 | `hit.png` | 2 | 0.2 s | recoil |
 | `die.png` | 6 | 0.5 s | fall; **the last frame stays on the ground** as the body (paint any blood pool into it) |
 
-- **Fewer frames are fine:** trailing empty frames are ignored and the animation is spread over the same time.
+- **Any frame count works** (the table is the minimum; the catalogue recommends 12 walk / 10 attack / 8 idle): the animation is spread over the same
+  time, or runs at `fps` when the file is listed with one. Trailing frames that are empty in *every* direction are ignored.
+- **Boss phases:** `<anim>_p2.png` / `<anim>_p3.png` (e.g. `walk_p2.png`, `idle_p3_8.png`) replace the matching animation while the boss is in phase 2 / 3.
 - **Missing animations fall back:** cast ↔ attack, everything else → idle. A sprite needs at least `idle.png`.
 - Draw the creature's weapon into its sprite. The player is the exception (section 3).
 - The old 1× format (`sprites/<id>.png`, 640 × 80, 16 columns × 2 rows of 40 px) still loads.
@@ -116,7 +125,8 @@ The player is layered: a **base body** plus one overlay per equipped piece, so e
   section 2, painted in plain underclothes, **no weapon, no armour**. Use one body template for all classes (same height,
   same pose in every frame) so every overlay fits every class.
 - **Overlays: exactly the base's grid** (same anim files, frames, rows, cell, anchor). Paint only the piece, where it covers
-  the body in that frame, on transparency.
+  the body in that frame, on transparency. A different frame count than the body is resampled (a 10-frame overlay on a 12-frame body), but keep them equal
+  when you can. Two-handed weapons use `<family>_greatsword` / `_greataxe` / `_maul` when present, else the one-hand overlay.
 - **Keys:** armour `<family>_<slot>` (slot = helm, chest, gloves, boots); weapons `<family>_<weaponType>` (sword, axe, mace,
   dagger, bow, staff, wand); off-hands `<family>_<kind>` (shield, orb, tome, quiver). Families come from the items' looks
   and are listed in ART_LIST.md with a one-line brief each.
@@ -136,21 +146,28 @@ The player is layered: a **base body** plus one overlay per equipped piece, so e
 - Frame counts and briefs per prop are in ART_LIST.md. `gate` is drawn for a wall running top-left → bottom-right
   (mirrored automatically); `shrine_used` is the spent shrine.
 - Old 48 × 64 props still load.
+- **Theme looks:** `props/<type>_<theme>.png` (theme = town, crypt, caves, inferno, abyss) is used instead of `props/<type>.png` on floors of that theme.
+  `{ file: 'props/torch.png', fps: 10 }` sets the loop rate of an animated prop (default: 8 fps for 3+ frames, ~2.5 fps for 2).
 
 **Rift looks (R6.5):** the world marks some props with a `look`: `growth`, `vein`, `rift_shrine`, `rift_crystal`, `rift_core`,
 `rift_shard`, `capped`. Draw `props/<look>.png` in the same 96 × 128 cell to give each its own art; without it the base prop
 (crystal, bones, shrine, well) is drawn recoloured toward the rift's glow.
 
-## 5. Icons — `assets/icons/<shape>.png`
+## 5. Icons — `assets/icons/<shape>.png` and `assets/icons/<group>/<key>.png`
 
 - **64 × 64 px**, object centred, natural colours (the rarity colour comes from the frame and label). Shown at 16–48 px,
   so keep shapes bold. `potion_hp` / `potion_mp` are optional colour variants of `potion`. 16 × 16 and 32 × 32 still load.
+- `icons/<shape>.png` replaces **every** icon of that shape (untinted), so use it for the generic look only.
+- **Keyed icons** (`icons/items/`, `uniques`, `gems`, `blood`, `materials`, `consumables`, `relics`, `skills`, `perks`, `class`, `status`) replace
+  one specific thing: `icons/items/heavy_helm_3.png`, `icons/gems/ruby_5.png` … The engine side is done: `G.engine.getIcon(desc, size, key)` /
+  `getIconURL` take the key (`'items/heavy_helm_3'` or just `'heavy_helm_3'`; an array is tried in order; `desc.key` also works) and fall back to the shape
+  icon, then the generated one. A keyed icon only shows once the item / skill / perk code passes its key (ART_CATALOG E1). Icons load in the background at start-up.
 
 ## 6. Projectiles — `assets/projectiles/<shape>.png`
 
 - **32 × 32 px**, pointing **right**, centred; the game rotates it in 16 steps. Bright and saturated, no outline needed.
 
-## 7. Effects — `assets/fx/<type>.png` (optional)
+## 7. Effects — `assets/fx/<type>.png` (optional; `fx/<type>_<element|rarity>.png` is tried first when the effect carries a damage type or rarity, e.g. `fx/hit_fire.png`, `fx/lootbeam_legendary.png`; list it as `{ file, fps }` to play at a fixed rate instead of once over the effect's length)
 
 - A strip of **square frames** (128 × 128 suggested, any square size), played once over the effect's length and scaled
   to its radius. Glows (hit, explosion, nova, heal, spark, frost, teleport…) are drawn additively: paint them on black-free
@@ -163,19 +180,33 @@ The player is layered: a **base body** plus one overlay per equipped piece, so e
 
 ## 9. UI images
 
-- `ui/joystick_base.png` (256 × 256) and `ui/joystick_knob.png` (128 × 128), scaled to the player's stick size.
-- `ui/appicon.png` (1024 × 1024, no transparency) and `ui/logo.png` (768 × 256) need the UI team to wire them.
+- `ui/joystick_base.png` (256 × 256) and `ui/joystick_knob.png` (128 × 128), scaled to the player's stick size. These two are used today.
+- Every other UI image goes in the catalogue's folders: `ui/frames/`, `buttons`, `hud`, `inventory`, `map`, `markers`, `perks`, `rarity`, `skills`,
+  `splash`, `appicon` (e.g. `ui/frames/panel.png`), or directly in `ui/` (`ui/logo.png`). The loader accepts and lazy-loads them
+  (`G.engine._.assets.ui('frames/panel')` returns the image, `.url('ui/frames/panel.png')` the file URL for a CSS `border-image`), but nothing draws them until
+  the UI team wires the skin hook (ART_CATALOG E5); `appicon` and `logo` need that too.
 
-## 10. Sound — `assets/sound/<name>.mp3` (or `.m4a`)
+## 10. Sound — `assets/sound/[folder/…]<name>.m4a`
 
-- **Effects:** `sound/<sfx>.mp3`, mono, short (< 2 s), peak around −3 dB, no silence at the start. Add `<sfx>_2.mp3`,
-  `_3` … and the game picks one at random each time (variations keep repeated hits from sounding mechanical).
-- **Ambience beds:** `sound/amb_<bed>.mp3`, stereo, 20–60 s, **seamless loop** (the game loops it sample-accurately).
-- **Music:** `sound/music_<track>.mp3`, stereo, 1–3 min, loopable; tracks crossfade over 2 s. Tracks: title, town, crypt,
-  caves, inferno, abyss, rift (depth 21+), boss, echo (falls back to boss).
-- Anything missing stays synthesized (effects, ambience) or silent (music). Player volume settings: `sfxVolume`,
-  `ambienceVolume`, `musicVolume` (0–1).
-- AAC (`.m4a`, 128–192 kbps) is the best choice for iPhone; MP3 works everywhere.
+The complete catalogue (2,306 files, folder tree, loudness and loop rules, names, variation counts) is `docs/SOUND_DESIGN.md`; this section is only what the loader needs.
+
+- **Formats:** `.m4a` (AAC, the recommended format for iPhone), `.mp3`, `.aac`, `.ogg`, `.wav`.
+- **Folders:** a file may sit directly in `sound/` or in any sub-folder of the catalogue tree (`sound/sfx/player/step_stone.m4a`, `sound/ui/click.m4a`,
+  `sound/ambience/amb_crypt.m4a`, `sound/music/music_crypt.m4a`, `sound/stingers/sting_death.m4a` …). **A sound's name is its file name without the
+  extension and must be unique across all folders** (a second file with the same name is ignored, with a warning); the folder only decides the load bank.
+- **Effects:** mono, short (< 2 s), peak around −3 dB, no silence at the start. Add `<sfx>_2.m4a`, `_3` … and the game picks one at random each time
+  (never the same one twice running, with ±4 % pitch variation, so repeated hits do not sound mechanical).
+- **Ambience beds:** `amb_<bed>`, stereo, 20–60 s, **seamless loop** (the game loops it sample-accurately).
+- **Music:** `music_<track>`, stereo, 1–3 min, loopable; tracks crossfade over 2 s. Tracks: title, town, crypt, caves, inferno, abyss, rift (depth 21+), boss,
+  echo (falls back to boss); `music_<theme>_b` / `_c` fall back to `music_<theme>`, `music_boss_<id>` to `music_boss`.
+- **Banks / memory:** sounds are fetched and decoded lazily by folder, so the full set is never in memory. `sound/` itself, `ui`, `sfx/player`, `sfx/weapons`,
+  `sfx/loot`, `sfx/systems` and `sfx/world` load at start (the *core* banks); `sfx/monsters/<theme>`, `sfx/skills/<class>` and `sfx/bosses/<boss>` load when the floor
+  needs them and are released about 20 s after; `ambience` and `stingers` load the first time they are asked for (that first request plays the synthesized sound or its
+  fallback) and are released when idle. Decoded audio is capped at 128 MB, least recently played first.
+- **Fallbacks:** a name with no file and no synth falls back instead of staying silent: `drop_<tier>` → `loot` / `loot_rare` / `loot_legendary`; `mon_*_hurt` / `_die` /
+  `_attack` → `hurt` / `die` / `hit`; `skill_*_cast` → `cast`; `skill_*_hit`, `wpn_*_hit` → `hit`; `wpn_*_swing` → `swing`. `G.engine.sfx(name, fallbackName)` also takes an explicit fallback.
+- Anything missing stays synthesized (effects, ambience) or silent (music). Player volume settings: `sfxVolume`, `ambienceVolume`, `musicVolume` (0–1).
+- A listed file that is missing or cannot be decoded logs one console warning that names it and keeps the synthesized sound.
 
 ---
 

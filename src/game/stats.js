@@ -7,7 +7,8 @@
   const U = game.U;
 
   game.LEVEL_CAP = 60;
-  game.MARTIAL = { warrior: 1, ranger: 1 };     // skills swing with the weapon; other classes cast at a fixed rate
+  // skills swing with the weapon; other classes cast at a fixed rate. Read-through view of CLASSES[id].martial (items/info.js reads it too)
+  game.MARTIAL = new Proxy({}, { get: function (o, id) { const c = game.CLASSES && game.CLASSES[id]; return c && c.martial ? 1 : undefined; }, has: function (o, id) { const c = game.CLASSES && game.CLASSES[id]; return !!(c && c.martial); } });
   game.ATTR_PER_LEVEL = 3;
   game.SKILL_PER_LEVEL = 1;
   const RANGED = { bow: 1, staff: 1, wand: 1 };
@@ -398,12 +399,13 @@
 (function () {
   'use strict';
   const G = window.G, game = G.game;
-  const NEEDS = { bash: 1, charge: 1, rend: 1, execute: 1, cleave: 1, whirlwind: 1, leap: 1, earthquake: 1,
-    aimed_shot: 1, piercing_shot: 1, poison_arrow: 1, snipe: 1, multishot: 1, rain_of_arrows: 1, explosive_arrow: 1, arrow_storm: 1 };
+  const NEEDS = {};          // built from CLASSES[id].weaponSkills
+  for (const cid in game.CLASSES) for (const sid of game.CLASSES[cid].weaponSkills || []) NEEDS[sid] = 1;
   game.SKILL_NEEDS_CLASS_WEAPON = NEEDS;
   game.weaponLock = function (p, sk) {
-    if (!p || !sk || !NEEDS[sk.id] || !p.bonus || !p.bonus.offClass) return null;
+    if (!p || !sk || !p.bonus || !p.bonus.offClass) return null;
     const cls = game.CLASSES[p.classId];
+    if (!cls || (cls.weaponSkills || []).indexOf(sk.id) < 0) return null;
     return 'Needs a ' + cls.weaponTypes.join(' or ') + ' (you hold a ' + (p.bonus.w.type || 'weapon') + ')';
   };
 })();

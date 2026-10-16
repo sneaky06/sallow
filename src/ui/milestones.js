@@ -32,8 +32,14 @@
 
   // the story's table is { counterKey: { name, flavour, tiers: [titles low to high] } }; its keys differ from ours for four counters
   const ALIAS = { sold: 'itemsSold', salvaged: 'itemsSalvaged', chute: 'itemsSent', flowChains: 'flows' };
+  let defsFor = null, defsCache = null;
   function defs() {
     const raw = (meta.STORY && meta.STORY.MILESTONES) || null;
+    if (defsCache && defsFor === raw) return defsCache;       // recomputeStats asks on every call: merge the story table once per table
+    defsFor = raw; defsCache = build(raw);
+    return defsCache;
+  }
+  function build(raw) {
     const over = Array.isArray(raw) ? raw : (raw ? Object.keys(raw).map(function (k) { const o = raw[k]; return o && typeof o === 'object' ? { id: ALIAS[k] || k, name: o.name, flavour: o.flavour, names: Array.isArray(o.tiers) && typeof o.tiers[0] === 'string' ? o.tiers : null } : null; }).filter(Boolean) : []);
     const byId = {};
     over.forEach(function (o) { if (o && o.id) byId[o.id] = o; });
@@ -56,10 +62,10 @@
     if (m.rarity === 'champion' || m.rarity === 'rare' || m.rarity === 'legendary' || m.rarity === 'boss') meta.addStat('elites');
     if (m.rarity === 'boss') meta.addStat('bosses');
   });
-  G.on('gold:changed', function (e) {
-    if (!e || !S.player || e.quiet || !isFinite(e.delta)) return;
-    if (e.delta > 0) meta.addStat('goldEarned', e.delta | 0); else if (e.delta < 0) meta.addStat('goldSpent', -e.delta | 0);
-  });
+  // Hoard counts gold found on the ground (and quest rewards, from quests.js) — not sales, corpse reclaims or the milestone rewards themselves.
+  // Big Spender counts what the traders were paid (items emits gold:spent), not the death-penalty loss or perk costs.
+  G.on('item:picked', function (e) { const it = e && e.item; if (it && it.type === 'gold' && it.qty > 0) meta.addStat('goldEarned', it.qty | 0); });
+  G.on('gold:spent', function (e) { if (e && e.amount > 0) meta.addStat('goldSpent', e.amount | 0); });
   G.on('object:interact', function (e) { if (e && e.type === 'chest') meta.addStat('chests'); });
   G.on('floor:graded', function (e) { meta.addStat('floors'); if (e && String(e.grade).toUpperCase().charAt(0) === 'S') meta.addStat('sGrades'); });
   G.on('flow:trigger', function () { meta.addStat('flows'); });
@@ -109,8 +115,7 @@
     p.materials = p.materials || {};
     for (const k in (r.mats || {})) p.materials[k] = (p.materials[k] || 0) + r.mats[k];
     if (r.mark) {
-      if (G.game && typeof G.game.grantMark === 'function') { try { G.game.grantMark('milestone_' + d.id + '_' + t); } catch (err) { p.marks = (p.marks | 0) + 1; } }
-      else p.marks = (p.marks | 0) + 1;
+      if (G.game && typeof G.game.grantMark === 'function') { try { G.game.grantMark('milestone_' + d.id + '_' + t); } catch (err) { console.error('[milestone mark]', err); } }
     }
     ui.toast(TX.milestones.milestone + tierName(d, t) + ' — ' + rewardText(r), '#ffe45b');
     ui._sfx('quest');
@@ -129,7 +134,8 @@
     });
     if (mods && G.game && G.game.recomputeStats) { try { G.game.recomputeStats(S.player); } catch (err) { console.error('[ui milestones recompute]', err); } G.emit('player:stats', {}); }
   }
-  ui._updaters.push((function () { let t = 0; return function (dt) { t -= dt; if (t > 0) return; t = 0.7; if (dirty || (S.player && S.flags.maxDepth)) check(); }; })());
+  ui._updaters.push((function () { let t = 0; return function (dt) { t -= dt; if (t > 0) return; t = 0.7; if (dirty) check(); }; })());
+  G.on('scene:changed', function () { dirty = true; });          // the depth counter reads flags.maxDepth: look again on every arrival
 
   meta.getMilestoneMods = function () {
     const out = {}, got = (S.flags && S.flags.milestones) || {};

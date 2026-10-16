@@ -725,6 +725,78 @@ window.G = { manifest: {} };
         if (!W.isWalkable(cm, spot.x, spot.y)) { R.failed++; R.failures.push('corpse tile not walkable'); }
         G.state.flags.corpse = null;
       }
+      // ---- WO-1 corpse floors: opts.inputs pins everything generation reads from live state ----
+      {
+        const savedFlags = G.state.flags;
+        let diffLive = 0, floors = 0;
+        for (let d = 2; d <= 28; d++) {
+          if (d % C.BOSS_EVERY === 0) continue;
+          for (let k = 0; k < 3; k++) {
+            const seed = (d * 6151 + k * 99991 + 5) >>> 0;
+            G.state.flags = Object.assign({}, savedFlags, { cleansed: [] });
+            const inputs = W.captureInputs(d);
+            const a = W.generateDungeon(d, seed, { inputs });
+            G.state.flags = Object.assign({}, savedFlags, { cleansed: ['shallows', 'deep', 'hellscape'] });
+            const plain = W.generateDungeon(d, seed);
+            const b = W.generateDungeon(d, seed, { inputs });
+            const c = W.generateDungeon(d, seed, { inputs: W.captureInputs(d, a) });
+            floors++; R.asserts += 4;
+            if (sig(a) !== sig(b) || sig(a) !== sig(c)) { R.failed++; R.failures.push('d' + d + ' s' + seed + ': inputs do not pin the floor'); }
+            if (sig(a) !== sig(plain)) diffLive++;
+            if (!a.inputs || a.inputs.genVersion !== W.GEN_VERSION || JSON.stringify(a.inputs) !== JSON.stringify(inputs)) { R.failed++; R.failures.push('map.inputs / captureInputs mismatch'); }
+            if (JSON.stringify(W.captureInputs(d, plain).cleansed) !== JSON.stringify(G.state.flags.cleansed)) { R.failed++; R.failures.push('map.inputs does not record the live cleansed used'); }
+          }
+        }
+        R.asserts++;
+        if (!diffLive) { R.failed++; R.failures.push('cleansed never changed a floor (test is vacuous)'); }
+        G.state.flags = savedFlags;
+        // safeSpot: keeps a good spot, moves a rock/chasm/prop spot to a walkable, spawn-connected tile
+        const sm = W.generateDungeon(9, 4711);
+        const good = W.safeSpot(sm, sm.spawn.x + 0.5, sm.spawn.y + 0.5);
+        R.asserts++;
+        if (!good || good.x !== sm.spawn.x + 0.5 || good.y !== sm.spawn.y + 0.5) { R.failed++; R.failures.push('safeSpot moved a good spot'); }
+        let moves = 0;
+        for (let i = 0; i < sm.tiles.length && moves < 30; i += 37) {
+          if (W.isWalkable(sm, i % sm.w, (i / sm.w) | 0)) continue;
+          const s = W.safeSpot(sm, (i % sm.w) + 0.5, ((i / sm.w) | 0) + 0.5);
+          moves++; R.asserts++;
+          if (!s || !W.isWalkable(sm, s.x, s.y) || !W.findPath(sm, sm.spawn.x, sm.spawn.y, Math.floor(s.x), Math.floor(s.y))) { R.failed++; R.failures.push('safeSpot gave an unwalkable/unreachable spot'); }
+        }
+        R.asserts++;
+        if (moves < 5) { R.failed++; R.failures.push('safeSpot test found too few blocked tiles'); }
+      }
+
+      // ---- WO-2 unstick: solid things dropped on occupied tiles never trap an entity ----
+      {
+        let tested = 0;
+        for (let d = 1; d <= 30; d += 1) for (let k = 0; k < 3; k++) {
+          const m = W.generateDungeon(d, (d * 4409 + k * 131 + 3) >>> 0);
+          const spots = [{ x: m.spawn.x, y: m.spawn.y }];
+          for (const o of (m.openings || []).slice(0, 4)) spots.push({ x: o.x, y: o.y });
+          for (const r of m.rooms) if (r.type === 'lockdown' && r.doors) for (const dd of r.doors.slice(0, 2)) spots.push({ x: dd.x, y: dd.y });
+          for (const sp of spots) {
+            const ent = { x: sp.x + 0.5, y: sp.y + 0.5, radius: k === 0 ? 0.3 : 0.44 };
+            if (!W.canMoveTo(m, ent.x, ent.y, ent.radius)) continue;
+            // gate, crate, beacon and a minion-sized solid prop all land on the entity's tile
+            const kinds = ['gate', 'quest_item', 'beacon', 'crate'];
+            const p = { type: kinds[(tested) % kinds.length], x: sp.x, y: sp.y, solid: true };
+            m.props.push(p); W.invalidate(m);
+            R.asserts += 2; tested++;
+            const moved = W.moveWithCollision(m, ent, 0.05, 0.03);
+            if (!moved || !W.canMoveTo(m, ent.x, ent.y, ent.radius)) { R.failed++; R.failures.push('d' + d + ': entity stuck in solid ' + p.type + ' at ' + sp.x + ',' + sp.y); }
+            for (let s = 0; s < 6; s++) W.moveWithCollision(m, ent, 0.2, 0);
+            if (!W.canMoveTo(m, ent.x, ent.y, ent.radius)) { R.failed++; R.failures.push('d' + d + ': entity not free after walking'); }
+          }
+        }
+        R.asserts++;
+        if (tested < 100) { R.failed++; R.failures.push('unstick sweep ran only ' + tested + ' cases'); }
+        // an ordinary wall slide still works, and a wide body in a free tile is not teleported
+        const open = W.generateDungeon(3, 77), e2 = { x: open.spawn.x + 0.5, y: open.spawn.y + 0.5, radius: 0.3 };
+        R.asserts++;
+        const bx = e2.x, by = e2.y; W.moveWithCollision(open, e2, 0.01, 0);
+        if (Math.abs(e2.x - bx) > 0.05 || Math.abs(e2.y - by) > 0.05) { R.failed++; R.failures.push('free entity displaced by moveWithCollision'); }
+      }
+
       // ---- R2.1 path costs on a hand-built map: 3 tiles of liquid in a corridor vs. a 14-step dry detour ----
       for (const liquid of [T.LAVA, T.WATER]) {
         const mw = 9, mh = 7, tl = new Uint8Array(mw * mh).fill(T.WALL);

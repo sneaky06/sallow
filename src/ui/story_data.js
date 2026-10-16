@@ -656,50 +656,29 @@
   };
 
 
-  // ---------- R16.14 class goals: names and one-line flavour, keyed by goal id ----------
-  // Proposed ids `<classId>_<slug>`; combat defines the counters in state.flags.classGoals and matches these ids (rename freely
-  // here if combat picks other ids). `measure` is the suggested condition; `title` is awarded with the goal (null = none).
+  // ---------- R16.14 class goals: a name and a line of flavour per goal ----------
+  // Keyed by the goal ids G.game.getClassGoals() returns (the game owns the rule, its counter and its reward; the displayed
+  // description stays the game's, this adds the name and the flavour line). `common` is keyed by the id's last part and covers the four goals every class has
+  // (<prefix>_branch, _tree20, _flow8, _depth30); the rest are keyed by the full goal id. A goal missing here shows the game's own name.
   const CLASS_GOALS = {
-    warrior: [
-      { id: 'warrior_stagger', name: 'Shoulder of the Mountain', flavour: 'Stun 50 enemies with Shoulder Charge.', measure: 'stun 50 with shoulder charge', title: null },
-      { id: 'warrior_unbroken', name: 'Brannoc\'s Heir', flavour: 'Block 1,000 blows. He held for forty days; you can hold for this.', measure: 'block 1000 hits', title: 'the Unbent' },
-      { id: 'warrior_crowd', name: 'In the Thick of It', flavour: 'Hit 8 enemies with a single swing.', measure: '8 enemies in one hit', title: null },
-      { id: 'warrior_lastblood', name: 'Not Yet', flavour: 'Kill a boss while below 10% life.', measure: 'boss kill under 10% hp', title: null },
-      { id: 'warrior_tree', name: 'Iron Discipline', flavour: 'Put 30 points into a single skill tree.', measure: '30 points in one tree', title: null },
-      { id: 'warrior_perk', name: 'Sworn Path', flavour: 'Finish a perk branch.', measure: 'complete a perk branch', title: null },
-      { id: 'warrior_bare', name: 'The Old Way', flavour: 'Clear a floor with an S grade without drinking a potion.', measure: 'S grade, no potions', title: 'Ironhide' },
-      { id: 'warrior_hundred', name: 'Hundred-Breaker', flavour: 'Kill 100 elites.', measure: '100 elite kills', title: 'Breaker of Hundreds' },
-    ],
-    ranger: [
-      { id: 'ranger_longshot', name: 'Wren\'s Distance', flavour: '100 kills from 8 tiles or more.', measure: '100 kills at >= 8 tiles', title: null },
-      { id: 'ranger_untouched', name: 'Never Where the Claws Land', flavour: 'Kill a boss without being hit.', measure: 'boss kill, no damage taken', title: 'the Untouched' },
-      { id: 'ranger_dance', name: 'Ropewalker', flavour: 'Dash 1,000 times.', measure: '1000 dashes', title: null },
-      { id: 'ranger_volley', name: 'Rain', flavour: 'Kill 5 enemies with a single volley.', measure: '5 kills in one skill use', title: null },
-      { id: 'ranger_flow', name: 'The Thread Pulled Tight', flavour: 'Reach a Flow chain of 5 ten times.', measure: '10 flow chains of 5', title: null },
-      { id: 'ranger_tree', name: 'Fletcher\'s Patience', flavour: 'Put 30 points into a single skill tree.', measure: '30 points in one tree', title: null },
-      { id: 'ranger_perk', name: 'Marked Trail', flavour: 'Finish a perk branch.', measure: 'complete a perk branch', title: null },
-      { id: 'ranger_cartographer', name: 'Every Step Counted', flavour: 'Explore 100% of 25 floors.', measure: '25 floors at 100% explored', title: 'the Cartographer' },
-    ],
-    sorcerer: [
-      { id: 'sorcerer_shatter', name: 'Glass Men', flavour: 'Shatter 50 frozen enemies.', measure: 'kill 50 frozen enemies', title: null },
-      { id: 'sorcerer_pyre', name: 'Varr\'s Customer', flavour: 'Have 20 enemies burning at once.', measure: '20 burning simultaneously', title: null },
-      { id: 'sorcerer_chain', name: 'The Storm Remembers', flavour: 'Let one lightning strike jump 6 times.', measure: 'a 6-jump chain', title: null },
-      { id: 'sorcerer_glass', name: 'Paper Robes', flavour: 'Reach depth 20 without dying since your last return to town.', measure: 'depth 20 in one trip, no death', title: 'Paper-Robed' },
-      { id: 'sorcerer_overload', name: 'Burnt Out', flavour: 'Cast 100 spells in one floor.', measure: '100 casts on a floor', title: null },
-      { id: 'sorcerer_tree', name: 'Single Element', flavour: 'Put 30 points into a single skill tree.', measure: '30 points in one tree', title: null },
-      { id: 'sorcerer_perk', name: 'Formula', flavour: 'Finish a perk branch.', measure: 'complete a perk branch', title: null },
-      { id: 'sorcerer_salt', name: 'Odile\'s Lesson', flavour: 'Kill 500 enemies while moving.', measure: '500 kills while moving', title: 'Saltwalker' },
-    ],
-    necromancer: [
-      { id: 'necromancer_legion', name: 'Crane\'s Congregation', flavour: 'Your minions kill 1,000 enemies.', measure: '1000 minion kills', title: null },
-      { id: 'necromancer_army', name: 'A Full Graveyard', flavour: 'Command 10 minions at once.', measure: '10 minions alive', title: null },
-      { id: 'necromancer_curse', name: 'Ashby\'s Toll', flavour: 'Curse 500 enemies.', measure: '500 enemies cursed', title: null },
-      { id: 'necromancer_recycle', name: 'Nothing Wasted', flavour: 'Raise 300 corpses.', measure: '300 corpses used', title: null },
-      { id: 'necromancer_hands', name: 'Clean Hands', flavour: 'Kill a boss without landing a hit yourself.', measure: 'boss kill, 0 player hits', title: 'the Clean-Handed' },
-      { id: 'necromancer_tree', name: 'Deep Study', flavour: 'Put 30 points into a single skill tree.', measure: '30 points in one tree', title: null },
-      { id: 'necromancer_perk', name: 'Grave Rite', flavour: 'Finish a perk branch.', measure: 'complete a perk branch', title: null },
-      { id: 'necromancer_sexton', name: 'Bell, Book and Spade', flavour: 'Kill 200 undead.', measure: '200 skeleton/wraith kills', title: 'the Sexton' },
-    ],
+    common: {
+      branch: { name: 'Sworn Path', flavour: 'Every tier taken. No step skipped, none borrowed.' },
+      tree20: { name: 'Iron Discipline', flavour: 'Twenty ranks in one craft, and still learning.' },
+      flow8: { name: 'The Thread Pulled Tight', flavour: 'Eight blows and not a breath between them.' },
+      depth30: { name: 'At the Core', flavour: 'The floor down there is warm. Do not ask why.' },
+    },
+    w_charge_stun: { name: 'Shoulder of the Mountain', flavour: 'Doors, shields, skulls: it is all one weight.' },
+    w_cleave_three: { name: 'In the Thick of It', flavour: 'A crowd is only a wide target.' },
+    w_act_bosses: { name: 'Kingbreaker', flavour: 'Six crowns, six dead kings, one very tired warrior.' },
+    r_long_kill: { name: 'Wren\'s Distance', flavour: 'Close enough to aim. Far enough not to care.' },
+    r_moving_kill: { name: 'Never Still', flavour: 'A moving target lives longer. So does a moving archer.' },
+    r_close_calls: { name: 'Never Where the Claws Land', flavour: 'Near enough to feel the draught.' },
+    s_shatter: { name: 'Glass Men', flavour: 'Cold makes them brittle. Fire makes them honest.' },
+    s_freeze: { name: 'Winter\'s Hand', flavour: 'You only had to touch them.' },
+    s_blink_cc: { name: 'Phase Dancer', flavour: 'Gone before the blow arrives.' },
+    n_minion_kills: { name: 'Crane\'s Congregation', flavour: 'They never tire. They never ask for a share.' },
+    n_corpses: { name: 'Nothing Wasted', flavour: 'The dead owe you a last favour.' },
+    n_army: { name: 'A Full Graveyard', flavour: 'Eight of them at your back, and every one still polite.' },
   };
 
   // ---------- R16.16 the inn and its keeper ----------

@@ -145,6 +145,13 @@
           best = { x, y }; bd = d;
         }
       }
+      if (!best) {                                 // fallback: any open solid-capable tile, at least 8 from the stairs
+        for (let y = 2; y < h - 2; y++) for (let x = 2; x < w - 2; x++) {
+          const d = (x - mx) * (x - mx) + (y - my) * (y - my);
+          if (d >= bd || !canSolid(x, y) || Math.abs(x - ctx.exit.x) + Math.abs(y - ctx.exit.y) < 8) continue;
+          best = { x, y }; bd = d;
+        }
+      }
       if (best) add('chute', best.x, best.y, true, { interact: 'chute', used: false });
     }
 

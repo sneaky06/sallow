@@ -89,8 +89,12 @@
       const corpse = S.flags.corpse;
       const here = corpse && corpse.depth === depth;
       const seed = here ? corpse.seed : (S.seed + depth * 7919 + S.flags.visits * 104729) >>> 0;
-      const map = G.world.generateDungeon(depth, seed);
+      // A corpse floor is rebuilt with the inputs it was generated with (cleansed acts, generator version), so it comes back identical.
+      const map = here && corpse.inputs ? G.world.generateDungeon(depth, seed, { inputs: corpse.inputs }) : G.world.generateDungeon(depth, seed);
       if (here) {
+        // Older corpses (no stored inputs) may land in rock if the floor changed: move them to the nearest reachable dry tile.
+        const spot = G.world.safeSpot ? G.world.safeSpot(map, corpse.x, corpse.y) : null;
+        if (spot) { corpse.x = spot.x; corpse.y = spot.y; }
         map.props.push({ type: 'corpse', x: Math.floor(corpse.x), y: Math.floor(corpse.y), solid: false, interact: 'corpse', light: 2 });
         if (G.world.invalidate) G.world.invalidate(map);
       }
@@ -185,7 +189,7 @@
       if (S.flags.corpse) G.emit('ui:toast', { text: 'Your old remains are lost to the dark', color: '#c96a6a' });
       S.flags.corpse = null;
       if (pen.retrievable) {
-        S.flags.corpse = { depth: lastDeath.depth, seed: lastDeath.seed, x: lastDeath.x, y: lastDeath.y, gold: pen.gold, items: p.inventory.filter(Boolean) };
+        S.flags.corpse = { depth: lastDeath.depth, seed: lastDeath.seed, inputs: lastDeath.inputs, x: lastDeath.x, y: lastDeath.y, gold: pen.gold, items: p.inventory.filter(Boolean) };
         p.inventory = p.inventory.map(function () { return null; });
         G.emit('inventory:changed', {});
       }
@@ -205,7 +209,8 @@
   G.on('player:died', function (e) {
     const p = S.player;
     if (!p) return;
-    lastDeath = { noRetrieve: !!(e && e.noRetrieve), depth: S.depth, seed: S.map ? S.map.seed : 0, x: p.x, y: p.y };
+    const inputs = S.map && G.world.captureInputs ? G.world.captureInputs(S.depth, S.map) : null;
+    lastDeath = { noRetrieve: !!(e && e.noRetrieve), depth: S.depth, seed: S.map ? S.map.seed : 0, inputs: inputs, x: p.x, y: p.y };
   });
 
   // World objects the player controller reports via 'object:interact'.

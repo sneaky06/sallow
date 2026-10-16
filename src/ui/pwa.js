@@ -73,6 +73,14 @@
       });
     });
     ui._offlineCheck(true);
+    // An installed home-screen app is resumed, not reloaded, so the browser may not look for a new sw.js for days: look when the app comes
+    // back to the foreground (at most every 10 minutes).
+    let lastUpdate = Date.now();
+    document.addEventListener('visibilitychange', function () {
+      if (document.visibilityState !== 'visible' || Date.now() - lastUpdate < 600000) return;
+      lastUpdate = Date.now();
+      try { reg.update().catch(function () { /* offline */ }); } catch (err) { /* not available */ }
+    });
   }
 
   ui._inits.push(function () {

@@ -301,7 +301,22 @@
     ')': [8, 4, 2, 2, 2, 4, 8], '*': [0, 4, 21, 14, 21, 4, 0], '#': [10, 10, 31, 10, 31, 10, 10], '=': [0, 0, 31, 0, 31, 0, 0],
     '<': [2, 4, 8, 16, 8, 4, 2], '>': [8, 4, 2, 1, 2, 4, 8], '[': [14, 8, 8, 8, 8, 8, 14], ']': [14, 2, 2, 2, 2, 2, 14],
     '&': [12, 18, 20, 8, 21, 18, 13], '_': [0, 0, 0, 0, 0, 0, 31],
+    ';': [0, 0, 4, 0, 0, 4, 8], '|': [4, 4, 4, 4, 4, 4, 4], '\\': [0, 16, 8, 4, 2, 1, 0], '~': [0, 0, 13, 18, 0, 0, 0], '^': [4, 10, 17, 0, 0, 0, 0],
+    '@': [14, 17, 23, 23, 23, 16, 14], '$': [4, 15, 20, 14, 5, 30, 4], '{': [6, 4, 4, 8, 4, 4, 6], '}': [12, 4, 4, 2, 4, 4, 12], '°': [6, 9, 9, 6, 0, 0, 0],
+    // typography the game's strings use: x, ellipsis, middle dot, triangles, arrows, comparison, marks
+    '×': [0, 17, 10, 4, 10, 17, 0], '…': [0, 0, 0, 0, 0, 0, 21], '·': [0, 0, 0, 4, 0, 0, 0], '•': [0, 0, 14, 14, 14, 0, 0],
+    '▲': [0, 4, 14, 14, 31, 31, 0], '▼': [0, 31, 31, 14, 14, 4, 0], '▶': [0, 8, 12, 14, 12, 8, 0], '◀': [0, 2, 6, 14, 6, 2, 0],
+    '▴': [0, 0, 4, 14, 31, 0, 0], '▾': [0, 0, 31, 14, 4, 0, 0], '▸': [0, 8, 12, 14, 12, 8, 0],
+    '→': [0, 4, 2, 31, 2, 4, 0], '←': [0, 4, 8, 31, 8, 4, 0], '↑': [4, 14, 21, 4, 4, 4, 4], '↓': [4, 4, 4, 4, 21, 14, 4],
+    '≥': [8, 4, 2, 4, 8, 0, 31], '≤': [2, 4, 8, 4, 2, 0, 31], '≈': [0, 13, 18, 0, 13, 18, 0], '§': [14, 16, 14, 17, 14, 1, 14],
+    '✓': [0, 1, 2, 20, 8, 0, 0], '★': [4, 31, 14, 14, 27, 0, 0], '☆': [4, 27, 17, 17, 27, 0, 0], '✦': [4, 4, 31, 14, 4, 0, 0],
+    '◆': [0, 4, 14, 31, 14, 4, 0], '◇': [0, 4, 10, 17, 10, 4, 0], '■': [0, 14, 14, 14, 14, 14, 0], '☠': [14, 21, 31, 14, 14, 10, 0],
+    '♥': [0, 10, 31, 31, 14, 4, 0], '∈': [14, 16, 30, 16, 14, 0, 0],
   };
+  // folded onto a glyph above: dashes, curly quotes, odd spaces, ligatures; accents are stripped in fold()
+  const GLYPH_ALIAS = { '—': '-', '–': '-', '−': '-', '‐': '-', '‑': '-', '‘': "'", '’': "'", '‚': ',', '“': '"', '”': '"', '„': '"',
+    '✔': '✓', '✧': '✦', '▮': '■', ' ': ' ', ' ': ' ', ' ': ' ', ' ': ' ', ' ': ' ', ' ': ' ', 'Ø': 'O',
+    'ß': 'SS', 'Æ': 'AE', 'Œ': 'OE', 'Ł': 'L', 'Đ': 'D', 'Ð': 'D', 'Þ': 'TH' };
   const glyphs = Object.create(null);
   for (const ch in GL) {
     const rows = GL[ch];
@@ -312,11 +327,32 @@
     glyphs[ch] = { w: hi - lo + 1, pts: pts };
   }
   glyphs[' '] = { w: 2, pts: [] };
+  // What U.text draws: upper-case, accents stripped (e-acute → E), dashes/quotes/odd spaces mapped, anything else → '?'.
+  const folded = new Map();
+  function fold(str) {
+    let plain = true;
+    for (let i = 0; i < str.length; i++) if (str.charCodeAt(i) > 126) { plain = false; break; }
+    if (plain) return str.toUpperCase();
+    let r = folded.get(str);
+    if (r !== undefined) return r;
+    r = '';
+    for (const ch of str.toUpperCase()) {
+      if (glyphs[ch]) { r += ch; continue; }
+      if (GLYPH_ALIAS[ch]) { r += GLYPH_ALIAS[ch]; continue; }
+      const d = ch.normalize ? ch.normalize('NFD').replace(/[̀-ͯ]/g, '') : ch;
+      r += d !== ch && d.length && glyphs[d[0]] ? d : '?';
+    }
+    if (folded.size > 300) folded.clear();
+    folded.set(str, r);
+    return r;
+  }
+  U.fold = fold;
+  U.hasGlyph = function (ch) { return fold(String(ch)).indexOf('?') < 0 || ch === '?'; };
 
   const textCache = new Map();
   // Cached canvas of `str` in `color` with a 1px dark outline. Height 9, text baseline box 7.
   U.text = function (str, color) {
-    str = String(str == null ? '' : str).toUpperCase();
+    str = fold(String(str == null ? '' : str));
     const key = color + '|' + str;
     let c = textCache.get(key);
     if (c) return c;
@@ -336,9 +372,53 @@
         cx += g.w + 1;
       }
     }
-    if (textCache.size > 500) textCache.clear();
+    if (textCache.size > 500) textCache.delete(textCache.keys().next().value);
     textCache.set(key, c);
     return c;
+  };
+
+  // Digit atlas: one strip per colour with the characters of a number ("1,234.5 +-!%KMB"), so damage numbers are drawn
+  // glyph by glyph with drawImage and never allocate a canvas per distinct value.
+  const ATLAS_CHARS = '0123456789.,+-!%KMB?';
+  const atlases = new Map();
+  U.glyphAtlas = function (color) {
+    let a = atlases.get(color);
+    if (a) return a;
+    let w = 0;
+    const cs = [];
+    for (let i = 0; i < ATLAS_CHARS.length; i++) { const t = U.text(ATLAS_CHARS[i], color); cs.push(t); w += t.width; }
+    const c = U.makeCanvas(w, 9), x = U.ctx2d(c), sx = Object.create(null), cw = Object.create(null);
+    w = 0;
+    for (let i = 0; i < cs.length; i++) { x.drawImage(cs[i], w, 0); sx[ATLAS_CHARS[i]] = w; cw[ATLAS_CHARS[i]] = cs[i].width; w += cs[i].width; }
+    if (atlases.size > 24) atlases.clear();
+    atlases.set(color, (a = { c: c, sx: sx, w: cw }));
+    return a;
+  };
+  // width in px of `str` (already atlas-safe) at scale 1
+  U.glyphWidth = function (str) {
+    let w = 1;
+    for (let i = 0; i < str.length; i++) w += (glyphs[str[i]] || glyphs['?']).w + 1;
+    return w;
+  };
+  // draw `str` (characters of ATLAS_CHARS) with the top-left at x, y; scale = integer pixel multiplier
+  U.drawGlyphs = function (ctx, a, str, x, y, scale) {
+    let cx = x;
+    for (let i = 0; i < str.length; i++) {
+      let ch = str[i];
+      if (a.sx[ch] === undefined) ch = '?';
+      const w = a.w[ch];
+      ctx.drawImage(a.c, a.sx[ch], 0, w, 9, cx, y, w * scale, 9 * scale);
+      cx += (w - 1) * scale;
+    }
+  };
+  // 143512 → "143K", 14350 → "14.3K", 2400000 → "2.4M"; numbers below 10,000 stay whole
+  U.shortNumber = function (n) {
+    n = Math.round(+n);
+    if (!isFinite(n)) return '?';
+    const s = n < 0 ? '-' : '', v = Math.abs(n);
+    if (v < 10000) return s + v;
+    const unit = v >= 1e9 ? ['B', 1e9] : v >= 1e6 ? ['M', 1e6] : ['K', 1e3], q = v / unit[1];
+    return s + (q >= 100 ? Math.floor(q) : Math.floor(q * 10) / 10) + unit[0];
   };
 
   // Soft drop-shadow ellipses by width.

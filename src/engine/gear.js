@@ -147,7 +147,7 @@
       }
     }
     overlays[name] = { c: c, cell: cell };
-    ver++;
+    ver++; verAt = Date.now();
     return true;
   }
 
@@ -182,11 +182,18 @@
   // key = <family>_<slot> for armour, <family>_<weaponType> / <family>_<offhandKind> for held items; generic fallbacks
   // generic_<material>_<slot>, generic_<weaponType>, generic_<offhandKind> are recoloured by the item's palette.
   const hdOver = Object.create(null);      // key → { anims: { [anim]: rec } }
+  let verAt = 0;                           // when ver last changed: sheets rebuild only after the overlays stop arriving
   function addOverlayHD(key, anim, rec) {
     const o = hdOver[key] || (hdOver[key] = { anims: Object.create(null) });
     o.anims[anim] = rec;
-    ver++;
+    ver++; verAt = Date.now();
     return true;
+  }
+  // unloading (assets.js): a released overlay is not worn (worn ones are touched every frame), so sheets need no rebuild
+  function removeOverlay(key) {
+    const o = hdOver[key];
+    if (o) { for (const a in o.anims) { const c = o.anims[a].c; if (c && c.width > 1) { c.width = 1; c.height = 1; } } delete hdOver[key]; }
+    if (overlays[key]) { const c = overlays[key].c; if (c && c.width > 1) { c.width = 1; c.height = 1; } delete overlays[key]; }
   }
   const tints = new WeakMap();
   // 'color' blend keeps each pixel's brightness and takes the palette hue, so one grey-ish generic piece fits every family
@@ -204,13 +211,18 @@
     m.set(hex, c);
     return c;
   }
+  // two-handed weapons look for <family>_greatsword / _greataxe / _maul first (ART_CATALOG E6), then the one-hand overlay
+  const TWO_HAND = { sword: 'greatsword', axe: 'greataxe', mace: 'maul' };
+  let used = [];                           // overlay keys the sheet being composed asked for (kept warm by sheetFor)
   function hdPiece(it, slot, anim) {
     if (!it) return null;
     const fam = String((it.look && it.look.family) || '').toLowerCase();
     const kind = slot === 'weapon' ? (WEAPON_TYPES[it.weaponType] ? it.weaponType : 'sword') : slot === 'offhand' ? offKind(it) : slot;
-    const own = hdOver[fam + '_' + kind] || (slot === 'weapon' || slot === 'offhand' ? hdOver[fam + '_' + slot] : null);
+    const A = U.assets, ask = function (k) { if (A && A.want) { A.want('gear', k); used.push(k); } return hdOver[k]; };
+    const two = slot === 'weapon' && it.twoHanded && TWO_HAND[kind] ? ask(fam + '_' + TWO_HAND[kind]) : null;
+    const own = two || ask(fam + '_' + kind) || (slot === 'weapon' || slot === 'offhand' ? ask(fam + '_' + slot) : null);
     if (own) return own.anims[anim] || null;
-    const L = lookOf(it, slot), gen = hdOver[slot === 'weapon' || slot === 'offhand' ? 'generic_' + kind : 'generic_' + L.mat + '_' + slot];
+    const L = lookOf(it, slot), gen = ask(slot === 'weapon' || slot === 'offhand' ? 'generic_' + kind : 'generic_' + L.mat + '_' + slot);
     const rec = gen && gen.anims[anim];
     return rec ? recolour(rec, L.m) : null;
   }
@@ -222,7 +234,8 @@
       const pieces = Object.create(null);
       for (let i = 0; i < SLOTS.length; i++) { const p = hdPiece(eq[SLOTS[i]], SLOTS[i], anim); if (p && p.cell === cell && p.rows === b.rows) pieces[SLOTS[i]] = p; }
       const lay = function (p, r) {
-        for (let f = 0; f < b.n; f++) x.drawImage(p.c, Math.min(f, p.n - 1) * cell, r * cell, cell, cell, f * cell, r * cell, cell, cell);
+        // an overlay with a different frame count than the body is resampled (a 10-frame overlay on a 12-frame body)
+        for (let f = 0; f < b.n; f++) x.drawImage(p.c, Math.min(p.n - 1, Math.floor(f * p.n / b.n)) * cell, r * cell, cell, cell, f * cell, r * cell, cell, cell);
       };
       for (let r = 0; r < b.rows; r++) {
         const back = r === 3 || r === 4 || (b.rows === 8 && r === 5);
@@ -243,8 +256,14 @@
   G.on('scene:changed', function () { bump++; });
 
   function equipment(p) { return p && p.equipment && typeof p.equipment === 'object' ? p.equipment : null; }
+  // overlays arrive file by file; the sheet is rebuilt once they have been quiet for 250 ms, not once per file
+  let settled = 0;
+  function settledVer() {
+    if (settled !== ver && Date.now() - verAt > 250) settled = ver;
+    return settled;
+  }
   function signature(p, eq) {
-    let s = (ver * 977 + bump) | 0;
+    let s = (settledVer() * 977 + bump) | 0;
     for (let i = 0; i < SLOTS.length; i++) {
       const it = eq[SLOTS[i]];
       s = (Math.imul(s, 31) + (it ? (typeof it.id === 'number' ? it.id : 7) + 1 : 0)) | 0;
@@ -284,9 +303,10 @@
     return U.sprites.buildGeared(desc, gear, wpn);
   }
 
+  const sheetKeys = new WeakMap();   // composed sheet -> the overlay keys it was built from
   const memo = new WeakMap();      // player object → { sig, sprite, sheet }
   U.gear = {
-    addOverlay: addOverlay, addOverlayHD: addOverlayHD,
+    addOverlay: addOverlay, addOverlayHD: addOverlayHD, removeOverlay: removeOverlay,
     lookOf: lookOf,
     // geared sheet for the player, or null when the default path should be used
     sheetFor: function (p) {
@@ -295,16 +315,18 @@
       if (!handBase(p) && U.assets && U.assets.spriteFor(p)) return null;     // hand-drawn class sheet wins (gear not shown)
       const sig = signature(p, eq);
       let m = memo.get(p);
-      if (m && m.sig === sig && m.sprite === p.sprite) return m.sheet;
-      const key = fullKey(p, eq) + '|' + ver;
+      if (m && m.sig === sig && m.sprite === p.sprite) { if (m.keys && U.assets && U.assets.touchKeys) U.assets.touchKeys('gear', m.keys); return m.sheet; }
+      const key = fullKey(p, eq) + '|' + settled;
       let sheet = cache.get(key);
       if (!sheet) {
+        used = [];
         try { sheet = build(p, eq); } catch (err) { console.warn('[engine] gear build failed', err); sheet = U.sprites.get(p.sprite); }
+        if (used.length) sheetKeys.set(sheet, used);
         if (cache.size > (sheet && sheet.hd ? 3 : 24)) cache.clear();
         cache.set(key, sheet);
       }
       if (!m) { m = { sig: 0, sprite: null, sheet: null }; memo.set(p, m); }
-      m.sig = sig; m.sprite = p.sprite; m.sheet = sheet;
+      m.sig = sig; m.sprite = p.sprite; m.sheet = sheet; m.keys = sheetKeys.get(sheet) || null; used = [];
       return sheet;
     },
   };

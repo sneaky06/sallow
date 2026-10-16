@@ -9,38 +9,85 @@
   const TX = ui.S;
   const h = ui._h, fmt = ui._fmt;
 
+  // Both filters use the items module's matchFilter shape: { maxRarity, maxItemLevel, maxPower, slots[], excludeUpgrades, excludeSocketed,
+  // excludeWanted, excludeCorrupted } (locked items, sets, Legendary and better are always kept by G.items.matchFilter itself).
+  // Sell / salvage: settings.sellFilter = { current, presets: { name: filter } } through G.items.get/setSellFilter (items owns the key).
+  // Ground loot: settings.lootFilterRules = { on, cur, presets: [{ name, filter }] }; G.items.lootFilterAllows does the hiding.
   const RARITIES = ['common', 'uncommon', 'rare', 'magic'];            // Legendary and above are never part of a bulk action
   const SLOTS = [['weapon', TX.common.weapon], ['offhand', TX.filter.offHand], ['helm', TX.common.helm], ['chest', TX.filter.chest], ['gloves', TX.common.gloves], ['boots', TX.common.boots], ['belt', TX.common.belt], ['amulet', TX.common.amulet], ['ring', TX.common.ring]];
-  const TOGGLES = [['upgrades', TX.filter.upgrades], ['locked', TX.filter.locked], ['socketed', TX.filter.withGems], ['sets', TX.filter.setPieces], ['wanted', TX.filter.bookPieces], ['corrupted', TX.filter.corrupted]];
-  const DEFAULT = { rarity: 'uncommon', ilvl: 0, power: 0, slots: [], upgrades: false, locked: false, socketed: true, sets: false, wanted: false, corrupted: true };
-  const PRESETS = [
-    { name: 'Trash', f: { rarity: 'common' } },
-    { name: 'Greens', f: { rarity: 'uncommon' } },
-    { name: 'Blues', f: { rarity: 'rare' } },
-  ];
+  // [matchFilter key, label]: the chip reads "<label>: yes" when the filter INCLUDES that kind (the key is the exclude flag, so inverted)
+  const TOGGLES = [['excludeUpgrades', TX.filter.upgrades], ['excludeSocketed', TX.filter.withGems], ['excludeWanted', TX.filter.bookPieces], ['excludeCorrupted', TX.filter.corrupted]];
+  const SELL_DEFAULT = { maxRarity: 'uncommon', slots: [], excludeUpgrades: true, excludeSocketed: false, excludeWanted: true, excludeCorrupted: false };
+  const SELL_PRESETS = [{ name: TX.filter.presetTrash, f: { maxRarity: 'common' } }, { name: TX.filter.presetGreens, f: { maxRarity: 'uncommon' } }, { name: TX.filter.presetBlues, f: { maxRarity: 'rare' } }];
+  const LOOT_DEFAULT = { maxRarity: 'common', slots: [], excludeUpgrades: true, excludeSocketed: true, excludeWanted: true, excludeCorrupted: true };
+  const LOOT_PRESETS = [{ name: TX.filter.presetHideGrey, f: { maxRarity: 'common' } }, { name: TX.filter.presetHideGreen, f: { maxRarity: 'uncommon' } }, { name: TX.filter.presetHideBlue, f: { maxRarity: 'rare' } }];
+  const clone = function (o) { return JSON.parse(JSON.stringify(o)); };
+  const I = function () { return G.items || {}; };
 
-  // R16.7: the ground loot filter is the same builder with its own saved filter + presets (state.settings.lootFilterRules = { cur, presets }).
-  // There the filter says what to HIDE: a matching item is not shown and cannot be picked up (gold, lore, quest items, Legendary tiers and sets always pass).
-  const LOOT_DEFAULT = Object.assign({}, DEFAULT, { enabled: false, rarity: 'common', upgrades: false, socketed: false, corrupted: false });
-  const LOOT_PRESETS = [{ name: 'Hide grey', f: { rarity: 'common' } }, { name: 'Hide green', f: { rarity: 'uncommon' } }, { name: 'Hide blue', f: { rarity: 'rare' } }];
-  function store(source) {
-    const loot = source === 'loot', key = loot ? 'lootFilterRules' : 'sellFilter', base = loot ? LOOT_DEFAULT : DEFAULT, presets = loot ? LOOT_PRESETS : PRESETS;
-    const st = S.settings;
-    if (!st[key] || typeof st[key] !== 'object') st[key] = {};
-    const sf = st[key];
-    if (!sf.cur) sf.cur = Object.assign({}, base);
-    if (!Array.isArray(sf.presets)) sf.presets = presets.map(function (p) { return { name: p.name, f: Object.assign({}, base, p.f) }; });
-    return sf;
+  // The old UI shape ({ rarity, ilvl, power, upgrades, socketed, ... } = what to INCLUDE) -> matchFilter shape. "below N" becomes "at or below N-1".
+  function convOld(o) {
+    o = o && typeof o === 'object' ? o : {};
+    const f = { maxRarity: o.rarity || o.maxRarity || 'common', slots: Array.isArray(o.slots) ? o.slots.slice() : [] };
+    if (o.ilvl > 0) f.maxItemLevel = o.ilvl - 1;
+    if (o.power > 0) f.maxPower = o.power - 1;
+    f.excludeUpgrades = !o.upgrades; f.excludeSocketed = !o.socketed; f.excludeWanted = !o.wanted; f.excludeCorrupted = !o.corrupted;
+    return f;
   }
-  const cur = function (source) { return store(source).cur; };
-  // is this item hidden by the ground loot filter right now? (the game and the label drawer call this)
-  ui._lootHides = function (item) {
-    const sf = S.settings.lootFilterRules;
-    if (!sf || !sf.cur || !sf.cur.enabled || !item) return false;
-    return matches(item, sf.cur);
+  // Called by meta.load for every save: rewrite saved filters from the two older shapes into the settled ones. Safe to run twice.
+  ui._migrateFilters = function (st) {
+    if (!st || typeof st !== 'object') return;
+    const sf = st.sellFilter;
+    if (sf && typeof sf === 'object' && sf.cur && !sf.current) {                // R12 UI shape { cur, presets: [{ name, f }] }
+      const presets = {};
+      (Array.isArray(sf.presets) ? sf.presets : []).slice(0, 5).forEach(function (p) { if (p && p.name) presets[p.name] = convOld(p.f); });
+      st.sellFilter = { current: convOld(sf.cur), presets: presets };
+    }
+    const lf = st.lootFilterRules;
+    const oldUi = lf && typeof lf === 'object' && lf.cur && typeof lf.cur === 'object' && !('on' in lf);
+    const flat = lf && typeof lf === 'object' && !lf.cur && ('enabled' in lf || 'maxRarity' in lf);
+    if (oldUi || flat) {
+      let out;
+      if (lf.cur && typeof lf.cur === 'object') {                               // R16.7 UI shape { cur: { enabled, rarity, ... }, presets: [{ name, f }] }
+        out = { on: !!lf.cur.enabled, cur: convOld(lf.cur), presets: (Array.isArray(lf.presets) ? lf.presets : []).filter(function (p) { return p && p.name; }).slice(0, 6).map(function (p) { return { name: p.name, filter: convOld(p.f) }; }) };
+      } else {                                                                  // the items-side flat shape { enabled, maxRarity, ... }
+        const cur = clone(lf); delete cur.enabled;
+        out = { on: !!lf.enabled, cur: cur, presets: [] };
+      }
+      st.lootFilterRules = out;
+    }
   };
-  ui._lootFilterOn = function () { const sf = S.settings.lootFilterRules; return !!(sf && sf.cur && sf.cur.enabled); };
-  const save = function () { if (G.meta && G.meta.save) G.meta.save(); };
+
+  function lootStore() {
+    const st = S.settings;
+    if (!st.lootFilterRules || typeof st.lootFilterRules !== 'object' || Array.isArray(st.lootFilterRules)) st.lootFilterRules = {};
+    ui._migrateFilters(st);
+    const lf = st.lootFilterRules;
+    if (typeof lf.on !== 'boolean') lf.on = false;
+    if (!lf.cur || typeof lf.cur !== 'object') lf.cur = clone(LOOT_DEFAULT);
+    if (!Array.isArray(lf.cur.slots)) lf.cur.slots = [];
+    if (!Array.isArray(lf.presets)) lf.presets = LOOT_PRESETS.map(function (p) { return { name: p.name, filter: Object.assign(clone(LOOT_DEFAULT), p.f) }; });
+    return lf;
+  }
+  // the live filter object being edited, and the presets as [{ name, filter }] with save / delete callbacks
+  function sellStore() {
+    const it = I();
+    ui._migrateFilters(S.settings);
+    const f = it.getSellFilter ? it.getSellFilter() : (S.settings.sellFilter = S.settings.sellFilter || { current: clone(SELL_DEFAULT), presets: {} }).current;
+    if (!Array.isArray(f.slots)) f.slots = [];
+    return f;
+  }
+  function sellPresets() {
+    const it = I();
+    const map = (it.getFilterPresets ? it.getFilterPresets() : (S.settings.sellFilter && S.settings.sellFilter.presets)) || {};
+    if (!Object.keys(map).length && !S.settings._sellPresetsSeeded) {
+      S.settings._sellPresetsSeeded = true;
+      SELL_PRESETS.forEach(function (p) { if (it.saveFilterPreset) it.saveFilterPreset(p.name, Object.assign(clone(SELL_DEFAULT), p.f)); });
+    }
+    return Object.keys(map).map(function (k) { return { name: k, filter: map[k] }; });
+  }
+  const cur = function (source) { return source === 'loot' ? lootStore().cur : sellStore(); };
+  ui._lootFilterOn = function () { return !!(S.settings.lootFilterRules && S.settings.lootFilterRules.on); };
+  const save = function () { if (G.meta && G.meta.save) G.meta.save(); G.emit('inventory:changed', {}); };
 
   // R13: the crate's bulk rate starts at 50% and rises with loyalty (G.items.bulkRate(kind), kind = 'sell' | 'salvage')
   const rateOf = function (kind) {
@@ -65,25 +112,14 @@
     return h('div', { class: 'ed-loyal', title: TX.filter.loyaltyRaisesWhatThe + kind }, TX.filter.loyalty + '★'.repeat(n) + '☆'.repeat(3 - n), h('small', { text: TX.filter.crate + kind + ' ' + Math.round(rateOf(kind) * 100) + '%' }));
   };
 
-  // does this item belong to filter f? (equipment only)
+  // does this item belong to filter f? The items module owns the rules (equipment only; locked, sets, Legendary+ never match).
   function matches(it, f) {
-    if (!it || !it.slot || it.type === 'gem') return false;
-    if (ui._rarityOrder(it.rarity) > ui._rarityOrder(f.rarity)) return false;
-    if (ui._rarityOrder(it.rarity) >= ui._rarityOrder('legendary') || it.setId && !f.sets) return false;
-    if (it.bleached && !it.revealed) return false;
-    if (f.ilvl > 0 && (it.ilvl || it.level || 0) >= f.ilvl) return false;
-    if (f.power > 0 && G.items && typeof G.items.power === 'function') { try { if (G.items.power(it) >= f.power) return false; } catch (err) { /* ignore */ } }
-    if (f.slots && f.slots.length && f.slots.indexOf(it.slot === 'ring1' || it.slot === 'ring2' ? 'ring' : it.slot) < 0) return false;
-    if (!f.upgrades && ui._verdict(it) === 'up') return false;
-    if (!f.locked && it.locked) return false;
-    if (!f.socketed && Array.isArray(it.sockets) && it.sockets.some(Boolean)) return false;
-    if (!f.wanted && ui._wanted(it)) return false;
-    if (!f.corrupted && it.corrupted) return false;
-    return true;
+    const fn = G.items && G.items.matchFilter;
+    if (!fn || !it) return false;
+    try { return !!fn.call(G.items, it, f); } catch (err) { return false; }
   }
-  ui._filterMatches = matches;
 
-  // source: 'bag' | 'surface'. -> [{ it, i }] newest index last
+  // source: 'bag' | 'surface' | 'loot'. -> [{ it, i }] newest index last
   function pool(source) {
     if (source === 'loot') return (S.groundItems || []).filter(function (g) { return g && g.item; }).map(function (g, i) { return { it: g.item, i: i }; });
     const list = source === 'surface' ? (Array.isArray(S.surface) ? S.surface : []) : ((S.player && S.player.inventory) || []);
@@ -122,9 +158,9 @@
   }
 
   function describe(f) {
-    const parts = ['≤ ' + (C.RARITY[f.rarity] ? C.RARITY[f.rarity].name : f.rarity)];
-    if (f.ilvl > 0) parts.push(TX.filter.level + f.ilvl);
-    if (f.power > 0) parts.push(TX.filter.power + f.power);
+    const parts = ['≤ ' + (C.RARITY[f.maxRarity] ? C.RARITY[f.maxRarity].name : f.maxRarity)];
+    if (f.maxItemLevel > 0) parts.push(TX.filter.level + f.maxItemLevel);
+    if (f.maxPower > 0) parts.push(TX.filter.power + f.maxPower);
     if (f.slots && f.slots.length) parts.push(f.slots.map(function (s) { return (SLOTS.filter(function (x) { return x[0] === s; })[0] || [0, s])[1]; }).join('/'));
     return parts.join(' · ');
   }
@@ -148,39 +184,51 @@
     const chip = function (label, on, fn) { return h('button', { type: 'button', class: 'ed-btn ed-chip' + (on ? ' on' : ''), 'aria-pressed': on ? 'true' : 'false', onclick: function () { ui._sfx('click'); fn(); save(); fill(); } }, label); };
     const stepper = function (label, key, step, max) {
       return h('div', { class: 'ed-step' }, h('span', { text: label }),
-        ui._btn('−', function () { f[key] = Math.max(0, (f[key] | 0) - step); save(); fill(); }),
-        h('b', { text: f[key] > 0 ? String(f[key]) : 'Off' }),
+        ui._btn('−', function () { const v = Math.max(0, (f[key] | 0) - step); if (v) f[key] = v; else delete f[key]; save(); fill(); }),
+        h('b', { text: f[key] > 0 ? String(f[key]) : TX.filter.off }),
         ui._btn('+', function () { f[key] = Math.min(max, (f[key] | 0) + step); save(); fill(); }));
     };
+    const presetList = function () { return loot ? lootStore().presets : sellPresets(); };
     const fill = function () {
-      const sf = store(source), pv = preview(source, f);
+      const pv = preview(source, f), lf = loot ? lootStore() : null;
       box.replaceChildren.apply(box, [
         h('div', { class: 'ed-h', text: loot ? TX.filter.groundLootFilter : TX.filter.sellSalvageFilter }),
         loot ? h('div', { class: 'ed-note', text: TX.filter.lootFilterExplain }) : null,
-        loot ? chip(f.enabled ? TX.filter.filterIsOn : TX.filter.filterIsOff, !!f.enabled, function () { f.enabled = !f.enabled; }) : null,
-        h('div', { class: 'ed-seg', style: 'flex-wrap:wrap' }, sf.presets.map(function (p, i) {
-          return ui._btn(p.name, function () { Object.keys(f).forEach(function (k) { delete f[k]; }); Object.assign(f, loot ? LOOT_DEFAULT : DEFAULT, JSON.parse(JSON.stringify(p.f))); if (loot) f.enabled = true; save(); fill(); }, '');
+        loot ? chip(lf.on ? TX.filter.filterIsOn : TX.filter.filterIsOff, !!lf.on, function () { lf.on = !lf.on; }) : null,
+        h('div', { class: 'ed-seg', style: 'flex-wrap:wrap' }, presetList().map(function (p) {
+          return ui._btn(p.name, function () {
+            const keep = clone(p.filter || {});
+            Object.keys(f).forEach(function (k) { delete f[k]; });
+            Object.assign(f, loot ? LOOT_DEFAULT : SELL_DEFAULT, keep);
+            if (loot) lf.on = true;
+            save(); fill();
+          }, '');
         })),
         h('div', { class: 'ed-note', text: TX.filter.rarityAtOrBelow }),
-        h('div', { class: 'ed-seg' }, RARITIES.map(function (r) { const rr = C.RARITY[r]; const b = chip(rr ? rr.name : r, f.rarity === r, function () { f.rarity = r; }); b.style.color = rr ? rr.color : ''; return b; })),
-        stepper('Item level below', 'ilvl', 5, 100),
-        stepper('Power below', 'power', 50, 5000),
+        h('div', { class: 'ed-seg' }, RARITIES.map(function (r) { const rr = C.RARITY[r]; const b = chip(rr ? rr.name : r, f.maxRarity === r, function () { f.maxRarity = r; }); b.style.color = rr ? rr.color : ''; return b; })),
+        stepper(TX.filter.itemLevelUpTo, 'maxItemLevel', 5, 100),
+        stepper(TX.filter.powerUpTo, 'maxPower', 50, 5000),
         h('div', { class: 'ed-note', text: TX.filter.slotsNoneChosenAll }),
         h('div', { class: 'ed-seg', style: 'flex-wrap:wrap' }, SLOTS.map(function (s) {
           return chip(s[1], f.slots.indexOf(s[0]) >= 0, function () { const i = f.slots.indexOf(s[0]); if (i >= 0) f.slots.splice(i, 1); else f.slots.push(s[0]); });
         })),
         h('div', { class: 'ed-note', text: TX.filter.alsoIncludeTapTo }),
-        h('div', { class: 'ed-seg', style: 'flex-wrap:wrap' }, TOGGLES.map(function (t) { return chip(t[1] + ': ' + (f[t[0]] ? 'yes' : 'no'), !!f[t[0]], function () { f[t[0]] = !f[t[0]]; }); })),
-        h('div', { class: 'ed-box', style: 'margin-top:6px' }, h('div', { class: 'ed-kv' }, h('span', { text: TX.filter.matchesNow }), h('b', { class: pv.count ? 'ed-gold' : 'ed-dim', text: pv.count + TX.chute.item + (pv.count === 1 ? '' : 's') + (source === 'surface' ? ' · ' : ' · ') + fmt(pv.gold) + ' g' })),
+        h('div', { class: 'ed-seg', style: 'flex-wrap:wrap' }, TOGGLES.map(function (t) { const inc = !f[t[0]]; return chip(t[1] + ': ' + (inc ? TX.filter.yes : TX.filter.no), inc, function () { f[t[0]] = !f[t[0]]; }); })),
+        h('div', { class: 'ed-box', style: 'margin-top:6px' }, h('div', { class: 'ed-kv' }, h('span', { text: TX.filter.matchesNow }), h('b', { class: pv.count ? 'ed-gold' : 'ed-dim', text: pv.count + TX.chute.item + (pv.count === 1 ? '' : 's') + ' · ' + fmt(pv.gold) + ' g' })),
           source === 'surface' ? h('div', { class: 'ed-note', text: ui._bulkLine() }) : null),
         h('div', { class: 'ed-seg', style: 'margin-top:6px' },
           ui._btn(TX.filter.saveAsPreset, function () {
-            sf.presets.push({ name: TX.filter.mine + (sf.presets.length + 1), f: JSON.parse(JSON.stringify(f)) }); if (sf.presets.length > 6) sf.presets.splice(3, 1);
+            const name = TX.filter.mine + (presetList().length + 1);
+            if (loot) { lf.presets.push({ name: name, filter: clone(f) }); if (lf.presets.length > 6) lf.presets.splice(3, 1); }
+            else if (!(G.items && G.items.saveFilterPreset && G.items.saveFilterPreset(name, f))) { ui._sfx('error'); return; }
             save(); ui.toast(TX.filter.presetSaved, '#a89f8f'); fill();
           }),
           ui._btn(TX.filter.deletePreset, function () {
-            const i = sf.presets.findIndex(function (p) { return JSON.stringify(Object.assign({}, loot ? LOOT_DEFAULT : DEFAULT, p.f)) === JSON.stringify(f); });
-            if (i >= 0) { sf.presets.splice(i, 1); save(); fill(); } else ui._sfx('error');
+            const same = function (p) { return JSON.stringify(Object.assign({}, loot ? LOOT_DEFAULT : SELL_DEFAULT, p.filter)) === JSON.stringify(Object.assign({}, loot ? LOOT_DEFAULT : SELL_DEFAULT, f)); };
+            const hit = presetList().filter(same)[0];
+            if (!hit) { ui._sfx('error'); return; }
+            if (loot) lf.presets.splice(lf.presets.indexOf(hit), 1); else if (G.items && G.items.deleteFilterPreset) G.items.deleteFilterPreset(hit.name);
+            save(); fill();
           }))]);
     };
     box = h('div', { class: 'ed-list ed-fbuilder' });
@@ -193,7 +241,7 @@
 
   // ---------- the box shown in the Sell tab / the crate ----------
   ui._filterBox = function (source) {
-    const f = cur(), pv = preview(source, f);
+    const f = cur(source), pv = preview(source, f);
     const canSell = source === 'surface' ? !!(G.items && G.items.surfaceSell) : !!(G.items && G.items.sell);
     const canSalv = source === 'surface' ? !!(G.items && G.items.surfaceSalvage) : !!(G.items && G.items.salvage);
     const sell = ui._btn(TX.filter.sell + pv.count + ' · ' + fmt(pv.gold) + 'g', function () { confirmRun(source, f, 'sell'); }, pv.count ? 'gold' : '');

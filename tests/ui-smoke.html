@@ -210,9 +210,13 @@ async function run() {
     ui._closeModals(); ui.close(); delete I.classPenalty;
     // tips
     S.flags.tipsSeen = []; S.settings.tips = true; ui._tip('chute'); ui._tip('chute'); ui._tip('surface'); for (var u = 0; u < 5; u++) G.ui.update(0.2); await wait(50);
-    ck('tip card pauses the game', !!q('.ed-tipdlg') && S.paused === true && S.flags.tipsSeen.length === 2);
+    ck('tip card pauses the game; a tip counts as seen only when shown', !!q('.ed-tipdlg') && S.paused === true && S.flags.tipsSeen.length === 1 && ui._tipState().queued === 1);
     q('.ed-modal').click(); await wait(20); ck('early tap does not dismiss', !!q('.ed-tipdlg'));
-    await wait(450); q('.ed-modal').click(); await wait(30); ck('tap anywhere dismisses', !q('.ed-tipdlg') && S.paused === false);
+    var firstTip = q('.ed-tipdlg').textContent;
+    await wait(450); q('.ed-modal').click(); await wait(30);
+    // the real game loop shows the next queued card on the following frame, so "dismissed" = the first card is gone (and the game is
+    // only paused if the next card took over)
+    ck('tap anywhere dismisses', (!q('.ed-tipdlg') && S.paused === false) || (!!q('.ed-tipdlg') && q('.ed-tipdlg').textContent !== firstTip && S.paused === true));
     G.ui.update(0.2); await wait(30); ck('next queued tip follows', !!q('.ed-tipdlg') && /surface/i.test(q('.ed-tipdlg').textContent));
     await wait(450); [].filter.call(document.querySelectorAll('.ed-tipdlg .ed-btn'), function (b) { return b.textContent === 'OK'; })[0].click(); await wait(30);
     ck('OK button dismisses', !q('.ed-tipdlg') && S.paused === false);
@@ -339,9 +343,9 @@ async function run() {
     G.emit('npc:interact', { role: 'merchant' }); await wait(60); [].filter.call(document.querySelectorAll('.ed-tab'), function (t) { return /Sell/.test(t.textContent); })[0].click(); await wait(60);
     ck('sell tab has the filter box (no fixed buttons)', !!q('.ed-fbox') && !q('.ed-mass'));
     [].filter.call(document.querySelectorAll('.ed-fbtns .ed-btn'), function (b) { return b.textContent === 'Edit'; })[0].click(); await wait(60);
-    ck('filter builder: rarity, level, power, slots, toggles, live preview', document.querySelectorAll('.ed-fbuilder .ed-chip').length >= 19 && document.querySelectorAll('.ed-fbuilder .ed-step').length === 2 && /Matches now/.test(q('.ed-fbuilder').textContent));
+    ck('filter builder: rarity, level, power, slots, toggles, live preview', document.querySelectorAll('.ed-fbuilder .ed-chip').length === 17 && document.querySelectorAll('.ed-fbuilder .ed-step').length === 2 && /Matches now/.test(q('.ed-fbuilder').textContent));
     var rareChip = [].filter.call(document.querySelectorAll('.ed-fbuilder .ed-chip'), function (b) { return /Rare/.test(b.textContent); })[0]; rareChip.click(); await wait(40);
-    ck('filter choice is remembered in settings.sellFilter', S.settings.sellFilter && S.settings.sellFilter.cur.rarity === 'rare');
+    ck('filter choice is remembered in settings.sellFilter (items shape)', S.settings.sellFilter && S.settings.sellFilter.current.maxRarity === 'rare' && G.items.getSellFilter().maxRarity === 'rare');
     ui._closeModals(); ui.close();
     // crate: pausing tip, bulk rate wording, take all
     S.flags.tipsSeen = []; S.settings.tips = true; S.surface = [I.rollItem({ level: 10, rarity: 'common', slot: 'belt' }), I.rollItem({ level: 10, rarity: 'common', slot: 'ring' })];
@@ -461,9 +465,21 @@ async function run() {
     ck('ground loot filter builder explains itself and has presets', /cannot be picked up/.test((q('.ed-fbuilder') || {}).textContent || '') && document.querySelectorAll('.ed-fbuilder .ed-seg .ed-btn').length > 5);
     var onChip = [].filter.call(document.querySelectorAll('.ed-fbuilder .ed-chip'), function (b) { return /Filter: OFF/.test(b.textContent); })[0]; onChip.click(); await wait(30);
     var cm = I16.rollItem({ level: 10, rarity: 'common', slot: 'belt' }), lg = I16.rollItem({ level: 10, rarity: 'legendary', slot: 'belt' });
-    S.settings.lootFilterRules.cur.upgrades = true;
-    ck('filter on: grey gear is hidden, legendary and gold always pass', ui._lootHides(cm) === true && ui._lootHides(lg) === false && ui._lootHides({ type: 'gold', rarity: 'common' }) === false);
-    S.settings.lootFilterRules.cur.enabled = false; ui._closeModals();
+    var LR = S.settings.lootFilterRules;
+    ck('loot filter is saved as { on, cur, presets: [{ name, filter }] } with the matchFilter fields', LR.on === true && LR.cur.maxRarity === 'common' && Array.isArray(LR.cur.slots) && Array.isArray(LR.presets) && LR.presets.length >= 3 && !!LR.presets[0].name && LR.presets[0].filter.maxRarity);
+    LR.cur.excludeUpgrades = false;
+    ck('filter on: grey gear is hidden, legendary and gold always pass (G.items.lootFilterAllows)', I16.lootFilterAllows(cm) === false && I16.lootFilterAllows(lg) === true && I16.lootFilterAllows({ type: 'gold', rarity: 'common', qty: 5 }) === true);
+    ck('the UI keeps no hiding logic of its own', ui._lootHides === undefined && ui._filterMatches === undefined);
+    LR.on = false; ui._closeModals();
+    // old saved filter shapes migrate to the settled ones
+    var oldSt = { sellFilter: { cur: { rarity: 'rare', ilvl: 20, power: 0, slots: ['ring'], upgrades: false, locked: false, socketed: true, sets: false, wanted: false, corrupted: true }, presets: [{ name: 'Mine 1', f: { rarity: 'common' } }] },
+      lootFilterRules: { cur: { enabled: true, rarity: 'uncommon', ilvl: 0, power: 0, slots: [], upgrades: false, socketed: false, wanted: false, corrupted: false }, presets: [{ name: 'Hide grey', f: { rarity: 'common' } }] } };
+    ui._migrateFilters(oldSt);
+    ck('old sell filter migrates to { current, presets: { name: filter } }', oldSt.sellFilter.current.maxRarity === 'rare' && oldSt.sellFilter.current.maxItemLevel === 19 && oldSt.sellFilter.current.excludeUpgrades === true && oldSt.sellFilter.current.excludeSocketed === false && oldSt.sellFilter.current.excludeCorrupted === false && oldSt.sellFilter.presets['Mine 1'].maxRarity === 'common');
+    ck('old loot filter migrates to { on, cur, presets }', oldSt.lootFilterRules.on === true && oldSt.lootFilterRules.cur.maxRarity === 'uncommon' && oldSt.lootFilterRules.cur.excludeSocketed === true && oldSt.lootFilterRules.presets[0].filter.maxRarity === 'common');
+    var flatSt = { lootFilterRules: { enabled: true, maxRarity: 'rare', excludeUpgrades: true } }; ui._migrateFilters(flatSt);
+    ck('the items-side flat loot filter shape migrates too', flatSt.lootFilterRules.on === true && flatSt.lootFilterRules.cur.maxRarity === 'rare' && !('enabled' in flatSt.lootFilterRules.cur));
+    var twice = JSON.stringify(oldSt); ui._migrateFilters(oldSt); ck('migration is idempotent', JSON.stringify(oldSt) === twice);
     // sockets: blacksmith tab + the tool
     P16.gold = 100000; G.emit('npc:interact', { role: 'blacksmith' }); await wait(80);
     var sk = [].filter.call(document.querySelectorAll('.ed-tab'), function (b) { return /Sockets/.test(b.textContent); })[0]; ck('blacksmith has a Sockets tab', !!sk); sk.click(); await wait(60);
@@ -504,6 +520,64 @@ async function run() {
     G.meta.STORY.VENDOR_QUESTS = [{ id: 'cq_test', giver: 'x', role: 'merchant', act: 1, name: 'cq', steps: [{ kind: 'kill', goal: 1, desc: 'd', before: ['b'], after: ['a'] }], rewards: { crate: 5 } }];
     S.flags.crateBonus = 0; if (S.quests && S.quests.side) delete S.quests.side.cq_test; G.meta.acceptQuest('cq_test'); tapTalk(4); G.emit('monster:killed', { monster: { rarity: 'normal', faction: 'enemy', monsterId: 'g' } }); G.meta.turnInQuest('cq_test'); tapTalk(4);
     ck('reward crate: 5 raises the crate', S.flags.crateBonus === 5 && ui._crateSize() >= 30 || S.flags.crateBonus === 5); delete G.meta.STORY.VENDOR_QUESTS; S.flags.crateBonus = 0;
+    // ---- audit fixes: stats, marks, saves, long-press, socket failure, tips, pause ----
+    ui.close(); ui._closeModals(); S.paused = false; S.settings.tips = false;
+    var gs0 = S.flags.stats = {};
+    G.emit('gold:changed', { gold: 1000, delta: 500 }); G.emit('item:sold', { count: 1 }); G.emit('gold:changed', { gold: 0, delta: -300 });
+    ck('sales, corpse reclaim and the death loss do not count as gold earned / spent', !S.flags.stats.goldEarned && !S.flags.stats.goldSpent);
+    G.emit('item:picked', { item: { type: 'gold', qty: 30 } }); G.emit('gold:spent', { amount: 20, role: 'merchant', what: 'x' });
+    ck('gold picked up counts as earned; trader spending counts as spent', S.flags.stats.goldEarned === 30 && S.flags.stats.goldSpent === 20);
+    var marks = [], gm = G.game.grantMark; G.game.grantMark = function (r) { marks.push(r); }; S.flags.stats.kills = 1000; S.flags.milestones = {}; G.meta.addStat('kills', 0); ui.update(1); G.game.grantMark = gm;
+    ck('a milestone Mark goes through G.game.grantMark', marks.indexOf('milestone_kills_3') >= 0);
+    G.emit('player:died', { cause: 'Spider Queen!' }); G.emit('player:died', {});
+    ck('stats book keeps the death cause (and "unknown" without one)', S.flags.stats.deathsBy_spider_queen === 1 && S.flags.stats.deathsBy_unknown === 1);
+    var missing = [];
+    Object.keys(G.game.CLASS_GOALS).forEach(function (c) { G.game.CLASS_GOALS[c].forEach(function (g) { var T = G.meta.STORY.CLASS_GOALS, part = /_(branch|tree20|flow8|depth30)$/.exec(g.id); if (!(T[g.id] || (part && T.common && T.common[part[1]]))) missing.push(g.id); }); });
+    ck('every game class goal has a story name (ids match G.game.getClassGoals)' + (missing.length ? ': ' + missing.join(',') : ''), missing.length === 0);
+    var gl0 = G.game.getClassGoals()[0]; ui.open('classgoals'); await wait(40);
+    ck('the goals page shows the story name', gl0 && (q('.ed-panel') || {}).textContent.indexOf(G.meta.STORY.CLASS_GOALS[gl0.id] ? G.meta.STORY.CLASS_GOALS[gl0.id].name : G.meta.STORY.CLASS_GOALS.common[gl0.id.replace(/^[a-z]+_/, '')].name) >= 0); ui.close();
+    // saves: a failing safety copy never costs the main save; a failing main save toasts once
+    var K = G.meta._KEY, realSet = Storage.prototype.setItem, toasts = [], realToast = ui.toast;
+    ui.toast = function (t) { toasts.push(String(t)); };
+    G.meta._noSave = false; G.emit('scene:changed', { scene: S.scene, depth: S.depth, map: S.map });
+    Storage.prototype.setItem = function (k, v) { if (k !== K) throw new Error('quota'); return realSet.call(this, k, v); };
+    var savedMain = G.meta.save(); Storage.prototype.setItem = realSet;
+    ck('main save is written even when the .prev / ring copies fail', savedMain === true && !!localStorage.getItem(K) && JSON.parse(localStorage.getItem(K)).savedAt > Date.now() - 5000);
+    Storage.prototype.setItem = function (k, v) { if (k === K) throw new Error('quota'); return realSet.call(this, k, v); };
+    var f1 = G.meta.save(), f2 = G.meta.save(); Storage.prototype.setItem = realSet;
+    ck('a failed save says so once per streak', f1 === false && f2 === false && toasts.filter(function (t) { return /Could not save/.test(t); }).length === 1);
+    ck('and says when saving works again', G.meta.save() === true && toasts.some(function (t) { return /works again/.test(t); }));
+    ui.toast = realToast;
+    var ringKeys = function () { var o = {}; for (var i = 0; i < 5; i++) o[i] = localStorage.getItem(K + '.bak.' + i); return o; }, rb = ringKeys(), writes = [];
+    Storage.prototype.setItem = function (k, v) { if (/\.bak\./.test(k)) writes.push(k); return realSet.call(this, k, v); };
+    G.emit('scene:changed', { scene: S.scene, depth: S.depth, map: S.map }); G.meta.save(); Storage.prototype.setItem = realSet;
+    ck('a scene change writes at most one ring slot', writes.length <= 1);
+    // long-press on the playfield opens the pile list for the pile under the finger
+    var cv = document.querySelector('canvas');
+    if (cv && S.player && G.items && G.items.dropLoot && G.engine && G.engine.screenToWorld) {
+      var r0 = cv.getBoundingClientRect(), wpt = G.engine.screenToWorld(r0.left + 300, r0.top + 200);
+      S.groundItems.length = 0; G.items.dropLoot(wpt.x, wpt.y, { source: 'rare', level: 5, floor: 'rare' });
+      var lpOpen = null, offLp = G.on('pile:open', function (e) { if (e && e.long) lpOpen = e; });
+      cv.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: r0.left + 300, clientY: r0.top + 200, pointerId: 41 })); await wait(560); window.dispatchEvent(new PointerEvent('pointerup', { pointerId: 41 }));
+      ck('holding a finger on a pile opens its list', !!lpOpen && lpOpen.long === true);
+      if (ui._closePile) ui._closePile(); lpOpen = null;
+      cv.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: r0.left + 300, clientY: r0.top + 200, pointerId: 42 })); window.dispatchEvent(new PointerEvent('pointermove', { clientX: r0.left + 380, clientY: r0.top + 200, pointerId: 42 })); await wait(560); window.dispatchEvent(new PointerEvent('pointerup', { pointerId: 42 }));
+      ck('a finger that moves is not a long-press', !lpOpen);
+      if (typeof offLp === 'function') offLp(); S.groundItems.length = 0; }
+    // a broken Socket Tool is visible
+    G.emit('socket:failed', { item: { name: 'Test Helm' } }); await wait(30);
+    ck('socket:failed shows a banner', /Socket Tool shatters/i.test([].map.call(document.querySelectorAll('.ed-banner b'), function (b) { return b.textContent; }).join('|')));
+    // tips: seen only when shown; held back while a fight is on
+    S.flags.tipsSeen = []; S.settings.tips = true; ui._tip('dash'); G.emit('scene:changed', { scene: S.scene, depth: S.depth, map: S.map });
+    ck('a tip lost to a scene change is not marked seen', S.flags.tipsSeen.indexOf('dash') < 0 && ui._tipState().queued === 0);
+    ui._tip('dash'); S.flags.sealed = true; for (var tt = 0; tt < 4; tt++) G.ui.update(0.3);
+    ck('no tip card while a lockdown is sealed', !q('.ed-tipdlg') && S.flags.tipsSeen.indexOf('dash') < 0);
+    S.flags.sealed = false; S.time += 5; for (var tt2 = 0; tt2 < 4; tt2++) G.ui.update(0.3);
+    ck('the card comes once the fight is over', !!q('.ed-tipdlg') && S.flags.tipsSeen.indexOf('dash') >= 0); ui._closeModals(); S.paused = false; S.settings.tips = false; S.flags.tipsSeen = [];
+    // two pausing modals: closing one keeps the game paused
+    ui._confirm('one', 'Yes', function () {}, { pause: true }); ui._confirm('two', 'Yes', function () {}, { pause: true });
+    var cancels = document.querySelectorAll('.ed-modal .ed-btn'); [].filter.call(cancels, function (b) { return b.textContent === 'Cancel'; })[1].click();
+    ck('closing one of two pausing modals keeps the game paused', S.paused === true); ui._closeModals(); ck('and closing the last resumes it', S.paused === false);
     G.ui.open('journal'); await wait(50); log('journal ok: ' + !!q('.ed-panel .ed-page')); ui.close();
     log('small controls (hud): ' + small(q('.ed-hud')).join('; '));
   } catch (err) { ERR.push('TEST: ' + err.stack); }

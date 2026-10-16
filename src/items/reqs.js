@@ -8,6 +8,7 @@
   const G = window.G;
   const I = G.items;
   const D = I.data;
+  const C = G.C;
 
   D.REQ = {
     startIlvl: 8,                                       // below this item level nothing asks for attributes
@@ -78,4 +79,26 @@
     if (!p || !D.isEquip(item) || I.meetsRequirements(item, p).ok) return false;
     return I.verdict(item, true) === 'up';
   };
+
+  // IT-9: requirements are checked on equip, but a respec refunds the attribute points and leaves the gear on. When an attribute has
+  // dropped since we last looked, worn pieces that no longer qualify go back to the bag (never destroyed; if the bag is full they stay on).
+  let attrSnap = null;
+  function snapAttrs() { const p = G.state.player; attrSnap = p && p.attrs ? Object.assign({}, p.attrs) : null; }
+  function enforceRequirements() {
+    const p = G.state.player, before = attrSnap;
+    snapAttrs();
+    if (!p || !p.attrs || !p.equipment || !before) return;
+    let lowered = false;
+    for (const k in before) if ((p.attrs[k] || 0) < before[k]) lowered = true;
+    if (!lowered) return;
+    const out = [];
+    for (const s of C.EQUIP_SLOTS) {
+      const it = p.equipment[s];
+      if (it && !I.meetsRequirements(it, p).ok && I.unequip(s)) out.push(it);
+    }
+    if (out.length) G.emit('ui:toast', { text: 'Your gear no longer fits your stats: ' + out.length + ' piece' + (out.length > 1 ? 's' : '') + ' returned to the bag', color: '#ffb35b' });
+  }
+  G.on('skills:changed', enforceRequirements);
+  G.on('scene:changed', snapAttrs);
+  G.on('equipment:changed', snapAttrs);
 })();

@@ -34,6 +34,13 @@
     return Math.min(0.75, armor / (armor + 40 + 12 * attackerLevel));
   };
 
+  // What dealt a hit to the player: { kind: 'monster'|'boss'|'echo'|'lava'|'hazard'|'unknown', id, name }. o.cause names an environmental source.
+  function causeOf(src, o) {
+    if (o.cause) return { kind: o.cause, id: o.cause, name: o.causeName || o.cause };
+    if (!src) return { kind: 'unknown', id: '', name: '' };
+    return { kind: src.echo ? 'echo' : src.rarity === 'boss' ? 'boss' : 'monster', id: src.monsterId || String(src.id), name: src.name || '' };
+  }
+
   // parts: { phys?, fire?, cold?, lightning?, poison? } raw amounts.
   // o: { src, srcId, lvl, crit, dot, melee, canDodge, canBlock, noThorns }
   game.applyHit = function (t, parts, o) {
@@ -94,6 +101,7 @@
     }
     t.hp -= total;
     t.hitFlash = 0.12;
+    if (isPlayer) t.lastCause = causeOf(src || (o.srcId ? game.byId(o.srcId) : null), o);          // for player:died { cause }
 
     const y = t.y - 0.7 - (t.radius || 0.3);
     if (isPlayer) {
@@ -330,7 +338,7 @@
       U.sfx('die');
       U.fx('blood', t.x, t.y, {});
       U.shake(8, 0.4);
-      G.emit('player:died', { noRetrieve: game.isNoRetrieve() });
+      G.emit('player:died', { noRetrieve: game.isNoRetrieve(), cause: t.lastCause || { kind: 'unknown', id: '', name: '' } });
       return;
     }
     U.fx('blood', t.x, t.y, {});
@@ -388,7 +396,7 @@
     }
     if (!t.noLoot && G.items && G.items.dropLoot) {
       const lb = game.lootBonus ? game.lootBonus(t) : null;          // R9: shrine bargains, Ember Heat
-      const rolls = lb && lb.rolls > 1 ? lb.rolls : 1;
+      const rolls = (lb && lb.rolls > 1 ? lb.rolls : 1) + (game.perkLootRolls ? game.perkLootRolls(p, t) : 0);          // perks Spoils of War, Trophy Hunter
       for (let r = 0; r < rolls; r++) {
         try {
           const opts = { source: t.rarity === 'normal' ? 'monster' : t.rarity, level: t.level,
@@ -557,7 +565,7 @@
         if (e.dead || Math.hypot(e.x - z.x, e.y - z.y) > z.r + e.radius * 0.5) continue;
         const parts = {};
         parts[z.dtype || 'phys'] = z.dmg;
-        const dealt = game.applyHit(e, parts, { src: src && !src.dead ? src : null, lvl: z.lvl });
+        const dealt = game.applyHit(e, parts, { src: src && !src.dead ? src : null, lvl: z.lvl, srcId: z.srcId, cause: z.srcId ? undefined : 'hazard', causeName: 'A trap' });
         if (dealt > 0 && !e.dead) game.monsterOnHit(src, e, dealt, z.st, z.affixes);
       }
     }
@@ -578,9 +586,10 @@
         if (z.faction === 'enemy' && !z.every && z.delay < 0.6 && playerIn(z)) z.near = 1;      // was in the circle near the end
         if (z.delay > 0) continue;
         if (!z.every && !z.trap) {
-          const close = z.faction === 'enemy' && ((z.near && !playerIn(z)) || (playerIn(z) && G.state.player.bonus && G.state.player.bonus.ccInvuln && game.getEffect(G.state.player, 'invuln')));          // (+ perk Shoulder Through)
+          const out = z.faction === 'enemy' && z.near && !playerIn(z);          // stepped out at the last moment
+          const inv = z.faction === 'enemy' && !out && playerIn(z) && G.state.player.bonus && G.state.player.bonus.ccInvuln && game.getEffect(G.state.player, 'invuln');          // perk Shoulder Through
           zoneBlast(z);
-          if (close && game.closeCall) game.closeCall(z);          // stepped out at the last moment
+          if ((out || inv) && game.closeCall) game.closeCall(z, inv ? { invuln: true } : null);          // an invulnerable dash through the circle never feeds the Flow chain
           if (z.linger) {          // leaves a damaging pool behind
             z.every = z.linger.every; z.t = z.linger.t; z.acc = 0; z.dmg = z.lingerDmg; z.fx = z.lingerFx || 'poison'; z.linger = null;
             U.fx('ring', z.x, z.y, { radius: z.r, color: z.color, duration: z.t });

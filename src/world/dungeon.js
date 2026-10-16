@@ -289,9 +289,25 @@
   }
 
   let activeCleansed = null;
-  // opts.cleansed overrides state.flags.cleansed (array of act ids / act boss ids): cleansed act floors are quieter and hold camps.
+  // Generator version: bump when a change alters the tiles/props produced for a given (depth, seed, inputs).
+  // Stored in a corpse's inputs so a mismatch is detectable (the floor can no longer be rebuilt identically).
+  W.GEN_VERSION = 1;
+
+  // Everything besides (depth, seed) that generation reads from outside. Core stores this at death (flags.corpse.inputs)
+  // and passes it back as opts.inputs. Pass `map` to capture what that floor was actually built with.
+  W.captureInputs = function (depth, map) {
+    if (map && map.inputs) return JSON.parse(JSON.stringify(map.inputs));
+    const cl = G.state && G.state.flags && G.state.flags.cleansed;
+    return { genVersion: W.GEN_VERSION, cleansed: Array.isArray(cl) ? cl.slice() : null };
+  };
+
+  // opts.inputs ({ cleansed, genVersion }, from captureInputs) overrides live state; opts.cleansed is the older direct override.
+  // Without either, live state.flags.cleansed is read (old corpses, normal floors).
   W.generateDungeon = function (depth, seed, opts) {
-    activeCleansed = (opts && opts.cleansed) || (G.state && G.state.flags && G.state.flags.cleansed) || null;
+    const inp = opts && opts.inputs;
+    const live = G.state && G.state.flags && G.state.flags.cleansed;
+    activeCleansed = (inp && 'cleansed' in inp) ? (inp.cleansed || null) : ((opts && opts.cleansed) || live || null);
+    const usedInputs = { genVersion: W.GEN_VERSION, cleansed: Array.isArray(activeCleansed) ? activeCleansed.slice() : null };
     depth = Math.max(1, depth | 0);
     seed = (seed >>> 0) || 1;
     const realSeed = seed;
@@ -349,6 +365,7 @@
       fissures: ctx.fissures,
       taint: W._paintTaint(ctx.tiles, ctx.w, ctx.h, seed, corruption, gen.taintSources(ctx, filled.props)),
       core,
+      inputs: usedInputs,
     };
     W.updateVisibility(map, map.spawn.x + 0.5, map.spawn.y + 0.5);
     return map;

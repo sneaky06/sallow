@@ -42,6 +42,8 @@
   W.updateVisibility = function (map, px, py, radius) {
     if (radius === undefined) radius = 9;
     if (map.kind === 'town') {             // the hub is always fully lit
+      const last = map.visible.length - 1;
+      if (last >= 0 && map.visible[0] && map.visible[last] && map.explored[0] && map.explored[last]) return;   // already lit
       map.visible.fill(1);
       map.explored.fill(1);
       return;

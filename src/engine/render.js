@@ -79,6 +79,8 @@
     return { x: ((x - y) * HW - V.offX) * V.scale + V.left, y: ((x + y) * HH - V.offY) * V.scale + V.top };
   };
   E.screenToWorld = function (sx, sy) {
+    // the canvas can move without a resize event (safe-area / address-bar change): re-read its position on every tap
+    if (V.canvas) { const r = V.canvas.getBoundingClientRect(); V.left = r.left; V.top = r.top; }
     const lx = (sx - V.left) / V.scale + V.offX, ly = (sy - V.top) / V.scale + V.offY;
     return { x: lx / C.TILE_W + ly / C.TILE_H, y: ly / C.TILE_H - lx / C.TILE_W };
   };
@@ -115,6 +117,7 @@
     U.rift.update(dt, map);
     if ((V.musT -= dt) <= 0 || map !== V.musMap) { V.musT = 0.5; V.musMap = map; U.audio.setMusic(musicTrack(S, map)); }
     U.audio.tick();
+    if (U.assets) U.assets.tick(dt);
     if (!map || S.scene === 'menu') return;
 
     // projectile trails
@@ -300,7 +303,7 @@
       t.hd = c.hd;
       return t;
     });
-    o = { frames: frames, light: P.light, src: P.frames };
+    o = { frames: frames, light: P.light, src: P.frames, fps: P.fps };
     if (tintedProps.size > 80) tintedProps.clear();
     tintedProps.set(key, o);
     return o;
@@ -475,12 +478,21 @@
       return FD;
     }
     let anim = dead ? 'die' : (e.anim || 'idle');
-    const rec = hdRec(sh, anim), H = U.HD;
+    let rec = hdRec(sh, anim);
+    const H = U.HD;
+    if (sh.phased && e.ai) {                                     // boss phase looks: <anim>_p2 / _p3 (ART_CATALOG E7)
+      const ph = Math.min(2, e.ai.phase | 0);
+      if (ph > 0) rec = sh.anims[anim + '_p' + (ph + 1)] || (ph > 1 && sh.anims[anim + '_p2']) || rec;
+    }
     if (rec !== sh.anims[anim]) anim = rec === sh.anims.idle ? 'idle' : rec === sh.anims.walk ? 'walk' : anim;
     const n = rec.n, T = H.TIME[anim] || 1;
     let f;
+    const loops = (anim === 'idle' || anim === 'walk') && rec.loop !== false;
     if (dead && anim === 'die' && e.anim !== 'die') f = n - 1;                       // lying corpse
-    else if (anim === 'idle' || anim === 'walk') f = Math.floor((t + (anim === 'idle' ? (e.id || 0) * 0.37 : 0)) / T * n) % n;
+    else if (rec.fps) {                                                              // per-file fps from assets.js
+      const q = Math.floor((t + (anim === 'idle' ? (e.id || 0) * 0.37 : 0)) * rec.fps);
+      f = loops ? q % n : Math.min(n - 1, q);
+    } else if (loops) f = Math.floor((t + (anim === 'idle' ? (e.id || 0) * 0.37 : 0)) / T * n) % n;
     else f = Math.min(n - 1, Math.floor(t / T * n));
     const dir = U.dir8(e.facing);
     let row = dir, mirror = false;
@@ -522,16 +534,23 @@
   // R6.3: dash charges as small pips under the player while any charge is recharging (fade out once all are back).
   // Reads getClassAction(): charges / maxCharges (or charges: { cur, max }); without them, one pip that refills.
   const dashUi = { full: 9 };
+  // getClassAction() builds a result object (and copies the icon) per call: poll it at 8 Hz, not every frame
+  const dashPoll = { t: -1, a: null, out: { max: 1, cur: 1, prog: 1 } };
   function dashInfo() {
     const fn = G.game && G.game.getClassAction;
-    let a = null;
-    try { a = fn ? fn() : null; } catch (err) { a = null; }
+    if (V.time - dashPoll.t > 0.125 || V.time < dashPoll.t) {
+      dashPoll.t = V.time;
+      try { dashPoll.a = fn ? fn() : null; } catch (err) { dashPoll.a = null; }
+    }
+    const a = dashPoll.a;
     if (!a) return null;
     const max = Math.max(1, Math.min(5, +(a.maxCharges || a.chargesMax || (a.charges && a.charges.max) || 1) | 0));
     let cur = typeof a.charges === 'number' ? a.charges : a.charges && typeof a.charges.cur === 'number' ? a.charges.cur : (+a.cdRemaining > 0 ? max - 1 : max);
     cur = Math.max(0, Math.min(max, cur | 0));
     const cd = +a.cooldown || 0, rem = +a.cdRemaining || 0;
-    return { max: max, cur: cur, prog: cur < max && cd > 0 ? Math.max(0, Math.min(1, 1 - rem / cd)) : 1 };
+    const o = dashPoll.out;
+    o.max = max; o.cur = cur; o.prog = cur < max && cd > 0 ? Math.max(0, Math.min(1, 1 - rem / cd)) : 1;
+    return o;
   }
   function drawDash(ctx, sx, sy) {
     const d = dashInfo();
@@ -697,7 +716,7 @@
       const pr = it.ref;
       const P = propArt(pr);
       const n = P.frames.length;
-      const img = pr.type === 'gate' ? P.frames[(V.info ? V.info[(pr.y | 0) * G.state.map.w + (pr.x | 0)] & 1 : 0) % n] : n > 1 ? P.frames[((V.time * (n >= 3 ? 8 : 2.5) + pr.x * 3 + pr.y) | 0) % n] : P.frames[0];
+      const img = pr.type === 'gate' ? P.frames[(V.info ? V.info[(pr.y | 0) * G.state.map.w + (pr.x | 0)] & 1 : 0) % n] : n > 1 ? P.frames[((V.time * (P.fps || (n >= 3 ? 8 : 2.5)) + pr.x * 3 + pr.y) | 0) % n] : P.frames[0];
       U.blit(ctx, it.lit ? img : U.dim(img), sx - 24, sy - 56);
       if (it.lit && !pr.used) {
         const r = pr.light > 0 ? pr.light : (P.light ? P.light[0] : 0);
@@ -962,7 +981,7 @@
   function drawFps(ctx, W, msNow) {
     fps.ema += ((V.dt || 1 / 60) - fps.ema) * 0.1;
     fps.ms += (msNow - fps.ms) * 0.1;
-    if (!fps.img || V.time - fps.t > 0.25) { fps.t = V.time; fps.img = U.text(Math.round(1 / Math.max(0.001, fps.ema)) + ' FPS ' + fps.ms.toFixed(1) + ' MS' + (lowFx() ? ' LOW' : '') + ' R' + V.R, '#9fe0a0'); }
+    if (!fps.img || V.time - fps.t > 0.25) { fps.t = V.time; fps.img = U.text(Math.round(1 / Math.max(0.001, fps.ema)) + ' FPS ' + fps.ms.toFixed(1) + ' MS' + (lowFx() ? ' LOW' : '') + ' R' + V.R + (U.assets && U.assets.summary ? ' ' + U.assets.summary() : ''), '#9fe0a0'); }
     const x = Math.round(W / 2 - fps.img.width / 2), y = 2;
     ctx.fillStyle = 'rgba(8,6,12,0.7)'; ctx.fillRect(x - 2, y - 1, fps.img.width + 4, 11);
     ctx.drawImage(fps.img, x, y);
@@ -1465,6 +1484,10 @@
       if (!pr || !PICK_PROP[pr.type] || (pr.used && pr.type !== 'chest')) continue;
       consider(pr.type === 'shrine' && pr.look === 'rift_shrine' ? 'shrine' : pr.type, pr.name || (pr.look === 'rift_shrine' ? 'Rift shrine' : PICK_PROP[pr.type]), pr.x + 0.5, pr.y + 0.5, 0.2);
     }
+    // timed floor events (R16.2): the world marks the event's props (event: 'keyhunt' on the vault, a beacon) - name them from G.game.getEvent()
+    let ev = null;
+    try { ev = G.game && G.game.getEvent ? G.game.getEvent() : null; } catch (err) { ev = null; }
+    if (ev) for (let i = 0; i < props.length; i++) { const pr = props[i]; if (pr && pr.event && !pr.used) consider('event', ev.name || 'Event', pr.x + 0.5, pr.y + 0.5, 0.4); }
     const camps = Array.isArray(map.camps) ? map.camps : [];
     for (let i = 0; i < camps.length; i++) { const c = camps[i]; if (c && c.fire) consider('camp', c.name || 'Camp', c.fire.x + 0.5, c.fire.y + 0.5, 0.3); }
     const lms = Array.isArray(map.landmarks) ? map.landmarks : [];

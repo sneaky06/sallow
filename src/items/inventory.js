@@ -100,7 +100,7 @@
       return true;
     }
     if (!putInto(p.inventory, C.INV_SIZE, item)) return false;
-    I.autoSort();
+    I.autoSort('bag');
     invChanged();
     return true;
   };
@@ -113,8 +113,6 @@
     if (!p || idx < 0) return false;
     const item = list[idx].item;
     if (item.type !== 'gold' && item.type !== 'lore') item.foundAt = G.state.time || 0;
-    const rules = G.state.settings && G.state.settings.junk;
-    let salvaged = null;
     if (item.type === 'gold') {
       D.addGold(p, item.qty || 0, quiet ? null : 'gold');
     } else {
@@ -122,7 +120,7 @@
       if (!quiet) G.emit('sfx', { name: item.type === 'consumable' ? 'potion' : 'click' });
     }
     list.splice(idx, 1);
-    G.emit('item:picked', salvaged ? { item: item, salvaged: true, materials: salvaged } : { item: item });
+    G.emit('item:picked', { item: item });
     return true;
   };
 
@@ -133,12 +131,15 @@
     const min = opts && opts.minRarity && C.RARITY[opts.minRarity] ? C.RARITY[opts.minRarity].order : -1;
     const out = { taken: 0, left: 0, full: false, items: [] };
     if (!P()) return out;
-    for (const g of I.getPile(pileId)) {
-      const it = g.item;
-      const always = it.type === 'gold' || it.type === 'lore' || it.type === 'material' || it.baseId === 'potion_hp' || it.baseId === 'potion_mp';
-      if (!always && (out.full || (C.RARITY[it.rarity] || C.RARITY.common).order < min)) { out.left++; continue; }
-      if (I.pickup(g.id, true)) { out.taken++; out.items.push(it); } else { out.full = true; out.left++; }
-    }
+    sortBatch++;
+    try {
+      for (const g of I.getPile(pileId)) {
+        const it = g.item;
+        const always = it.type === 'gold' || it.type === 'lore' || it.type === 'material' || it.baseId === 'potion_hp' || it.baseId === 'potion_mp';
+        if (!always && (out.full || (C.RARITY[it.rarity] || C.RARITY.common).order < min)) { out.left++; continue; }
+        if (I.pickup(g.id, true)) { out.taken++; out.items.push(it); } else { out.full = true; out.left++; }
+      }
+    } finally { sortBatchEnd(); }
     return out;
   };
 
@@ -203,7 +204,7 @@
     if (D.isPermanentGem(gem) && !(opts && opts.confirmPermanent === true)) return false;
     const s = host.sockets.indexOf(null);
     if (s < 0) return fail('No empty socket');
-    const one = Object.assign({}, gem, { id: G.newId(), qty: 1 });
+    const one = Object.assign(JSON.parse(JSON.stringify(gem)), { id: G.newId(), qty: 1 });   // deep copy: icon/mods/base are not shared with the stack
     host.sockets[s] = one;
     consume(p, gemIndex);
     G.emit('sfx', { name: 'equip' });
@@ -321,14 +322,21 @@
   };
   D.sortItems = function (arr, size, mode) { return sortItems(arr, size, mode); };
   D.sortMode = function (mode) { return sortMode(mode); };
-  function sortItems(arr, size, mode) {
+  // The items of arr[0..size) in sort order, as references; arr itself is untouched (no merging).
+  function sortedRefs(arr, size, mode) {
     const key = SORT_KEY[mode] || SORT_KEY.slot;
     const rows = [];
-    for (let i = 0; i < size; i++) { if (arr[i]) rows.push({ it: arr[i], k: key(arr[i]), i: i }); arr[i] = null; }
+    for (let i = 0; i < size; i++) if (arr[i]) rows.push({ it: arr[i], k: key(arr[i]), i: i });
     rows.sort(function (a, b) {
       return (a.k - b.k) || (rk(b.it) - rk(a.it)) || ((b.it.ilvl || 0) - (a.it.ilvl || 0)) || (a.i - b.i);
     });
-    for (const r of rows) putInto(arr, size, r.it);   // re-inserting merges partial stacks
+    return rows.map(function (r) { return r.it; });
+  }
+  D.sortedRefs = sortedRefs;
+  function sortItems(arr, size, mode) {
+    const order = sortedRefs(arr, size, mode);
+    for (let i = 0; i < size; i++) arr[i] = null;
+    for (const it of order) putInto(arr, size, it);   // re-inserting merges partial stacks
   }
   function sortMode(mode) {
     if (SORT_KEY[mode]) return mode;
@@ -339,14 +347,24 @@
 
   // R8.5 sticky sorting: applied to the bag and the stash whenever items enter them, using the chosen mode (state.settings.sort).
   // Off when state.settings.autoSort === false or when no mode has been chosen yet. -> bool (true if it sorted)
-  I.autoSort = function () {
+  // `which` = 'bag' | 'stash' sorts only that container (a bag pickup does not reorder the stash); no argument sorts both.
+  // IT-7: while a batch is open (pickupPile) the sort is only noted and runs once when the batch ends.
+  let sortBatch = 0, sortPending = null;
+  I.autoSort = function (which) {
     const s = G.state.settings;
     if (!s || s.autoSort === false || !SORT_KEY[s.sort]) return false;
+    if (sortBatch) { sortPending = sortPending && sortPending !== which ? 'both' : (which || 'both'); return true; }
     const p = G.state.player;
-    if (p && p.inventory) sortItems(p.inventory, C.INV_SIZE, s.sort);
-    if (Array.isArray(G.state.stash)) sortItems(G.state.stash, C.STASH_SIZE, s.sort);
+    if (which !== 'stash' && p && p.inventory) sortItems(p.inventory, C.INV_SIZE, s.sort);
+    if (which !== 'bag' && Array.isArray(G.state.stash)) sortItems(G.state.stash, C.STASH_SIZE, s.sort);
     return true;
   };
+  function sortBatchEnd() {
+    if (--sortBatch > 0 || !sortPending) return;
+    const w = sortPending === 'both' ? undefined : sortPending;
+    sortPending = null;
+    I.autoSort(w);
+  }
   I.sortInventory = function (mode) {
     const p = P();
     if (!p) return;
@@ -384,7 +402,7 @@
     return S.stash;
   }
   D.stash = stash;
-  D.putIntoStash = function (item) { const ok = putInto(stash(), C.STASH_SIZE, item); if (ok) I.autoSort(); return ok; };
+  D.putIntoStash = function (item) { const ok = putInto(stash(), C.STASH_SIZE, item); if (ok) I.autoSort('stash'); return ok; };
 
   I.stashDeposit = function (invIndex) {
     const p = P();
@@ -397,7 +415,7 @@
       invChanged();
       return fail('Stash full');
     }
-    I.autoSort();
+    I.autoSort('stash');
     G.emit('sfx', { name: 'click' });
     invChanged();
     return true;
@@ -414,7 +432,7 @@
       invChanged();
       return fail('Inventory full');
     }
-    I.autoSort();
+    I.autoSort('bag');
     G.emit('sfx', { name: 'click' });
     invChanged();
     return true;

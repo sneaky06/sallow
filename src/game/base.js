@@ -248,7 +248,7 @@
       if (holder.lavaT >= 0.5) {
         holder.lavaT -= 0.5;
         U.fx(U.rng.next() < 0.5 ? 'smoke' : 'spark', ent.x, ent.y, { color: '#ff7a2b' });
-        game.applyHit(ent, { fire: Math.max(1, ent.stats.hpMax * (C.LAVA_DPS_PCT || 4) / 100 * 0.5) }, { dot: true });
+        game.applyHit(ent, { fire: Math.max(1, ent.stats.hpMax * (C.LAVA_DPS_PCT || 4) / 100 * 0.5) }, { dot: true, cause: 'lava', causeName: 'Lava' });
       }
     }
     return C.SLOW_TILE_SPEED || 0.6;

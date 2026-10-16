@@ -331,7 +331,7 @@ function installStubs() {
     var r = o.rng || G.rng.global;
     var pool = BASES.filter(function (b) { return (!o.slot || b.slot === o.slot) && (!o.baseId || b.baseId === o.baseId); });
     var b = r.pick(pool.length ? pool : BASES);
-    var rarity = o.rarity || r.weighted([{ w: 55, k: 'common' }, { w: 33, k: 'magic' }, { w: 10, k: 'rare' }, { w: 2, k: 'epic' }]).k;
+    var rarity = o.rarity || r.weighted([{ w: 55, k: 'common' }, { w: 33, k: 'magic' }, { w: 10, k: 'rare' }, { w: 2, k: 'legendary' }]).k;
     var ord = C.RARITY[rarity].order, mods = [], lvl = o.level || 1;
     var keys = r.shuffle(MODS.slice());
     for (var i = 0; i < Math.min(ord + (ord ? 1 : 0), 5); i++) mods.push({ stat: keys[i], value: r.int(1, 4) + lvl + ord * 2 });
@@ -418,7 +418,7 @@ function installStubs() {
       var it = rollItem({ level: 5, rarity: 'mythic', slot: 'amulet' }); it.name = 'Stormcaller\'s Knot'; it.effects = ['chain_spark']; return it;
     },
     bloodstone: function () {
-      var g = gem(); g.baseId = 'gem_bloodstone_1'; g.name = 'Weeping Bloodstone'; g.rarity = 'epic'; g.qty = 1; g.icon = { shape: 'gem', color: '#7a0c12' }; return g;
+      var g = gem(); g.baseId = 'gem_bloodstone_1'; g.name = 'Weeping Bloodstone'; g.rarity = 'legendary'; g.qty = 1; g.icon = { shape: 'gem', color: '#7a0c12' }; return g;
     },
     sellAllBelow: function (rarity) {
       var p = S.player, lim = C.RARITY[rarity].order, g = 0;
@@ -719,7 +719,7 @@ function buildDev() {
   sec('revision 5');
   b('pile x5', function () {
     var p = S.player, pid = G.newId();
-    ['common', 'magic', 'rare', 'epic'].forEach(function (r) { var it = G.items.rollItem({ level: p.level, rarity: r }); S.groundItems.push({ id: G.newId(), x: p.x + 1, y: p.y, pileId: pid, item: it }); });
+    ['common', 'magic', 'rare', 'legendary'].forEach(function (r) { var it = G.items.rollItem({ level: p.level, rarity: r }); S.groundItems.push({ id: G.newId(), x: p.x + 1, y: p.y, pileId: pid, item: it }); });
     S.groundItems.push({ id: G.newId(), x: p.x + 1, y: p.y, pileId: pid, item: { type: 'gold', qty: 57, name: 'Gold', rarity: 'common', icon: { shape: 'gold', color: '#ffd94a' } } });
     G.emit('pile:open', { pileId: pid });
   });
@@ -779,7 +779,7 @@ function buildDev() {
       out.textContent = '';
       var ok = function (name, cond) { note((cond ? 'PASS ' : 'FAIL ') + name); };
       held = []; combined = false; reg = {}; if (S.player) S.player.inventory.fill(null); G.ui.update(0.1);
-      var it = chest();
+      var it = chest(); G.ui.update(0.1);      // the HUD only shows banners once an update has seen the hero
       G.ui.open('inventory');
       var cells = document.querySelectorAll('.ed-grid .ed-cell');
       ok('socket pips on cell', !!document.querySelector('.ed-cell .sk b.f'));
@@ -788,7 +788,7 @@ function buildDev() {
       ok('wanted never junk', !document.querySelector('.ed-cell.junk .bk'));
       G.ui.close();
       G.emit('npc:interact', { role: 'curator' });
-      var row = document.querySelector('.ed-row[aria-label^="Hand in"]'); ok('curator hand-in row', !!row);
+      var row = [].filter.call(document.querySelectorAll('.ed-row[aria-label^="Hand in"]'), function (r) { return r.getAttribute('aria-label') === 'Hand in ' + it.name; })[0]; ok('curator hand-in row', !!row);      // a new hero's starting kit has a chest piece the book wants too: pick OUR item's row
       if (row) row.click();
       ok('registered (item consumed)', S.player.inventory.indexOf(it) < 0 && reg.chest === true);
       G.ui.close();
@@ -800,7 +800,7 @@ function buildDev() {
       if (cb) cb.click(); ok('combined', combined);
       G.ui.close();
       G.emit('floor:graded', { grade: 'A', explored: 80, time: 60, par: 70 });
-      ok('grade banner', /grade A/i.test((document.querySelector('.ed-banner b') || {}).textContent || ''));
+      setTimeout(function () { ok('grade banner', /grade A/i.test((document.querySelector('.ed-banner b') || {}).textContent || '')); }, 1000);      // the HUD waits 0.9 s so the floor-name banner shows first
       G.emit('event:start', { id: 'gauntlet', name: 'Run the Gauntlet', timer: 40, goal: 'Reach the beacon', progress: '' });
       var ev = document.querySelector('.ed-event'); ok('event banner shown', !!ev && ev.style.display === 'block' && /0:40/.test(ev.textContent));
       G.emit('event:end', { id: 'gauntlet', name: 'Run the Gauntlet', success: true });
@@ -820,7 +820,7 @@ function buildDev() {
     localStorage.setItem(K, '{"v":1,"player":'); ok('corrupt main -> hasSave false, backup offered', !G.meta.hasSave() && G.meta.listBackups().length >= 1);
     ok('restore backup', G.meta.restoreBackup(0) && G.meta.hasSave());
     G.meta.exportCode().then(function (code) {
-      ok('export code', /^SLW[01]:/.test(code || ''));
+      ok('export code', /^SLW[0-3]:/.test(code || ''));
       localStorage.removeItem(K);
       G.meta.parseCode(code).then(function (res) {
         ok('code parses', !!res && res.info.name === S.player.name);

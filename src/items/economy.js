@@ -54,7 +54,14 @@
   // R5.8: locked items are protected the same way.
   function protectedItem(item) {
     const r = C.RARITY[item.rarity] || {};
-    return !!item.setId || r.tier === 'legendary' || !!item.locked || !!(D.COLLECTION && D.COLLECTION.protect && D.isWanted && D.isWanted(item));
+    return !!item.setId || r.tier === 'legendary' || !!item.locked || bookProtects(item);
+  }
+  // IT-4: a fresh Book wants most drops, so protecting every wanted piece made bulk sells/junk rules nearly inert. The Book now only
+  // protects wanted pieces of Rare or better; settings.protectBook = true brings back protection for every wanted piece.
+  function bookProtects(item) {
+    if (!(D.COLLECTION && D.COLLECTION.protect && D.isWanted && D.isWanted(item))) return false;
+    const st = G.state.settings;
+    return !!(st && st.protectBook) || rord(item.rarity) >= rord('rare');
   }
   D.protectedItem = protectedItem;
 
@@ -156,7 +163,7 @@
     if (rord(item.rarity) > rord(rules.maxRarity)) return false;
     if (Array.isArray(G.state.stash) && G.state.stash.indexOf(item) >= 0) return false;
     if (rules.keepSocketed && socketedCount(item) > 0) return false;
-    if (rules.keepUpgrades && I.verdict && I.verdict(item) === 'up') return false;
+    if (rules.keepUpgrades && I.verdict && I.verdict(item, true) === 'up') return false;     // IT-5: ignoreReq, so a piece you grow into is kept
     return true;
   };
 
@@ -213,6 +220,10 @@
   // R8.1: junk `auto` means "queue for the chute": nothing is sold or salvaged on its own any more. The UI calls I.chuteOpened() when the
   // chute panel opens; with auto on that sends the junk up at once, otherwise the player taps "Send junk". -> { count, left } | null
   I.chuteOpened = function () { return junkRules().auto ? I.sendJunk() : null; };
+  // IT-3: items owns the trigger (the UI never called it): interacting with the chute in a dungeon is "opening" it.
+  G.on('object:interact', function (e) {
+    if (e && e.type === 'chute' && G.state.scene === 'dungeon' && G.state.player) I.chuteOpened();
+  });
 
   // ---- buyback (R2.7): the last 12 things sold, newest first, at 2.5x what the vendor paid; forgotten on entering a dungeon ----
   const BUYBACK_MAX = 12, BUYBACK_MULT = 2.5;
@@ -275,8 +286,7 @@
       case 'uncommon': y.dust = 2 * t; break;
       case 'rare': y.dust = 2 * t; y.shard = 1 + Math.floor(item.ilvl / 30); break;
       case 'magic': y.dust = 3 * t; y.shard = 3 + Math.floor(item.ilvl / 20); break;
-      case 'mythic': y.shard = 15; y.essence = 5; break;
-      default: y.shard = 5; y.essence = 1;      // elite, set
+      case 'mythic': y.shard = 15; y.essence = 5; break;      default: y.shard = 5; y.essence = 1;      // elite, set
     }
     return y;
   };
@@ -474,16 +484,27 @@
   }
 
   // Vendors never sell better than rare.
+  let vrng = null;      // the stock rng of the refresh in progress (seeded, see refreshVendors)
   function vendorItem(level, slot, weights, family) {
-    const rng = G.rng.global;
+    const rng = vrng || G.rng.global;
     const u = rng.next() * (weights[0] + weights[1] + weights[2]);
     const rarity = u < weights[0] ? 'common' : u < weights[0] + weights[1] ? 'uncommon' : 'rare';
-    return I.rollItem({ level: level + rng.int(0, 1), rarity: rarity, slot: slot, _family: family });
+    return I.rollItem({ level: level + rng.int(0, 1), rarity: rarity, slot: slot, _family: family, rng: rng });
+  }
+
+  // IT-10: stock is a function of the save's seed, the visit counter (bumped on each dungeon entry) and the level, so a portal trip
+  // or a reload shows the same shelves; it only changes after a real dungeon run or a level-up.
+  function stockSeed(level) {
+    const S = G.state, v = (S.flags && +S.flags.visits) || 0;
+    return ((((+S.seed || 1) * 2654435761) ^ (v * 104729) ^ (level * 7919)) >>> 0) || 1;
   }
 
   I.refreshVendors = function (level) {
-    const rng = G.rng.global;
     level = Math.max(1, Math.round(level || plevel()));
+    const rng = vrng = G.rng.create(stockSeed(level));
+    try { rollStock(level, rng); } finally { vrng = null; }
+  };
+  function rollStock(level, rng) {
     stockLevel = level;
     C.NPC_ROLES.forEach(function (r) { stock[r] = []; });
 
@@ -509,7 +530,7 @@
 
     // healer: restoratives (belt potions go through buyPotion)
     stock.healer.push(entry(D.makeMisc('flask_rejuv', level, 1), true));
-  };
+  }
 
   I.getVendorStock = function (role) {
     if (!stockLevel) I.refreshVendors(plevel());
@@ -542,7 +563,7 @@
     if (p.gold < cost) { D.fail('Not enough gold'); return null; }
     if (p.inventory.indexOf(null) < 0) { D.fail('Inventory full'); return null; }
     const item = I.rollItem({ level: plevel(), slot: slot, _boost: 3, _floor: 'uncommon' });
-    I.addToInventory(item);
+    if (!I.addToInventory(item)) { D.fail('Inventory full'); return null; }
     D.spend(p, cost, 'mystic', 'gamble');
     const o = rord(item.rarity);
     if (o >= rord('legendary')) G.emit('sfx', { name: 'loot_legendary' });
@@ -832,34 +853,110 @@
     return out;
   };
 
-  // Saved filter and a few named presets (at most five) in state.settings.sellFilter = { current, presets: { name: filter } }
+  // ---- saved filters (one shape for both the sell filter and the ground loot filter) ----
+  // settings.sellFilter      = { current: <matchFilter filter>, presets: { name: filter } }
+  // settings.lootFilterRules = { on: bool, cur: <matchFilter filter>, presets: [{ name, filter }] }
+  // Older saves carried the items shape ({ enabled, maxRarity, ... } / { current, presets: { name: f } }) or the UI shape
+  // ({ cur: { enabled, rarity, ilvl, power, upgrades, socketed, ... }, presets: [{ name, f }] }); normalizeFilter/migrateFilterSettings
+  // convert them in place (idempotent), so nothing a player saved is lost.
+  const UI_KEYS = ['rarity', 'ilvl', 'power', 'upgrades', 'locked', 'socketed', 'sets', 'wanted', 'corrupted', 'enabled', 'on'];
+  function isUiShaped(f) { for (const k of UI_KEYS) if (k in f) return true; return false; }
+  const FILTER_KEYS = ['maxRarity', 'maxItemLevel', 'maxPower', 'slots', 'excludeUpgrades', 'excludeSocketed', 'excludeWanted', 'excludeCorrupted', 'excludeLocked', 'excludeSets'];
+  // -> a fresh filter object in exactly the matchFilter shape
+  I.normalizeFilter = function (f) {
+    const out = {};
+    if (!f || typeof f !== 'object') return out;
+    for (const k of FILTER_KEYS) if (f[k] !== undefined) out[k] = f[k];
+    if (f.rarity && C.RARITY[f.rarity] && out.maxRarity === undefined) out.maxRarity = f.rarity;
+    // the UI's numbers mean "below"; matchFilter's mean "at or below"
+    if (+f.ilvl > 0 && out.maxItemLevel === undefined) out.maxItemLevel = Math.max(0, Math.ceil(+f.ilvl) - 1);
+    if (+f.power > 0 && out.maxPower === undefined) out.maxPower = +f.power - 1;
+    if (Array.isArray(f.slots)) out.slots = f.slots.slice(); else delete out.slots;
+    // the UI's toggles mean "include": false = keep those out of the filter
+    if (f.upgrades === false) out.excludeUpgrades = true;
+    if (f.socketed === false) out.excludeSocketed = true;
+    if (f.wanted === false) out.excludeWanted = true;
+    if (f.corrupted === false) out.excludeCorrupted = true;
+    return out;
+  };
+  function normPresets(list, legacy) {
+    const out = [];
+    if (Array.isArray(list)) {
+      for (const p of list) if (p && p.name) out.push({ name: String(p.name), filter: I.normalizeFilter(p.filter || p.f || p) });
+    } else if (list && typeof list === 'object') {
+      for (const n in list) out.push({ name: n, filter: I.normalizeFilter(list[n]) });
+    }
+    if (legacy && typeof legacy === 'object') for (const n in legacy) if (!out.some(function (p) { return p.name === n; })) out.push({ name: n, filter: I.normalizeFilter(legacy[n]) });
+    return out.slice(0, 8);
+  }
+  function conformingLoot(r) { return typeof r.on === 'boolean' && r.cur && typeof r.cur === 'object' && !isUiShaped(r.cur) && Array.isArray(r.presets) && r.presets.every(function (p) { return p && p.filter && !('f' in p); }); }
+  function conformingSell(r) { return !!r.current && typeof r.current === 'object' && r.presets && typeof r.presets === 'object' && !Array.isArray(r.presets) && !('cur' in r); }
+  I.migrateFilterSettings = function (s) {
+    s = s || G.state.settings;
+    if (!s) return s;
+    let r = s.lootFilterRules;
+    if (r && typeof r === 'object' && !conformingLoot(r)) {
+      const hasCur = r.cur && typeof r.cur === 'object';
+      const flat = hasCur ? r.cur : r;
+      s.lootFilterRules = { on: typeof r.on === 'boolean' ? r.on : !!(flat.on || flat.enabled), cur: I.normalizeFilter(flat),
+        presets: normPresets(hasCur ? r.presets : null, s.lootFilterPresets) };
+    }
+    r = s.sellFilter;
+    if (r && typeof r === 'object' && !conformingSell(r)) {            // from the old UI shape { cur, presets: [{ name, f }] }
+      const map = {};
+      for (const p of normPresets(r.presets).slice(0, 5)) map[p.name] = p.filter;
+      s.sellFilter = { current: I.normalizeFilter(r.current || r.cur), presets: map };
+    }
+    return s;
+  };
+  G.on('scene:changed', function () { I.migrateFilterSettings(); });     // after meta.load -> scenes.enterTown
+
+  // sell filter: state.settings.sellFilter = { current, presets: { name: filter } } (the UI edits `current` in place)
   function sfStore() {
     const s = G.state.settings || (G.state.settings = {});
     if (!s.sellFilter) s.sellFilter = { current: { maxRarity: 'uncommon', excludeUpgrades: true, excludeSocketed: true, excludeWanted: true, excludeCorrupted: false }, presets: {} };
+    else if (!conformingSell(s.sellFilter)) I.migrateFilterSettings(s);
     return s.sellFilter;
   }
+  // loot filter presets are a list [{ name, filter }]
+  function savePreset(st, name, f) {
+    if (!name) return false;
+    const at = st.presets.findIndex(function (p) { return p.name === name; });
+    if (at < 0 && st.presets.length >= 5) return false;
+    const entry = { name: String(name), filter: I.normalizeFilter(f || st.cur) };
+    if (at >= 0) st.presets[at] = entry; else st.presets.push(entry);
+    return true;
+  }
+  function dropPreset(st, name) {
+    const at = st.presets.findIndex(function (p) { return p.name === name; });
+    if (at < 0) return false;
+    st.presets.splice(at, 1);
+    return true;
+  }
   I.getSellFilter = function () { return sfStore().current; };
-  I.setSellFilter = function (f) { sfStore().current = JSON.parse(JSON.stringify(f || {})); return sfStore().current; };
+  I.setSellFilter = function (f) { sfStore().current = I.normalizeFilter(f); return sfStore().current; };
   I.getFilterPresets = function () { return sfStore().presets; };
   I.saveFilterPreset = function (name, f) {
     const st = sfStore();
     if (!name || (!st.presets[name] && Object.keys(st.presets).length >= 5)) return false;
-    st.presets[name] = JSON.parse(JSON.stringify(f || st.current));
+    st.presets[name] = I.normalizeFilter(f || st.current);
     return true;
   };
   I.deleteFilterPreset = function (name) { const st = sfStore(); if (!st.presets[name]) return false; delete st.presets[name]; return true; };
+  I._savePreset = savePreset; I._dropPreset = dropPreset;
+
 
   // Take everything that fits from the crate into the bag, in the current sort order (what does not fit stays). -> { taken, left }
   I.surfaceTakeAll = function () {
     const p = P(), sf = surface();
     if (!p) return { taken: 0, left: sf.length };
-    const tmp = sf.slice();
-    D.sortItems(tmp, tmp.length, D.sortMode(null) || 'slot');
-    const order = tmp.filter(Boolean);
+    // IT-2: order references only. (Sorting a copy through D.sortItems merged stacks in place, so the crate kept the merged-away stack.)
+    const order = D.sortedRefs(sf, sf.length, D.sortMode(null) || 'slot');
     let taken = 0;
     for (const it of order) {
       const at = sf.indexOf(it);
       if (!I.addToInventory(it)) continue;
+      // addToInventory may have merged `it` into a bag stack (adding its qty); either way the crate copy is spent
       if (at >= 0) sf.splice(at, 1);
       taken++;
     }

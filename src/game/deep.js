@@ -276,7 +276,7 @@
   // ------------------------------ per-frame: stillness, floor hazards, wisps ------------------------------
   const anchor = { x: -99, y: -99 };
   game.stillT = 0;           // seconds the player has stayed within ~0.8 tiles (Siege, aimed shots, Restless Ground)
-  let restT = 0, riftT = 8, ccCd = 0;
+  let restT = 0, riftT = 8, ccCd = 0, ccInvAt = 0;
   const rifts = [];
 
   function rift(p, depth) {
@@ -345,7 +345,7 @@
 
   G.on('scene:changed', function (ev) {
     wisps.length = 0; rifts.length = 0;
-    restT = 0; riftT = 8; ccCd = 0;
+    restT = 0; riftT = 8; ccCd = 0; ccInvAt = 0;
     anchor.x = anchor.y = -99; game.stillT = 0;
     const f = G.state.flags, m = ev && ev.map;
     if (ev && ev.scene === 'town' && f) f.pallor = 0;
@@ -363,10 +363,20 @@
   // ------------------------------ Close Call ------------------------------
   // Standing in a telegraphed blast during its last 0.6 s and stepping out before it lands: +15% damage per stack
   // (max 3, 5 s) and every skill cooldown 1 s shorter. Turns "dodge the circle" into a rhythm a thumb can feel.
-  game.closeCall = function (z) {
+  game.closeCall = function (z, o) {
     const p = G.state.player;
     if (!p || p.dead || ccCd > 0 || !(z.r >= 1.2)) return;
+    const invuln = !!(o && o.invuln);
+    if (invuln && G.state.time < ccInvAt) return;          // perk Shoulder Through: the buff and the perk riders only, once per 4 s
     ccCd = 0.75;
+    if (invuln) {
+      ccInvAt = G.state.time + 4;
+      const old = game.getEffect(p, 'close_call'), n = Math.min(3, (old ? old.stacks : 0) + 1);
+      game.addEffect(p, { id: 'close_call', t: (p.bonus && p.bonus.ccTime) || 5, stacks: n, dealt: ((p.bonus && p.bonus.ccPer) || 15) * n });
+      if (game.perkCC) game.perkCC(p);
+      U.text(p.x, p.y - 1.3, 'UNTOUCHED', '#7fffd4', true);
+      return;          // no goal credit, no cooldown shave, no Flow chain
+    }
     const old = game.getEffect(p, 'close_call'), n = Math.min(3, (old ? old.stacks : 0) + 1);
     game.addEffect(p, { id: 'close_call', t: (p.bonus && p.bonus.ccTime) || 5, stacks: n, dealt: ((p.bonus && p.bonus.ccPer) || 15) * n });          // (+ perks Steel Nerves, Glory Hound)
     if (game.perkCC) game.perkCC(p);          // R11 Close Call perks

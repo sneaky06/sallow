@@ -11,6 +11,14 @@
   // ---- crate size (R16.4): starts at 25, grows with state.flags.crateBonus (challenge quests), at most 300 ----
   D.SURFACE_START = 25;
   D.SURFACE_MAX = 300;
+  // IT-8: saves from before the crate shrank to 25 may hold more than 25 + crateBonus items; grant the capacity they already use.
+  function migrateCrate() {
+    const S = G.state, f = S.flags, n = Array.isArray(S.surface) ? S.surface.length : 0;
+    if (!f || n <= D.SURFACE_START) return;
+    const b = Math.max(0, Math.floor(+f.crateBonus || 0));
+    if (D.SURFACE_START + b < n) f.crateBonus = Math.min(D.SURFACE_MAX, n) - D.SURFACE_START;
+  }
+  G.on('scene:changed', migrateCrate);
   I.surfaceSize = function () {
     const b = G.state.flags && +G.state.flags.crateBonus;
     return Math.max(D.SURFACE_START, Math.min(D.SURFACE_MAX, D.SURFACE_START + (b > 0 ? Math.floor(b) : 0)));
@@ -18,35 +26,41 @@
   Object.defineProperty(I, 'SURFACE_SIZE', { get: function () { return I.surfaceSize(); }, enumerable: true, configurable: true });
 
   // ---- ground loot filter (R16.7) ----
-  // state.settings.lootFilterRules = { enabled, ...the matchFilter fields }. An item that MATCHES the rules is filtered out: hidden from
-  // the pile list and refused by pickup / pickupPile. Gold, lore, quest items, gems, consumables, Legendary tiers, sets and locked
-  // items never match (matchFilter's own protections), so they always pass.
-  function rules() { return (G.state.settings && G.state.settings.lootFilterRules) || null; }
+  // state.settings.lootFilterRules = { on, cur: <a matchFilter filter>, presets: [{ name, filter }] }. An item that MATCHES `cur` while
+  // `on` is true is filtered out: hidden from the pile list and refused by pickup / pickupPile. Gold, lore, quest items, gems,
+  // consumables, Legendary tiers, sets and locked items never match (matchFilter's own protections), so they always pass.
+  // Older shapes are converted on first use (I.migrateFilterSettings).
+  function rules() {
+    const s = G.state.settings, r = s && s.lootFilterRules;
+    if (!r || typeof r !== 'object') return null;
+    if (typeof r.on !== 'boolean' || !r.cur || !Array.isArray(r.presets) || 'enabled' in r.cur || 'rarity' in r.cur) { I.migrateFilterSettings(s); return s.lootFilterRules; }
+    return r;
+  }
   I.lootFilterAllows = function (item) {
     const r = rules();
-    if (!r || !r.enabled || !item) return true;
-    return !I.matchFilter(item, r);
+    if (!r || !r.on || !item) return true;
+    return !I.matchFilter(item, r.cur);
   };
   I.getLootFilter = function () {
     const s = G.state.settings || (G.state.settings = {});
-    if (!s.lootFilterRules) s.lootFilterRules = { enabled: false, maxRarity: 'common', excludeUpgrades: true, excludeSocketed: true, excludeWanted: true };
-    return s.lootFilterRules;
+    if (!s.lootFilterRules) s.lootFilterRules = { on: false, cur: { maxRarity: 'common', excludeUpgrades: true, excludeSocketed: true, excludeWanted: true }, presets: [] };
+    return rules();
   };
+  // f: { on, cur, presets } or a flat filter (optionally with on / enabled)
   I.setLootFilter = function (f) {
     const s = G.state.settings || (G.state.settings = {});
-    s.lootFilterRules = JSON.parse(JSON.stringify(f || {}));
+    const cur0 = I.getLootFilter();
+    f = f || {};
+    const flat = f.cur && typeof f.cur === 'object' ? f.cur : f;
+    s.lootFilterRules = { on: typeof f.on === 'boolean' ? f.on : (flat.enabled !== undefined || flat.on !== undefined ? !!(flat.on || flat.enabled) : cur0.on),
+      cur: I.normalizeFilter(flat), presets: Array.isArray(f.presets) ? f.presets : cur0.presets };
+    I.migrateFilterSettings(s);
     G.emit('inventory:changed', {});
     return s.lootFilterRules;
   };
-  function presetStore() { const s = G.state.settings || (G.state.settings = {}); return s.lootFilterPresets || (s.lootFilterPresets = {}); }
-  I.getLootFilterPresets = function () { return presetStore(); };
-  I.saveLootFilterPreset = function (name, f) {
-    const st = presetStore();
-    if (!name || (!st[name] && Object.keys(st).length >= 5)) return false;
-    st[name] = JSON.parse(JSON.stringify(f || I.getLootFilter()));
-    return true;
-  };
-  I.deleteLootFilterPreset = function (name) { const st = presetStore(); if (!st[name]) return false; delete st[name]; return true; };
+  I.getLootFilterPresets = function () { return I.getLootFilter().presets; };
+  I.saveLootFilterPreset = function (name, f) { const st = I.getLootFilter(); return I._savePreset(st, name, f); };
+  I.deleteLootFilterPreset = function (name) { return I._dropPreset(I.getLootFilter(), name); };
   // Is this ground entry visible (not filtered out)?
   I.isGroundVisible = function (g) { return !!g && (!g.item || g.item.type === 'gold' || I.lootFilterAllows(g.item)); };
 

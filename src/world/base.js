@@ -144,14 +144,64 @@
     return false;
   }
 
+  // Nearest free position for an entity embedded in a blocked tile: the closest point of the nearest free tile
+  // (pulled to its centre if the body would still overlap a wall there). Dry ground preferred.
+  function unstick(map, ent, b, r) {
+    const f = W.findFreeTileNear(map, ent.x, ent.y, 12);
+    if (!f) return false;
+    const e = Math.min(0.5, r + 0.02);
+    let nx = Math.min(f.x + 1 - e, Math.max(f.x + e, ent.x)), ny = Math.min(f.y + 1 - e, Math.max(f.y + e, ent.y));
+    if (!circleFree(b, map.w, map.h, nx, ny, r)) { nx = f.x + 0.5; ny = f.y + 0.5; }
+    ent.x = nx; ent.y = ny;
+    return true;
+  }
+
+  // Where a thing standing at (x, y) can safely be put: the point itself if its tile is walkable and connected to the
+  // map's spawn, else the centre of the nearest such tile (dry ground), so a corpse never lands in rock or a sealed pocket.
+  W.safeSpot = function (map, x, y) {
+    const c = grid(map), b = c.blocked, w = map.w, h = map.h;
+    const tx = Math.floor(x), ty = Math.floor(y);
+    const inside = tx >= 0 && ty >= 0 && tx < w && ty < h;
+    const reach = new Uint8Array(w * h), q = [];
+    const sp = map.spawn;
+    if (sp && sp.x >= 0 && sp.y >= 0 && sp.x < w && sp.y < h && !b[sp.y * w + sp.x]) { reach[sp.y * w + sp.x] = 1; q.push(sp.y * w + sp.x); }
+    for (let i = 0; i < q.length; i++) {
+      const k = q[i], kx = k % w, ky = (k / w) | 0;
+      for (const o of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const nx = kx + o[0], ny = ky + o[1];
+        if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+        const nk = ny * w + nx;
+        if (!reach[nk] && !b[nk]) { reach[nk] = 1; q.push(nk); }
+      }
+    }
+    if (!q.length) {                                  // no usable spawn: accept any walkable tile
+      if (inside && !b[ty * w + tx]) return { x, y };
+      const f = W.findFreeTileNear(map, x, y, 40);
+      return f ? { x: f.x + 0.5, y: f.y + 0.5 } : null;
+    }
+    if (inside && reach[ty * w + tx] && c.cost[ty * w + tx] <= 1) return { x, y };
+    let best = -1, bd = Infinity;
+    for (let k = 0; k < reach.length; k++) {
+      if (!reach[k] || c.cost[k] > 1) continue;
+      const dx = (k % w) + 0.5 - x, dy = ((k / w) | 0) + 0.5 - y, d = dx * dx + dy * dy;
+      if (d < bd) { bd = d; best = k; }
+    }
+    if (best < 0) return inside && reach[ty * w + tx] ? { x, y } : null;
+    return { x: (best % w) + 0.5, y: ((best / w) | 0) + 0.5 };
+  };
+
   W.moveWithCollision = function (map, ent, dx, dy) {
     if (!dx && !dy) return false;
     const b = grid(map).blocked, w = map.w, h = map.h;
     const r = ent.radius > 0 ? ent.radius : 0.3;
+    let moved = false;
+    // Unstick: a centre inside a blocked tile can never leave by pushing (gate dropped on a doorway, crate on an
+    // occupied tile), so slide it to the nearest free spot first. Only the centre tile counts: a wide body in a narrow gap is not stuck.
+    const ctx0 = Math.floor(ent.x), cty0 = Math.floor(ent.y);
+    if (ctx0 < 0 || cty0 < 0 || ctx0 >= w || cty0 >= h || b[cty0 * w + ctx0]) { if (unstick(map, ent, b, r)) moved = true; }
     const len = Math.sqrt(dx * dx + dy * dy);
     const n = Math.min(24, Math.max(1, Math.ceil(len / Math.min(0.4, r * 0.8))));
     const sx = dx / n, sy = dy / n;
-    let moved = false;
     for (let i = 0; i < n; i++) {
       if (!step(b, w, h, ent, r, sx, sy)) break;
       moved = true;

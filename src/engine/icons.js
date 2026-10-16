@@ -150,7 +150,7 @@
     if (d.shape === 'whirl') { x.clearRect(9, 1, 3, 2); x.clearRect(4, 13, 3, 2); }
     U.outlineCanvas(c, d.shape === 'bloodstone' ? 0xc8141e : 0x0b0910, 255);
     c = U.copyCanvas(c);
-    if (base.size > 400) base.clear();
+    if (base.size > 400) base.delete(base.keys().next().value);       // drop the oldest, not everything
     base.set(key, c);
     return c;
   }
@@ -164,7 +164,7 @@
     if (c) return c;
     c = U.makeCanvas(size, size);
     U.ctx2d(c).drawImage(base16(d), 0, 0, 16, 16, 0, 0, size, size);
-    if (sized.size > 400) sized.clear();
+    if (sized.size > 400) sized.delete(sized.keys().next().value);
     sized.set(key, c);
     return c;
   };
@@ -176,7 +176,7 @@
     let u = urls.get(key);
     if (u) return u;
     try { u = E.getIcon(d, size).toDataURL('image/png'); } catch (err) { u = ''; }
-    if (urls.size > 400) urls.clear();
+    if (urls.size > 400) urls.delete(urls.keys().next().value);
     urls.set(key, u);
     return u;
   };

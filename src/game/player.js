@@ -595,7 +595,7 @@
   }
 
   // R12: a tap on a pile (or the LOOT action) takes everything that fits, best first (G.items.pickupPile); the pile list opens
-  // only on a long-press (input:longpress / G.game.openPileAt). Gold goes through pickup() so the midas mythic still fires.
+  // from a hold on the LOOT button (hud.js emits pile:open). Gold goes through pickup() so the midas mythic still fires.
   function takeGround(p, g) {
     const I = G.items, pid = g.pileId;
     if (!lootAllowed(g.item)) return;          // R16 loot filter
@@ -608,21 +608,6 @@
     try { res = I.pickupPile(pid); } catch (err) { console.error('[game] pickupPile failed', err); }
     if (res && res.left > 0) { U.toast('Bag full — ' + res.left + ' left on the pile (hold to open it)', '#ffb347'); U.sfx('error'); }
   }
-  game.openPileAt = function (x, y) {
-    const S = G.state;
-    if (!S.player || S.player.dead || !S.map) return false;
-    let best = null, bd = 1.2;
-    for (const g of S.groundItems) {
-      if (g.pileId === undefined || g.pileId === null) continue;
-      const d = Math.hypot(g.x - x, g.y - y);
-      if (d < bd) { bd = d; best = g; }
-    }
-    if (!best) return false;
-    U.sfx('click');
-    G.emit('pile:open', { pileId: best.pileId });
-    return true;
-  };
-  G.on('input:longpress', function (e) { if (e && canAct()) game.openPileAt(e.x, e.y); });
 
   function groundById(id) {
     const list = G.state.groundItems;
@@ -769,7 +754,8 @@
   game.cancelDescend = function () { ctl.descend = null; };
 
   // ---- per-frame ----
-  function runIntent(p, dt) {
+  const STICK_KEEPS = { item: 1, prop: 1, npc: 1, stairs: 1 };          // tap intents that survive a held stick (audit #11, two-thumb play)
+  function runIntent(p, dt, reach) {          // reach: the stick is held, so only act on things already within reach (never walk for the player)
     const it = ctl.intent, S = G.state;
     switch (it.type) {
       case 'move':
@@ -796,7 +782,7 @@
           p.facing = Math.atan2(n.y - p.y, n.x - p.x);
           U.sfx('click');
           G.emit('npc:interact', { role: n.role, entity: n });
-        } else if (!stepToward(p, n.x, n.y, dt, false)) { ctl.intent = null; }
+        } else if (!reach && !stepToward(p, n.x, n.y, dt, false)) { ctl.intent = null; }
         break;
       }
       case 'item': {
@@ -806,14 +792,14 @@
           ctl.intent = null; ctl.path = null;
           takeGround(p, g);
           if (game.noteLootTried) game.noteLootTried(g);
-        } else if (!stepToward(p, g.x, g.y, dt, false)) { ctl.intent = null; }
+        } else if (!reach && !stepToward(p, g.x, g.y, dt, false)) { ctl.intent = null; }
         break;
       }
       case 'prop': {
         const prop = W.prop(it.x, it.y);
         if (!usable(prop)) { ctl.intent = null; break; }
         if (Math.hypot(it.x + 0.5 - p.x, it.y + 0.5 - p.y) <= 1.55) { ctl.intent = null; ctl.path = null; interactProp(p, prop); }
-        else {
+        else if (!reach) {
           if (!ctl.path) { const spot = W.free(it.x + 0.5, it.y + 0.5, 2); if (spot) planPath(p, spot.x, spot.y); }
           const end = ctl.path && ctl.path.length ? ctl.path[ctl.path.length - 1] : { x: it.x + 0.5, y: it.y + 0.5 };
           if (!stepToward(p, end.x, end.y, dt, false) || Math.hypot(end.x - p.x, end.y - p.y) < 0.05) ctl.intent = null;
@@ -830,7 +816,7 @@
             break;
           }
           takeStairs(it.st);
-        } else if (!stepToward(p, it.x + 0.5, it.y + 0.5, dt, false)) { ctl.intent = null; }
+        } else if (!reach && !stepToward(p, it.x + 0.5, it.y + 0.5, dt, false)) { ctl.intent = null; }
         break;
       default:
         ctl.intent = null;
@@ -889,8 +875,13 @@
     const mv = G.input.move, mag = Math.hypot(mv.x, mv.y);
     const stick = mag > 0.15;
     let acted = false;
-    if (stick) {                                   // joystick overrides tap-to-move and any walk-to intent
-      ctl.intent = null; ctl.path = null;
+    if (stick) {                                   // joystick overrides tap-to-move and any walk-to intent...
+      const held = ctl.intent;
+      if (held && STICK_KEEPS[held.type]) {         // ...but a tap with the other thumb (loot, NPC, chest, stairs) waits ~1.2 s for you to steer within reach
+        if (!held.exp) held.exp = S.time + 1.2;
+        if (S.time > held.exp) ctl.intent = null;
+      } else ctl.intent = null;
+      ctl.path = null;
       if (ctl.lock <= 0) {
         const k = playerSpeed(p) * screenSpeedScale(mv.x, mv.y) * dt * Math.min(1, mag) / mag;
         W.move(p, mv.x * k, mv.y * k);
@@ -899,6 +890,7 @@
         ctl.visDirty = true;
       }
       acted = true;
+      if (ctl.intent) runIntent(p, dt, true);
     }
     if (G.input.attackHeld && S.scene !== 'town' && game.getActionMode() === 'loot') {          // R8.9: holding the button near loot loots
       if (!(ctl.intent && ctl.intent.type === 'item') && groundById(am.gid)) { ctl.intent = { type: 'item', id: am.gid }; ctl.path = null; }

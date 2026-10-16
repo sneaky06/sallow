@@ -344,7 +344,8 @@
     ui._setTrkTop();
   }
 
-  let upTick = 0, upN = 0;
+  let upDirty = true, upN = 0;      // looked at again only when the bag, the gear or the hero's level / stats change
+  ['inventory:changed', 'equipment:changed', 'player:levelup', 'player:stats', 'scene:changed'].forEach(function (n) { G.on(n, function () { upDirty = true; }); });
   function bagUpgrades(p) {
     let n = 0;
     const inv = p.inventory || [];
@@ -388,7 +389,7 @@
         ? '☠ Your corpse is on this floor' : '☠ Your corpse: depth ' + corpse.depth }));
     }
     for (const q of list) {
-      if (q.status === 'ready') rows.push(h('div', { style: 'color:#ffd94a', text: '* ' + q.name + TX.hud.seeTheElder }));
+      if (q.status === 'ready') rows.push(h('div', { style: 'color:#ffd94a', text: '* ' + q.name + ui.fmt(TX.hud.seeGiver, { name: q.giverName || TX.hud.theElder }) }));
       else if (q.status === 'active') rows.push(h('div', { text: '- ' + q.name + ' ' + q.progress + '/' + q.goal }));
       else if (q.status === 'available' && q.main) mainOffer = true;
     }
@@ -444,8 +445,8 @@
     const portal = S.scene === 'dungeon';
     if (portal !== last.portal) { last.portal = portal; el.bTp.style.display = portal ? '' : 'none'; }
     const attr = p.attrPoints | 0, sp = p.skillPoints | 0;
-    // the Bag badge: unspent attribute points (+n), else a ▲ when the bag holds an upgrade for any slot (R16.10; looked at once a second)
-    if (++upTick >= 5 || last.attr === -1) { upTick = 0; upN = bagUpgrades(p); }
+    // the Bag badge: unspent attribute points (+n), else a ▲ when the bag holds an upgrade for any slot (R16.10; recomputed when something changed)
+    if (upDirty || last.attr === -1) { upDirty = false; upN = bagUpgrades(p); }
     const bkey = attr > 0 ? '+' + attr : (upN > 0 ? '▲' : '');
     if (bkey !== last.bagBadge) { last.bagBadge = bkey; last.attr = attr; el.bInv._badge.style.display = bkey ? 'block' : 'none'; el.bInv._badge.textContent = bkey; el.bInv._badge.style.background = bkey === '▲' ? '#4caf50' : ''; el.bInv.setAttribute('aria-label', bkey === '▲' ? 'Bag, an upgrade is waiting' : 'Bag'); }
     if (sp !== last.sp) { last.sp = sp; el.bSkl._badge.style.display = sp > 0 ? 'block' : 'none'; el.bSkl._badge.textContent = sp > 0 ? '+' + sp : ''; }
@@ -713,10 +714,10 @@
   ['quest:updated', 'quest:completed'].forEach(function (n) { G.on(n, function () { questDirty = true; }); });
   // ---------- lockdown rooms (R2.5) ----------
   // The contract has no per-wave event, so the counter reads room.wave (1-based) if the game maintains it and also
-  // listens for an optional 'room:wave' { room, wave }; with neither it just names the number of waves.
+  // falls back to the room object; with neither it just names the number of waves.
   const lock = { room: null, wave: 0, t: 0 };
   function lockText() {
-    // R4.5: the game reports the live wave through getLockdown(); the room object and room:wave are fallbacks
+    // R4.5: the game reports the live wave through getLockdown(); the room object is the fallback
     let L = null;
     if (G.game && G.game.getLockdown) { try { L = G.game.getLockdown(); } catch (err) { L = null; } }
     const r = lock.room;
@@ -734,7 +735,6 @@
     el.lock.style.display = 'block';
     ui._sfx('door');
   });
-  G.on('room:wave', function (e) { if (e && e.wave > 0) lock.wave = e.wave | 0; });
   G.on('room:cleared', function () {
     if (!el.lock) return;
     lock.room = null; lock.wave = 0; lock.t = 3.5;

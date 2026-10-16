@@ -959,4 +959,10 @@
     },
   });
   ui._register('character', { alias: 'inventory', arg: 'character' });
+
+  // a Socket Tool that breaks (items emits socket:failed { item }): the item is fine, the tool is gone - say so where the eye is
+  G.on('socket:failed', function (e) {
+    ui._banner(TX.sockets.toolShattered, e && e.item && e.item.name ? e.item.name + TX.sockets.isUnharmed : '', '#ff5b5b', 3.5);
+    ui._refresh();
+  });
 })();
