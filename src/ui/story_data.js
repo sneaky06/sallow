@@ -215,7 +215,7 @@
       fight: ['Never stops moving; strings snare lines across the lanes.',
         'Vanishes and fires from the dark; each arrow glints before it flies.',
         'Every 10 s she must stop and count: free damage.'],
-      relic: 'Wren\'s Count', relicText: 'Dashing reloads a free shot, and each floor's layout shows on your map.',
+      relic: 'Wren\'s Count', relicText: 'Dashing reloads a free shot, and the layout of each floor shows on your map.',
       intro: 'Four thousand and ten. Four thousand and eleven.', death: 'Her map unrolls across the floor. It goes much, much deeper.' },
     { id: 'fallen_6', classId: 'necromancer', depth: 19, name: 'Brother Ashby, the Penitent Sexton',
       story: 'The crypt chapel\'s bellringer. He rang the bell for every dead man until one night the dead rang back. The man in grey told him where the answer came from.',
