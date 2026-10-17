@@ -361,8 +361,9 @@
   });
 
   // ------------------------------ Close Call ------------------------------
-  // Standing in a telegraphed blast during its last 0.6 s and stepping out before it lands: +15% damage per stack
+  // Standing in a telegraphed blast during its last 0.6 s and stepping out before it lands: +10% damage per stack (R18, was 15)
   // (max 3, 5 s) and every skill cooldown 1 s shorter. Turns "dodge the circle" into a rhythm a thumb can feel.
+  game.CC_PER = 10;          // R18: +10% damage per stack (was 15); skilled play should be 30–50% faster, not 55%
   game.closeCall = function (z, o) {
     const p = G.state.player;
     if (!p || p.dead || ccCd > 0 || !(z.r >= 1.2)) return;
@@ -372,13 +373,13 @@
     if (invuln) {
       ccInvAt = G.state.time + 4;
       const old = game.getEffect(p, 'close_call'), n = Math.min(3, (old ? old.stacks : 0) + 1);
-      game.addEffect(p, { id: 'close_call', t: (p.bonus && p.bonus.ccTime) || 5, stacks: n, dealt: ((p.bonus && p.bonus.ccPer) || 15) * n });
+      game.addEffect(p, { id: 'close_call', t: (p.bonus && p.bonus.ccTime) || 5, stacks: n, dealt: ((p.bonus && p.bonus.ccPer) || game.CC_PER) * n });
       if (game.perkCC) game.perkCC(p);
       U.text(p.x, p.y - 1.3, 'UNTOUCHED', '#7fffd4', true);
       return;          // no goal credit, no cooldown shave, no Flow chain
     }
     const old = game.getEffect(p, 'close_call'), n = Math.min(3, (old ? old.stacks : 0) + 1);
-    game.addEffect(p, { id: 'close_call', t: (p.bonus && p.bonus.ccTime) || 5, stacks: n, dealt: ((p.bonus && p.bonus.ccPer) || 15) * n });          // (+ perks Steel Nerves, Glory Hound)
+    game.addEffect(p, { id: 'close_call', t: (p.bonus && p.bonus.ccTime) || 5, stacks: n, dealt: ((p.bonus && p.bonus.ccPer) || game.CC_PER) * n });          // (+ perks Steel Nerves, Glory Hound)
     if (game.perkCC) game.perkCC(p);          // R11 Close Call perks
     if (game.goalAdd) { game.goalAdd('r_close_calls'); if (G.state.time - (game.lastDashT === undefined ? -9 : game.lastDashT) <= 1) game.goalAdd('s_blink_cc'); }          // R16 class goals
     for (const id in p.cooldowns) if (p.cooldowns[id] > 0) p.cooldowns[id] = Math.max(0, p.cooldowns[id] - 1);
@@ -400,7 +401,7 @@
       const a = ai.aim, pj = def.proj || { shape: 'orb', color: '#ffffff', speed: 8 }, speed = pj.speed * 1.8;
       ai.aim = null;
       let dmg = (e.dmgMin + e.dmgMax) * 0.5 * 1.7;
-      for (const f of e.effects) if (f.dealt) dmg *= Math.max(0.1, 1 + f.dealt / 100);
+      dmg *= game.dealtMult(e);
       const ang = Math.atan2(a.y - e.y, a.x - e.x), dist = Math.hypot(a.x - e.x, a.y - e.y);
       game.spawnProjectile({ x: e.x + Math.cos(ang) * 0.3, y: e.y + Math.sin(ang) * 0.3, ang: ang, speed: speed, shape: pj.shape, color: '#ff5050', radius: 0.26,
         faction: 'enemy', dmg: dmg, dtype: def.dtype || 'phys', st: def.onHit || null, srcId: e.id, lvl: e.level, affixes: e.affixes, life: (dist + 1.5) / speed });

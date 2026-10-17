@@ -144,8 +144,32 @@ Unresolved props are forwarded as `object:interact { type: prop.interact, prop }
 Base speed `BASE_SPEED 5.0`; on-screen speed is equal in all directions (`screenSpeedScale`).
 
 **Damage model:** weapon-based for warrior/ranger skills; casters = weapon dmg × attacks/s × 0.75. Statuses: burn, chill/freeze, shock, poison, stun, slow, bleach (Pallid). Basic melee **cleaves** (1.7 tiles, ±0.85 rad, others take 60%); Eagle Eye 3+ gives `bonus.pierce`.
-Melee/self AoE skills flash a 2.4-tile ring. Lava/water slow per core. Difficulty dials: `game.HPM(L)` (monster life ×1.6→2.8), `game.DMM(L)` (damage ×1.8–2.3 early → ×1.15 from L17), `SPEED_SCALE 1.2`, `monsterLevel(depth) = max(depth, playerLevel−3)`; bosses take half the life multiplier.
-Balance target: 3–6 potions per boss with auto-build for every class (acceptable per-mode spread 2–6).
+Melee/self AoE skills flash a 2.4-tile ring. Lava/water slow per core. `SPEED_SCALE 1.2`; `monsterLevel(depth) = depth` (R14).
+**Difficulty curves (R18, fitted with `tests/balance.html`, see `docs/BALANCE.md`):** monster life `hpScale(L) = (1 + 0.25(L−1)) × 1.06^(L−1) × ramp × HPM(L) × DEEP_HP(L)` where
+`DEEP_HP` (×1.8, easing to ×1.62 from depth 25 to 40) makes normal monsters take about 3 main-skill hits at depth 1–5, 4–5 from depth 30, for an on-level hero in
+ordinary gear; damage `dmgScale(L) = 1.12 × curve(DMG_CURVE, L)` (log-linear anchors, extrapolated) so a hero who stands in a pack without dodging or drinking dies
+in about 4 s (3 s past depth 45). Elite life `RARITY_MULT[r].hp × (1 + deep × ramp(depth 12→32))`: champion 2.2 (+70%), rare 4.4 (+40%), legendary 7.8 (+85%).
+Bosses: `createBoss` life × `BOSS_HP 0.5` (× `WORLD_BOSS_HP 1.75` for the Hearthking), tier bosses +40% per tier; boss hits keep 70% of `DMM`. Targets: packs of 6 in
+~3–6 s, champion packs and rares 10–20 s, legendary monsters 30–45 s, act bosses 45–90 s, the Hearthking 2–3 min; skilled play (Close Calls, Flow, Heat, dashing
+instead of standing) 30–50% faster.
+**Damage pipeline (R18; `playerHit`, stats in `recomputeStats`):** one hit =
+`[(weapon roll + flat min/max) × skill% + flat elemental × min(skill%, 100%)] × (1 + damage% + skill damage%[skills] + elemental mastery[that damage type]) × off-class ×
+combo (shatter ×1.5) × crit (1 + crit damage%) × (1 + temporary bucket) × penalties`, then the target's armour/resistance and its summed `taken` effects. Casters' weapon roll
+is × attacks/s × 0.75 for skills. Each factor appears once; within a category bonuses add:
+- **Permanent % bucket** (primary stat 1%/pt, gear, passives, uniques, relics, collection, milestones, Battle Shout, Hoarder…): `dmgPct` and `skillDmgPct` are summed and
+  soft-capped together — full value to `100 + 3 × level`, half for the next 200, a quarter beyond (`game.SOFT`, `softCap`, `softKnees`). `player.stats` holds the
+  effective values (the sheet shows them); `player.bonus.raw` the uncapped sums (items' upgrade verdict reads them and caps the same way).
+- **Crit damage** soft-capped at 150 / 250; **attack and cast speed** at 50 / 100; **cooldown reduction** capped at 40% (`CDR_CAP`) and no cooldown below half its
+  rank-1 value (`CD_FLOOR`); **"+N to all skills"** raises a learned skill at most 3 ranks (`ALL_SKILLS_CAP`).
+- **Flat elemental** (fire/cold/lightning/poison from gear and gems) is added damage: it takes `min(skill%, 100%)`, so a 300% skill no longer triples it.
+- **Temporary bucket** (`TEMP_CAP` +100%): every positive `dealt` effect (Heat, Close Call, Warlord, Tactician, Rotation, Glass Heart…), perk damage rules
+  (`perkDmgParts`: rules above 1 add their excess, rules below 1 stay multiplicative), Blood Price +40, Varr's ramping fire, vs-chilled bonuses — summed, then capped.
+- **Defence side:** `taken` effects on a target add up (shock + curses + exposed Ember are one factor); monster/minion/Echo `dealt` effects add up (`dealtMult`);
+  armour mitigation caps at 65% (`ARMOR_CAP`, was 75%), a blocked hit lands for 35% (`BLOCK_TAKEN`, was 30%); life steal heals at most 2% of maximum life per second (`LEECH_CAP`); permanent life regeneration is
+  soft-capped at 1% / 2% of maximum life per second (`REGEN_SOFT`; potions and shrines come on top).
+- **Minions** hit for `MINION_DMG × game.minionPower(p)` (your weapon damage per second × 0.75 + flat damage, × your damage bucket) instead of following monster life.
+  Mythic `corpse_blast` deals 90% of your hit (was 25% of the victim's life).
+Balance targets (R18): see "Difficulty curves" above and `docs/BALANCE.md`; every class × auto-build style within about ±15% of the others in its style (single-target builds on single targets, group builds on packs).
 
 **Off-class gear (R8.7):** `player.bonus.offClass` = `G.items.classPenalty(item, classId)` (`{ dmgPct −35 }`) else −35. Warrior swing skills and Ranger arrow skills (`SKILL_NEEDS_CLASS_WEAPON`) are `disabled` with an off-class weapon (`lockedReason`); spells keep working.
 Any weapon may be wielded; armour weight carries no penalty yet.
@@ -155,7 +179,7 @@ Necromancer Grave Step (2). Invulnerable ~0.35 s. `getClassAction() → { id, ki
 Augments (passives → `player.bonus.dash*`): Ground Slam, Tumble Shot, Rime Step, Grave Swap, Acrobatics (`dodge_roll`, passive, never on the skill bar). A dash may pass over CHASM/DEEP tiles but never end on one nor pass walls (R10, The Leap).
 Charges refill on revive and scene change.
 
-**Close Call (R7.5):** standing in an enemy telegraph (r ≥ 1.2) in its last 0.6 s and being outside when it lands → effect `close_call` (+15% damage per stack, max 3, 5 s), every cooldown −1 s, text + ring + sfx. Hooks: `game.closeCall`, `onCloseCall`.
+**Close Call (R7.5):** standing in an enemy telegraph (r ≥ 1.2) in its last 0.6 s and being outside when it lands → effect `close_call` (+10% damage per stack (R18, was 15; `CC_PER`), max 3, 5 s), every cooldown −1 s, text + ring + sfx. Hooks: `game.closeCall`, `onCloseCall`.
 **Flow chain (R9.1):** Close Calls within 8 s chain; 3 → `state.timeScale = 0.35` for 0.45 s game time + `flow_crit` (next hit guaranteed crit); 4 → also all dash charges; 5+ → also all cooldowns. `getFlow() → { chain, slow }`, `endFlow()`;
 timeScale resets by timer, a real-time fallback, `player:died`, and every `scene:changed`.
 **Ember Heat (pitch, built):** 35% of kills shed an ember (`game.embers`, 4 s); sweeping through one (0.8 tiles) = +1 Heat (max 10, effect `heat`): +4% damage and +5% magic find per stack; −1 every 6 s without a pickup; a single hit > 8% life knocks half out. `heatStacks()`.
@@ -302,6 +326,11 @@ Newest last. **Append new revisions here** (one short block each: what changed, 
 - **R5** Pallor, awakening, piles, sorting, visible gear/looks, floor variants, HUD layout editor. **R6** difficulty pass, Echo, dash for all classes, high-res art/sound pipeline, the corrupted-rift campaign. **R7** rarity ladder + Power, sockets, drops, speed rewards/events, Fallen + relics, collection/Curator, acts and town revival.
 - **R8** chute and surface crate, death drops the bag and the Echo guards it, tips, off-class penalty, context-aware action button. **R9** pillars; Flow chain, bargains, Scavenger, monster bias. **R10** polish and verify; leap crossing; Heat/low-FX/FPS; this document.
 - **R11 (queued, not started):** per-class perk trees, beginning with cross-class perks that let a class use off-class gear without the R8.7 penalty. Design round (combat + story) first. Will add a perks subsection to §5 and revise §8 "off-class gear".
+- **R18** balance pass (`docs/BALANCE.md`, harness `tests/balance.html`): stacking limits in the damage pipeline (one soft-capped permanent % bucket incl. skill
+  damage and elemental mastery, flat elemental at ≤ 100% of the skill, one temporary bucket capped at +100%, soft caps on crit damage / attack / cast speed,
+  "+all skills" ≤ +3 ranks, cdr ≤ 40%, cooldown floor, additive `taken`/`dealt`, leech ≤ 2% life/s, regen soft cap, armour cap 65%), minions on spell power,
+  `corpse_blast` on your hit, monster life/damage refitted to the measured on-level hero (`DEEP_HP`, `DMG_CURVE`), elites tougher with depth, bosses `BOSS_HP`,
+  Close Call +10%/stack, Warrior innate DR 10%, skill-number parity pass. §5 "Difficulty curves" and "Damage pipeline" describe the result.
 
 ## 15. Open questions
 

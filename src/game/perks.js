@@ -69,7 +69,7 @@
   def('w_forge_heat', 'warrior', 'edge', 4, 0, 'Forge Heat', 'Take 2% less damage per Heat; hard hits knock out only a third of it.', { stats: function (p, st, b) { b.heatLossDiv = 3; }, hurt: function (p, a) { return a * (1 - 0.02 * heat()); } });
   def('w_ember_hunger', 'warrior', 'edge', 4, 1, 'Ember Hunger', 'Embers fly to you from 2.5 tiles.', { stats: function (p, st, b) { b.emberR = 2.5; } });
   def('w_last_stand', 'warrior', 'edge', 5, 0, 'Last Stand', 'Once per floor a lethal hit leaves you at 1 life, untouchable for 3 s. Heat cannot exceed 5.', { stats: function (p, st, b) { b.lastStand = 1; b.heatMax = 5; } });
-  def('w_glory', 'warrior', 'edge', 5, 1, 'Glory Hound', 'Close Call stacks give +25% damage (not 15). You take 15% more damage.', { stats: function (p, st, b) { b.ccPer = 25; }, hurt: function (p, a) { return a * 1.15; } });
+  def('w_glory', 'warrior', 'edge', 5, 1, 'Glory Hound', 'Close Call stacks give +18% damage (not 10). You take 15% more damage.', { stats: function (p, st, b) { b.ccPer = 18; }, hurt: function (p, a) { return a * 1.15; } });
   def('w_hunters_grip', 'warrior', 'cross', 1, 0, "Hunter's Grip", 'Licence: bows and daggers carry no off-class penalty.', Object.assign({ licence: ['bow', 'dagger'] }, licence(['bow', 'dagger'])));
   def('w_pit_fighter', 'warrior', 'cross', 1, 1, 'Pit Fighter', 'Licence: staves and wands carry no off-class penalty.', Object.assign({ licence: ['staff', 'wand'] }, licence(['staff', 'wand'])));
   def('w_point_blank', 'warrior', 'cross', 2, 0, 'Point Blank', 'Bow basic attacks within 2.5 tiles deal +40% and shove. −15% armour while you hold a bow.',
@@ -406,6 +406,16 @@
   };
   game.perkCrit = function (p, t, spec) { let c = 0; for (const d of list(p)) if (d.crit) c += d.crit(p, t, spec) || 0; return c; };
   game.perkDmg = function (p, t, spec, crit) { let m = 1; for (const d of list(p)) if (d.dmg) m *= d.dmg(p, t, spec, crit, S(d.id)); return m; };
+  // R18: what playerHit uses — bonuses (rule > 1) as percent points for the temporary bucket, penalties (rule < 1) as one factor
+  game.perkDmgParts = function (p, t, spec, crit) {
+    let add = 0, mult = 1;
+    for (const d of list(p)) {
+      if (!d.dmg) continue;
+      const m = d.dmg(p, t, spec, crit, S(d.id));
+      if (m > 1) add += (m - 1) * 100; else if (m < 1) mult *= m;
+    }
+    return { add: add, mult: mult };
+  };
   game.perkAfterHit = function (p, t, dealt, spec) { for (const d of list(p)) if (d.afterHit) d.afterHit(p, t, dealt, spec, S(d.id)); };
   game.perkHurt = function (p, amount, src, o) { for (const d of list(p)) if (d.hurt) amount = d.hurt(p, amount, src, o); return amount; };
   game.perkCC = function (p) { for (const d of list(p)) if (d.cc) d.cc(p, S(d.id)); };

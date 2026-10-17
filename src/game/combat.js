@@ -28,10 +28,12 @@
     return got;
   };
 
-  // Physical mitigation from armour against an attacker of a given level (cap 75%).
+  // Physical mitigation from armour against an attacker of a given level (R18: cap 65%, was 75%).
+  game.ARMOR_CAP = 0.65;
+  game.BLOCK_TAKEN = 0.35;          // a blocked hit still lands for 35% (R18, was 30%)
   game.armorReduction = function (armor, attackerLevel) {
     if (!(armor > 0)) return 0;
-    return Math.min(0.75, armor / (armor + 40 + 12 * attackerLevel));
+    return Math.min(game.ARMOR_CAP, armor / (armor + 40 + 12 * attackerLevel));
   };
 
   // What dealt a hit to the player: { kind: 'monster'|'boss'|'echo'|'lava'|'hazard'|'unknown', id, name }. o.cause names an environmental source.
@@ -64,7 +66,9 @@
       total += a;
     }
     const fx = t.effects;
-    for (let i = 0; i < fx.length; i++) if (fx[i].taken) total *= Math.max(0.1, 1 + fx[i].taken / 100);
+    let taken = 0;          // R18: vulnerabilities and protections add up (one factor)
+    for (let i = 0; i < fx.length; i++) if (fx[i].taken) taken += fx[i].taken;
+    if (taken) total *= Math.max(0.1, 1 + taken / 100);
     if (isPlayer && t.bonus && t.bonus.dr) total *= 1 - t.bonus.dr / 100;
     if (isPlayer && game.perkHurt) total = game.perkHurt(t, total, src, o);          // R11 perks on damage taken
     if (t.summon && G.state.player && G.state.player.bonus && G.state.player.bonus.minionTaken) total *= 1 + G.state.player.bonus.minionTaken / 100;
@@ -72,7 +76,7 @@
     if (t.rarity === 'boss' && src && src.summon) total *= 0.5;          // minions alone cannot carry a boss fight (R4.3)
     else if (t.summon && src && src.rarity === 'boss') total *= 2.5;     // ...nor wall one off: bosses tear through summons
     let blocked = false;
-    if (o.canBlock && st.block > 0 && U.chance(st.block)) { blocked = true; total *= 0.3; }
+    if (o.canBlock && st.block > 0 && U.chance(st.block)) { blocked = true; total *= game.BLOCK_TAKEN; }
     if (isPlayer) {
       const ms = game.getEffect(t, 'mana_shield');
       if (ms && t.mp > 0) {
@@ -191,38 +195,64 @@
     }
   }
 
+  // R18: every temporary or conditional damage bonus (effects' `dealt`, Heat, Close Call, bargains, perk damage rules, mythic
+  // and relic buffs) is summed into one bucket capped at TEMP_CAP %; penalties (dealt < 0, perk rules below 1) still multiply.
+  game.TEMP_CAP = 100;
+  game.LEECH_CAP = 2;
+  let leechT = -99, leechUsed = 0;
+  const ELEMK = { phys: 'elem_phys', fire: 'elem_fire', cold: 'elem_cold', lightning: 'elem_lightning', poison: 'elem_poison' };
+  function emult(b, bucket, k) { return 1 + (bucket + (b[ELEMK[k]] || 0)) / 100; }
+  // Additive within a category: the summed `dealt` of an entity's effects as one multiplier (monsters, minions, the Echo).
+  game.dealtMult = function (e) {
+    let s = 0;
+    const fx = e.effects;
+    for (let i = 0; i < fx.length; i++) if (fx[i].dealt) s += fx[i].dealt;
+    return Math.max(0.1, 1 + s / 100);
+  };
+
   // The player's damage roll against one target. spec: { pct, type, crit (bonus %), st, skill (default true), melee, heal (fraction) }
+  // R18 pipeline (docs/DESIGN.md §5 "Damage pipeline"): [(weapon roll + flat dmg) × skill% + flat elemental × min(skill%, 100%)]
+  //   × (1 + damage % + skill damage % [skills] + elemental mastery of that damage type) × off-class × combo × crit (1 + critDmg)
+  //   × (1 + temporary bucket, ≤ +100%) × penalties. Percent stats arrive soft-capped in player.stats (stats.js); each factor appears once.
   game.playerHit = function (t, spec) {
     const p = G.state.player;
     if (!p || !t || t.dead) return 0;
     const st = p.stats, b = p.bonus, w = b.w;
     const type = spec.type || 'phys';
+    const isSkill = spec.skill !== false;
     let base = U.rand(w.min + st.dmgMin, w.max + st.dmgMax);
     // spells are cast at a fixed rate, so casters scale with weapon damage per second — a fast wand is not a worse spell focus than a slow staff
-    if (spec.skill !== false && !game.MARTIAL[p.classId]) base *= w.aps * 0.75;
-    let mult = spec.pct / 100;
-    let scale = 1 + st.dmgPct / 100;
+    if (isSkill && !game.MARTIAL[p.classId]) base *= w.aps * 0.75;
+    const mult = spec.pct / 100;
+    const elemK = Math.min(1, mult);          // flat elemental is added damage: a 300% skill does not triple it
+    const bucket = st.dmgPct + (isSkill ? st.skillDmgPct : 0);          // damage % (+ skill damage %, folded in by stats.js); elemental masteries add to it per damage type
+    let scale = 1;
     if (b.offClass) scale *= Math.max(0.1, 1 + b.offClass / 100);          // R8.7 out-of-class weapon
     const myth = game.fxOf(p);
-    if (spec.skill !== false) scale *= (1 + st.skillDmgPct / 100) * (myth.blood_price ? 1.4 : 1);
+    let temp = 0, pen = 1;
     const pfx = p.effects;
-    for (let i = 0; i < pfx.length; i++) if (pfx[i].dealt) scale *= Math.max(0.1, 1 + pfx[i].dealt / 100);
-    if (b.vsChilled && (game.getEffect(t, 'chill') || game.getEffect(t, 'freeze'))) scale *= 1 + b.vsChilled / 100;
+    for (let i = 0; i < pfx.length; i++) {
+      const d = pfx[i].dealt;
+      if (d > 0) temp += d; else if (d < 0) pen *= Math.max(0.1, 1 + d / 100);
+    }
+    if (isSkill && myth.blood_price) temp += 40;
+    if (b.vsChilled && (game.getEffect(t, 'chill') || game.getEffect(t, 'freeze'))) temp += b.vsChilled;
+    if (myth.ramping_fire && (type === 'fire' || st.fireDmg) && game.fireRamp) temp += 100 * game.fireRamp(p);      // relic: Varr's ramping fire
     const shatter = type === 'fire' && b.shatterFire && game.getEffect(t, 'freeze');
-    if (shatter) scale *= 1.5;
-    if (myth.ramping_fire && (type === 'fire' || st.fireDmg) && game.fireRamp) scale *= 1 + game.fireRamp(p);      // relic: Varr's ramping fire
+    if (shatter) scale *= 1.5;          // class combo: kept as its own factor (it costs a freeze)
     const flowCrit = pfx.length && game.getEffect(p, 'flow_crit');          // R9.1 Flow: the next hit is a guaranteed crit
     const crit = !!flowCrit || U.chance(st.critChance + (spec.crit || 0) + (game.perkCrit ? game.perkCrit(p, t, spec) : 0));
     if (flowCrit) game.removeEffect(p, 'flow_crit');
     if (crit) scale *= 1 + st.critDmg / 100;
-    if (game.perkDmg) scale *= game.perkDmg(p, t, spec, crit);          // R11 perk damage rules
-    mult *= scale;
+    if (game.perkDmgParts) { const pk = game.perkDmgParts(p, t, spec, crit); temp += pk.add; pen *= pk.mult; }          // R11 perk damage rules
+    scale *= (1 + Math.min(game.TEMP_CAP, temp) / 100) * pen;
     const parts = {};
-    parts[type] = base * mult * (1 + (b['elem_' + type] || 0) / 100);
-    if (st.fireDmg) parts.fire = (parts.fire || 0) + st.fireDmg * mult * (1 + (b.elem_fire || 0) / 100);
-    if (st.coldDmg) parts.cold = (parts.cold || 0) + st.coldDmg * mult;
-    if (st.lightningDmg) parts.lightning = (parts.lightning || 0) + st.lightningDmg * mult;
-    if (st.poisonDmg) parts.poison = (parts.poison || 0) + st.poisonDmg * mult * (1 + (b.elem_poison || 0) / 100);
+    parts[type] = base * mult * scale * emult(b, bucket, type);
+    const ek = elemK * scale;
+    if (st.fireDmg) parts.fire = (parts.fire || 0) + st.fireDmg * ek * emult(b, bucket, 'fire');
+    if (st.coldDmg) parts.cold = (parts.cold || 0) + st.coldDmg * ek * emult(b, bucket, 'cold');
+    if (st.lightningDmg) parts.lightning = (parts.lightning || 0) + st.lightningDmg * ek * emult(b, bucket, 'lightning');
+    if (st.poisonDmg) parts.poison = (parts.poison || 0) + st.poisonDmg * ek * emult(b, bucket, 'poison');
 
     const dealt = game.applyHit(t, parts, { src: p, crit: crit, melee: spec.melee, canDodge: t.stats.dodge > 0 });
     if (dealt <= 0) return 0;
@@ -245,8 +275,17 @@
       game.kill(t, p);
     }
     if (myth.chain_spark && !spec.noProc && U.chance(25)) chainSpark(p, t, dealt);
-    let heal = dealt * (st.lifeSteal / 100) + (spec.heal ? dealt * spec.heal * (t.rarity === 'boss' ? 0.2 : 1) : 0);      // drain skills are much weaker on bosses
-    if (heal > 0) game.heal(p, Math.min(heal, st.hpMax * 0.15), !!spec.heal);
+    // R18: life steal heals at most LEECH_CAP % of maximum life per second (it used to scale with damage dealt, so an AoE hero
+    // standing in a pack out-healed any depth); drain skills keep their own per-hit limit
+    let leech = st.lifeSteal > 0 ? dealt * st.lifeSteal / 100 : 0;
+    if (leech > 0) {
+      const now = G.state.time;
+      if (!(now - leechT < 1 && now >= leechT)) { leechT = now; leechUsed = 0; }
+      leech = Math.max(0, Math.min(leech, st.hpMax * game.LEECH_CAP / 100 - leechUsed));
+      leechUsed += leech;
+    }
+    const heal = leech + (spec.heal ? Math.min(dealt * spec.heal * (t.rarity === 'boss' ? 0.2 : 1), st.hpMax * 0.15) : 0);      // drain skills are much weaker on bosses
+    if (heal > 0) game.heal(p, heal, !!spec.heal);
     if (st.manaSteal > 0) p.mp = Math.min(st.mpMax, p.mp + dealt * st.manaSteal / 100);
     return dealt;
   };
@@ -270,9 +309,7 @@
     o = o || {};
     if (!t || t.dead) return 0;
     const def = game.MONSTERS[e.monsterId] || {};
-    let amt = U.rand(e.dmgMin, e.dmgMax) * (o.mult || 1);
-    const fx = e.effects;
-    for (let i = 0; i < fx.length; i++) if (fx[i].dealt) amt *= Math.max(0.1, 1 + fx[i].dealt / 100);
+    let amt = U.rand(e.dmgMin, e.dmgMax) * (o.mult || 1) * game.dealtMult(e);
     const p = G.state.player;
     if (e.faction === 'player' && p) {
       const shout = game.getEffect(p, 'battle_shout');
@@ -381,7 +418,7 @@
     if (!p) return;
     const fr = game.floorReward();
     if (game.fxOf(p).corpse_blast) {          // mythic: the dead detonate (and can chain)
-      game.addZone({ x: t.x, y: t.y, r: 2.5, delay: 0.15, faction: 'player', raw: t.stats.hpMax * 0.25, dtype: 'fire', fx: 'explosion', color: '#ff5b2e' });
+      game.addZone({ x: t.x, y: t.y, r: 2.5, delay: 0.15, faction: 'player', pct: 90, dtype: 'fire', fx: 'explosion', color: '#ff5b2e' });          // R18: a hit of yours, not a share of the victim's life (audit GM-9)
     }
     if (!p.dead) {
       if (p.stats.lifeOnKill) game.heal(p, p.stats.lifeOnKill);

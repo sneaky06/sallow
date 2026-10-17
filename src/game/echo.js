@@ -190,8 +190,7 @@
   // ------------------------------ AI ------------------------------
   function setAnim(e, a) { if (e.anim !== a) { e.anim = a; e.animT = 0; } }
   function dmgOf(e, mult) {
-    let a = U.rand(e.dmgMin, e.dmgMax) * mult;
-    for (const f of e.effects) if (f.dealt) a *= Math.max(0.1, 1 + f.dealt / 100);
+    let a = U.rand(e.dmgMin, e.dmgMax) * mult * game.dealtMult(e);
     return a;
   }
   function zone(e, x, y, r, delay, mult, o, extra) {

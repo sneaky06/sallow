@@ -1,0 +1,628 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Sallow — balance harness</title>
+<style>
+  html, body { margin: 0; background: #0b0a0f; color: #c8c8c8; font: 12px/1.35 Consolas, monospace; }
+  #bar { padding: 6px 8px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; border-bottom: 1px solid #2a2833; }
+  #bar button, #bar input { font: inherit; background: #1b1a22; color: #ddd; border: 1px solid #44414f; padding: 3px 7px; }
+  #bar input { width: 260px; }
+  pre { margin: 8px; white-space: pre; overflow: auto; }
+  #status { color: #8fa3c9; }
+</style>
+</head>
+<body>
+<div id="bar">
+  <b>Balance harness</b>
+  <button id="run">Run</button>
+  query <input id="q" placeholder="levels=10,20&amp;classes=warrior&amp;gear=typical">
+  <span id="status">Loading…</span>
+</div>
+<pre id="out"></pre>
+<!--
+  R18 balance harness (docs/BALANCE.md). Real items + game modules on a flat arena (stub world, no props, no floor mods).
+  For each class × auto-build plan × level it builds a synthetic "best-of-N" kit from real rollItem drops, then measures
+  with the real game loop (game.update at 30 steps/s): damage per cast of the plan's main skill, single-target DPS against
+  an elite and a boss dummy, AoE DPS against a 6-dummy pack, and time-to-death standing still in a pack / next to the boss.
+  Two skill profiles feed real Heat embers and real Close Calls (Flow included) into the fight; uptime factors convert DPS
+  into fight times. Query: levels=, classes=, modes=, gear=typical,strong, skill=avg,skilled, reps= (kits per row, default 6),
+  t= (sim seconds), noboss=1, quick=1, auto. Console helpers: balQuick(), balCurve(levels), balSkills(level). docs/BALANCE.md has the method.
+  Results: window.__BAL = { done, text, rows }.
+-->
+<script>window.G = { manifest: {} };</script>
+<script src="../src/core/constants.js"></script>
+<script src="../src/core/events.js"></script>
+<script src="../src/core/rng.js"></script>
+<script src="../src/core/state.js"></script>
+<script src="../src/core/scenes.js"></script>
+<script>
+// Flat-arena stand-in for the world team (movement, sight and paths only).
+(function () {
+  'use strict';
+  const G = window.G, C = G.C, T = C.TILE;
+  const H = window.H = { errors: [] };
+  window.addEventListener('error', function (e) { H.errors.push((e.message || 'error') + ' @ ' + (e.filename || '').split('/').pop() + ':' + e.lineno); });
+  const origErr = console.error;
+  console.error = function () { H.errors.push(Array.prototype.map.call(arguments, String).join(' ')); origErr.apply(console, arguments); };
+  function mkMap(w, h, kind, depth, theme, seed) {
+    const m = { w: w, h: h, kind: kind, depth: depth, theme: theme, seed: seed, tiles: new Uint8Array(w * h).fill(T.FLOOR), explored: new Uint8Array(w * h),
+      visible: new Uint8Array(w * h), spawn: { x: 10, y: 15 }, rooms: [], spawns: [], props: [], mods: [] };
+    for (let x = 0; x < w; x++) { m.tiles[x] = T.WALL; m.tiles[(h - 1) * w + x] = T.WALL; }
+    for (let y = 0; y < h; y++) { m.tiles[y * w] = T.WALL; m.tiles[y * w + w - 1] = T.WALL; }
+    return m;
+  }
+  const world = G.world = {
+    generateDungeon(depth, seed) { return mkMap(46, 30, 'dungeon', depth, C.themeForDepth(depth), seed); },
+    generateTown(seed) { const m = mkMap(26, 18, 'town', 0, 'town', seed); m.spawn = { x: 13, y: 13 }; return m; },
+    tileAt(map, x, y) { x = Math.floor(x); y = Math.floor(y); return (x < 0 || y < 0 || x >= map.w || y >= map.h) ? T.VOID : map.tiles[y * map.w + x]; },
+    propAt() { return null; },
+    isWalkable(map, x, y) { return !!C.WALKABLE[world.tileAt(map, x, y)]; },
+    canMoveTo(map, x, y, r) { r = r || 0.3; return world.isWalkable(map, x - r, y - r) && world.isWalkable(map, x + r, y - r) && world.isWalkable(map, x - r, y + r) && world.isWalkable(map, x + r, y + r); },
+    moveWithCollision(map, ent, dx, dy) {
+      const r = Math.min(0.45, ent.radius || 0.3);
+      let moved = false;
+      if (dx && world.canMoveTo(map, ent.x + dx, ent.y, r)) { ent.x += dx; moved = true; }
+      if (dy && world.canMoveTo(map, ent.x, ent.y + dy, r)) { ent.y += dy; moved = true; }
+      return moved;
+    },
+    hasLineOfSight() { return true; },
+    findPath(map, sx, sy, tx, ty) { return [{ x: tx, y: ty }]; },
+    updateVisibility(map) { map.visible.fill(1); map.explored.fill(1); },
+    invalidate() {},
+    findFreeTileNear(map, x, y, maxR) {
+      for (let r = 0; r <= (maxR || 6); r++) for (let oy = -r; oy <= r; oy++) for (let ox = -r; ox <= r; ox++) {
+        if (Math.max(Math.abs(ox), Math.abs(oy)) === r && world.isWalkable(map, x + ox, y + oy)) return { x: Math.floor(x + ox), y: Math.floor(y + oy) };
+      }
+      return null;
+    },
+  };
+})();
+</script>
+<script>
+(function () {
+  const one = function (src) {
+    return new Promise(function (resolve) {
+      const s = document.createElement('script');
+      s.src = src; s.async = false; s.onload = resolve;
+      s.onerror = function () { H.errors.push('missing ' + src); resolve(); };
+      document.body.appendChild(s);
+    });
+  };
+  const keepWorld = G.world;
+  let p = one('../src/items/manifest.js').then(function () { return one('../src/game/manifest.js'); });
+  p.then(function () {
+    let q = Promise.resolve();
+    ['items', 'game'].forEach(function (t) { (G.manifest[t] || []).forEach(function (f) { q = q.then(function () { return one('../src/' + t + '/' + f); }); }); });
+    return q;
+  }).then(function () { G.world = keepWorld; window.startBalance(); });
+})();
+</script>
+<script>
+window.startBalance = function () {
+  'use strict';
+  const G = window.G, C = G.C, S = G.state, game = G.game, I = G.items, D = I.data;
+  const $ = function (id) { return document.getElementById(id); };
+  const DT = 1 / 30;
+  const ARCH_W = { melee: 4, ranged: 2.4, caster: 1.6, swarm: 3, brute: 1.2 };          // monsters.js spawn weights
+
+  // ---------------- profiles ----------------
+  // Gear: best (by Power) of n real drops per slot at item level = character level. typical = what an ordinary player wears
+  // on-level (a few floors of drops, gems one tier below the best); strong = a diligent late save (many drops, high magic
+  // find, Elite uniques in the candidate pool, best gems, permanent bonuses from collection/milestones/awakening).
+  const GEAR = {
+    typical: { n: 15, mf: 40, boost: 1.3, uniques: 0, gemDown: 1, perm: function () { return 0; } },
+    strong: { n: 80, mf: 150, boost: 2, uniques: 8, gemDown: 0, perm: function (L) { return L >= 40 ? 45 : L >= 30 ? 30 : L >= 20 ? 15 : 0; } },
+  };
+  // Skill: Heat held at `heat` stacks (real embers), a real Close Call every `cc` s (Flow chains from the 3rd), and the share
+  // of a fight spent attacking (the rest is walking, dodging, repositioning).
+  const SKILL = {
+    avg: { heat: 2, cc: 15, upBoss: 0.7, upPack: 0.8 },
+    skilled: { heat: 7, cc: 2.5, upBoss: 0.85, upPack: 0.9 },
+  };
+  // Boss fight structure: share of the life bar under special rules → damage factor there (avg / skilled).
+  const BOSS_PHASE = {
+    boss_choir: { avg: [[0.3, 0.55]], skilled: [[0.3, 0.75]] },          // Discord: only the wrong-note voice can be hurt, and it moves every 6 s
+    boss_world: { avg: [[0.6, 0.9]], skilled: [[0.6, 1.15]] },           // II–III: the exposed Ember (+100% for 3 s in 12; missing the 8% heals 6%)
+  };
+
+  function seedAll(s) { Object.assign(G.rng.global, G.rng.create(s)); }
+  function mean(a) { return a.length ? a.reduce(function (x, y) { return x + y; }, 0) / a.length : 0; }
+
+  // ---------------- character + kit ----------------
+  function rollKit(p, L, g, seed) {
+    const rng = G.rng.create(seed), prof = D.classProfile(p), cls = p.classId;
+    const pw = function (it) { return I.power(it, cls); };
+    function ok(slot, it) {
+      if (!it || !D.isEquip(it)) return false;
+      if (slot === 'weapon') return prof.weapons.indexOf(it.weaponType) >= 0;
+      if (slot === 'offhand') { const b = D.BASES[it.baseId]; return !!b && prof.offhand.indexOf(b.offhandType) >= 0; }
+      return true;
+    }
+    function cands(slot) {
+      const out = [];
+      for (let i = 0, tries = 0; out.length < g.n && tries < g.n * 6; tries++) {
+        const it = I.rollItem({ level: L, slot: slot, magicFind: g.mf, _boost: g.boost, rng: rng });
+        if (ok(slot, it)) { out.push(it); i++; }
+      }
+      for (let i = 0; i < g.uniques; i++) {
+        const it = I.rollItem({ level: L, slot: slot, rarity: 'legendary', rng: rng });
+        if (ok(slot, it) && D.UNIQUES[it.uniqueId] && D.UNIQUES[it.uniqueId].min <= L) out.push(it);
+      }
+      return out.sort(function (a, b) { return pw(b) - pw(a); });
+    }
+    const kit = {};
+    if (prof.offhand.length) {
+      const ws = cands('weapon'), offs = cands('offhand');
+      const one = ws.find(function (w) { return !w.twoHanded; }), two = ws.find(function (w) { return w.twoHanded; });
+      if (two && (!one || pw(two) > pw(one) + (offs[0] ? pw(offs[0]) : 0))) kit.weapon = two;
+      else { kit.weapon = one || ws[0]; kit.offhand = offs[0] || null; }
+    } else kit.weapon = cands('weapon')[0];
+    for (const s of ['helm', 'chest', 'gloves', 'boots', 'belt', 'amulet']) kit[s] = cands(s)[0] || null;
+    const rings = cands('ring');
+    kit.ring1 = rings[0] || null; kit.ring2 = rings[1] || null;
+    let t = 0;
+    while (t + 1 < D.GEM_ILVL.length && D.GEM_ILVL[t + 1] <= L) t++;
+    t = Math.max(0, t - g.gemDown);
+    const jewel = { str: 'ruby', dex: 'emerald', int: 'sapphire' }[prof.primary] || 'ruby';
+    for (const s in kit) {
+      const it = kit[s];
+      if (!it || !it.sockets) continue;
+      const host = D.gemHost(it), kind = host === 'w' ? 'diamond' : host === 'j' ? jewel : 'ruby';
+      for (let i = 0; i < it.sockets.length; i++) it.sockets[i] = D.makeMisc('gem_' + kind + '_' + (t + 1), L, 1);
+    }
+    return kit;
+  }
+
+  function build(cls, mode, L, gearId, seed) {
+    seedAll(seed);
+    G.input.move.x = 0; G.input.move.y = 0; G.input.attackHeld = false;
+    G.scenes.startNewGame(cls, 'Bal');
+    const p = S.player;
+    game.setAutoBuild(mode);
+    while (p.level < L) game.gainXp(Math.max(1, p.xpNext - p.xp));
+    const g = GEAR[gearId], kit = rollKit(p, L, g, seed * 31 + 7);
+    for (const s of C.EQUIP_SLOTS) p.equipment[s] = kit[s] || null;
+    game.recomputeStats(p, true);
+    if (game.resetAutoPerks) { game.resetAutoPerks(p); game.autoPerks(p); }
+    G.scenes.enterDungeon(L);
+    S.entities = S.entities.filter(function (e) { return e.type !== 'monster' || e.faction === 'player'; });
+    const perm = g.perm(L);
+    if (perm) game.addEffect(p, { id: 'bal_perm', t: 1e9, mods: { dmgPct: perm } });
+    game.recomputeStats(p, true);
+    p.hp = p.stats.hpMax; p.mp = p.stats.mpMax;
+    p.potions.hp = 0; p.potions.mp = 99;
+    return p;
+  }
+
+  // ---------------- dummies ----------------
+  function dummy(x, y, L, rarity, like) {
+    const e = game.createMonster('skeleton', x, y, L, 'normal', null, true);
+    e.affixes = [];
+    e.rarity = rarity || 'normal';
+    if (like) { e.stats.armor = like.stats.armor; e.stats.resFire = like.stats.resFire; e.stats.resCold = like.stats.resCold; e.stats.resLightning = like.stats.resLightning; e.stats.resPoison = like.stats.resPoison; }
+    e.stats.hpMax = e.hp = 1e12;
+    e.dmgMin = e.dmgMax = 0; e.speed = 0; e.atkCd = 999; e.ai.atk = 999; e.ai.st = 'chase'; e.noLoot = true; e.xp = 0; e.dummy = true;
+    S.entities.push(e);
+    return e;
+  }
+  function clearFoes() {
+    S.entities = S.entities.filter(function (e) { return e.type !== 'monster' || e.faction === 'player'; });
+    S.projectiles.length = 0; game.zones.length = 0;
+  }
+  function isRanged(p) { return !!p.bonus.w.ranged || !game.MARTIAL[p.classId]; }
+
+  // ---------------- the stand-in player ----------------
+  function barOrder(p) {
+    const ids = p.skillBar.map(function (id, i) { return { id: id, i: i }; }).filter(function (o) { return o.id; });
+    ids.sort(function (a, b) { return (game.SKILLS[b.id].cd[0] > 0 ? 1 : 0) - (game.SKILLS[a.id].cd[0] > 0 ? 1 : 0) || a.i - b.i; });
+    return ids;
+  }
+  function wants(p, id) {
+    const sk = game.SKILLS[id];
+    if (sk.tags.indexOf('mobility') >= 0 && sk.tags.indexOf('aoe') < 0 && sk.tags.indexOf('single') < 0) return false;          // pure movement
+    if (game.getEffect(p, id)) return false;          // buff / channel already running
+    if (sk.tags.indexOf('summon') >= 0) {
+      const V = game.applySynergies(p, sk, game.skillValues(sk, game.skillRank(p, id)));
+      const n = game.live.allies.filter(function (m) { return !m.dead && m.summonOf === id; }).length;
+      return n < Math.max(1, Math.floor(V.n || 1));
+    }
+    return true;
+  }
+  // Cooldown skills first (bar order); then the spammable ones, AoE-tagged first when 3+ foes are up, single-target first otherwise.
+  function botStep(p, order) {
+    if (p.mp < p.stats.mpMax * 0.3) { p.potions.mp = 99; game.usePotion('mp'); }
+    const crowd = game.live.foes.length >= 3;
+    const tagOf = function (o) { const t = game.SKILLS[o.id].tags; return t.indexOf(crowd ? 'aoe' : 'single') >= 0 ? 0 : 1; };
+    const list = order.slice().sort(function (a, b) {
+      const ca = game.SKILLS[a.id].cd[0] > 0 ? 0 : 1, cb = game.SKILLS[b.id].cd[0] > 0 ? 0 : 1;
+      return ca - cb || (ca === 1 ? tagOf(a) - tagOf(b) || (a.id === lastSpam ? 1 : 0) - (b.id === lastSpam ? 1 : 0) : 0) || a.i - b.i;          // weave equally suited spammables
+    });
+    for (const o of list) if (wants(p, o.id) && game.useSkill(o.i)) break;
+    G.input.attackHeld = true;
+  }
+  let lastSpam = null;          // the last cooldown-free skill actually cast (casts are often queued, so read it from noteStyle)
+  const noteStyle0 = game.noteStyle;
+  game.noteStyle = function (kind) {
+    const sk = game.SKILLS[kind];
+    if (sk && !(sk.cd[0] > 0)) lastSpam = kind;
+    return noteStyle0 ? noteStyle0.apply(this, arguments) : undefined;
+  };
+
+  // Runs the fight. o: { T, warm, god, skill, onStep(t) → true to stop }. Returns game-seconds simulated.
+  function run(p, o) {
+    const order = barOrder(p), sk = SKILL[o.skill || 'avg'];
+    let heatT = 0, ccT = sk.cc * 0.5, t = 0;
+    for (; t < (o.warm || 0) + o.T; t += DT) {
+      S.time += DT;
+      if (o.god) { p.hp = p.stats.hpMax; }
+      if (o.skill && !p.dead) {
+        if (game.heatStacks && game.heatStacks() < sk.heat && (heatT -= DT) <= 0) { game.embers.push({ x: p.x, y: p.y, t: 4, pulse: 0 }); heatT = 0.3; }
+        if ((ccT -= DT) <= 0) { ccT = sk.cc; if (game.closeCall) game.closeCall({ r: 2 }); }
+      }
+      if (!p.dead) botStep(p, order);
+      game.update(DT);
+      if (o.onStep && o.onStep(t) === true) break;
+    }
+    G.input.attackHeld = false;
+    return t;
+  }
+
+  // Damage dealt to `targets` per second over T after a warm-up (minions raised, buffs up).
+  function dps(p, targets, skill, T, fodder) {
+    let snap = null, foddT = 0;
+    const L = p.level;
+    run(p, { T: T, warm: 4, god: true, skill: skill, onStep: function (t) {
+      if (!snap && t >= 4) snap = targets.map(function (e) { return e.hp; });
+      if (fodder && (foddT -= DT) <= 0) {          // pack fights produce kills (corpses, embers, on-kill perks)
+        foddT = 2.5;
+        const c = targets[0], f = game.createMonster('skeleton', c.x + 0.3, c.y + 0.3, L, 'normal', null, true);
+        f.stats.hpMax = f.hp = Math.max(1, Math.round(f.stats.hpMax * 0.3)); f.dmgMin = f.dmgMax = 0; f.speed = 0; f.noLoot = true; f.xp = 0; f.ai.st = 'chase';
+        S.entities.push(f);
+      }
+    } });
+    let sum = 0;
+    targets.forEach(function (e, i) { sum += snap[i] - e.hp; });
+    return sum / T;
+  }
+
+  // Average direct damage of one cast of the plan's main skill against a single normal dummy.
+  function perCast(p, L) {
+    const plan = game.BUILDS[p.classId] && game.BUILDS[p.classId][p.autoBuild];
+    const main = plan ? plan.bar[0] : p.skillBar[0];
+    const slot = p.skillBar.indexOf(main);
+    if (slot < 0) return { id: main, dmg: 0 };
+    if (game.dismissMinions) game.dismissMinions();
+    clearFoes();
+    const d = dummy(p.x + (isRanged(p) ? 4.5 : 1.2), p.y, L, 'normal');
+    let direct = 0;
+    const orig = game.applyHit;
+    game.applyHit = function (t, parts, o) { const r = orig.apply(this, arguments); if (t === d && !(o && o.dot)) direct += r; return r; };
+    const N = 24;
+    try {
+      for (let k = 0; k < N; k++) {
+        p.cooldowns = {}; game.ctl.gcd = 0; game.ctl.atkT = 0.5; game.ctl.lock = 0; p.mp = p.stats.mpMax; p.hp = p.stats.hpMax;
+        game.ctl.targetId = d.id;
+        game.useSkill(slot);
+        for (let t = 0; t < 1.4; t += DT) { S.time += DT; game.ctl.atkT = 1; game.update(DT); }
+      }
+    } finally { game.applyHit = orig; }
+    clearFoes();
+    return { id: main, dmg: direct / N };
+  }
+
+  // Seconds until death standing still (fighting back, no potions, no dashing) next to `foes`. Foes cannot die.
+  function ttd(p, mk, cap) {
+    clearFoes();
+    p.hp = p.stats.hpMax; p.mp = p.stats.mpMax; p.dead = false;
+    const foes = mk();
+    foes.forEach(function (e) { e.stats.hpMax = e.hp = 1e12; e.ai.st = 'chase'; e.noLoot = true; e.xp = 0; S.entities.push(e); });
+    let died = cap;
+    run(p, { T: cap, skill: null, onStep: function (t) { if (p.dead) { died = t; return true; } } });
+    if (p.dead) { game.revivePlayer && game.revivePlayer(); }
+    clearFoes();
+    return died;
+  }
+
+  // ---------------- monster tables ----------------
+  function poolOf(L) { return game.THEME_POOLS[C.themeForDepth(L)] || game.THEME_POOLS.crypt; }
+  function monsterTable(L) {
+    const rng = G.rng.create(9000 + L), pool = poolOf(L), out = {};
+    const W = pool.map(function (id) { return { id: id, w: ARCH_W[game.MONSTERS[id].arch] || 1 }; });
+    for (const r of ['normal', 'champion', 'rare', 'legendary']) {
+      const hp = [], hit = [];
+      for (let k = 0; k < 60; k++) {
+        const id = rng.weighted(W).id, e = game.createMonster(id, 5, 5, L + (r === 'champion' ? 1 : r === 'rare' ? 2 : r === 'legendary' ? 3 : 0), r, rng, r === 'normal' ? true : undefined);
+        hp.push(e.stats.hpMax); hit.push((e.dmgMin + e.dmgMax) / 2);
+      }
+      out[r] = { hp: mean(hp), hit: mean(hit) };
+    }
+    return out;
+  }
+  function bossInfo(depth) {
+    const e = game.createBoss(depth, 20, 15);
+    return { id: e.monsterId, name: e.name, hp: e.stats.hpMax, hit: (e.dmgMin + e.dmgMax) / 2, e: e };
+  }
+  function phaseFactor(id, skill) {
+    const ph = BOSS_PHASE[id];
+    if (!ph) return 1;
+    let rest = 1, inv = 0;
+    for (const s of ph[skill]) { rest -= s[0]; inv += s[0] / s[1]; }
+    return 1 / (rest + inv);          // effective damage multiplier over the whole bar
+  }
+
+  // ---------------- one configuration ----------------
+  function measureOnce(cls, mode, L, gearId, skills, T, rep) {
+    const seed = 1000 + L * 17 + cls.length * 131 + rep * 7919 + (gearId === 'strong' ? 50000 : 0);          // the kit does not depend on the build
+    const p = build(cls, mode, L, gearId, seed);
+    const st = p.stats;
+    const row = { cls: cls, mode: mode, L: L, gear: gearId,
+      stats: { hpMax: st.hpMax, armor: st.armor, dmgPct: st.dmgPct, skillDmgPct: st.skillDmgPct, critChance: st.critChance, critDmg: st.critDmg, allSkills: st.allSkills,
+        attackSpeed: st.attackSpeed, castSpeed: st.castSpeed, cdr: st.cdr, elem: (st.fireDmg + st.coldDmg + st.lightningDmg + st.poisonDmg), wAvg: (p.bonus.w.min + p.bonus.w.max) / 2 },
+      kit: C.EQUIP_SLOTS.map(function (s) { const it = p.equipment[s]; return it ? it.rarity[0] : '-'; }).join(''), sk: {} };
+    row.cast = perCast(p, L);
+    const near = isRanged(p) ? 4.5 : 1.2, packD = isRanged(p) ? 2.6 : 1.5;
+    const boss = bossInfo(L);
+    for (const sid of skills) {
+      clearFoes();
+      const one = dummy(p.x + near, p.y, L + 2, 'rare');
+      const stD = dps(p, [one], sid, T);
+      clearFoes();
+      const bd = dummy(p.x + near, p.y, L + 2, 'boss', boss.e);
+      const bossD = dps(p, [bd], sid, T);
+      clearFoes();
+      const pack = [];
+      for (let k = 0; k < 6; k++) { const a = k / 6 * Math.PI * 2; pack.push(dummy(p.x + packD + Math.cos(a) * 0.8, p.y + Math.sin(a) * 0.8, L, 'normal')); }
+      const packD_ = dps(p, pack, sid, T, true);
+      clearFoes();
+      row.sk[sid] = { st: stD, boss: bossD, pack: packD_ };
+    }
+    // careless player: no potions, no dashing
+    const pool = poolOf(L), rng = G.rng.create(777 + L + rep);
+    const W = pool.map(function (id) { return { id: id, w: ARCH_W[game.MONSTERS[id].arch] || 1 }; });
+    row.ttdPack = ttd(p, function () {
+      const out = [];
+      for (let k = 0; k < 6; k++) { const a = k / 6 * Math.PI * 2; out.push(game.createMonster(rng.weighted(W).id, p.x + Math.cos(a) * 1.8, p.y + Math.sin(a) * 1.8, L, 'normal', rng, true)); }
+      return out;
+    }, 60);
+    row.ttdBoss = ttd(p, function () { return [game.createBoss(L, p.x + 2.2, p.y)]; }, 90);
+    return row;
+  }
+  // Mean over `REPS` kits (different seeds): numbers are averaged, strings come from the first kit.
+  function avgRows(list) {
+    const out = JSON.parse(JSON.stringify(list[0]));
+    const walk = function (o, get) {
+      for (const k in o) {
+        if (typeof o[k] === 'number') o[k] = mean(list.map(function (r) { return get(r)[k]; }));
+        else if (o[k] && typeof o[k] === 'object') walk(o[k], function (r) { return get(r)[k]; });
+      }
+    };
+    walk(out, function (r) { return r; });
+    return out;
+  }
+  let REPS = 6;
+  function measure(cls, mode, L, gearId, skills, T) {
+    const list = [];
+    for (let r = 0; r < REPS; r++) list.push(measureOnce(cls, mode, L, gearId, skills, T, r));
+    return avgRows(list);
+  }
+
+  // ---------------- report ----------------
+  const f0 = function (n) { return n >= 1e6 ? (n / 1e6).toFixed(2) + 'M' : n >= 1e4 ? Math.round(n / 1000) + 'k' : n >= 100 ? String(Math.round(n)) : n >= 10 ? n.toFixed(1) : n.toFixed(2); };
+  const pad = function (s, n) { s = String(s); return s.length >= n ? s : s + ' '.repeat(n - s.length); };
+  function table(head, rows) {
+    const w = head.map(function (h, i) { return Math.max(String(h).length, ...rows.map(function (r) { return String(r[i]).length; })); });
+    const line = function (r) { return '| ' + r.map(function (c, i) { return pad(c, w[i]); }).join(' | ') + ' |'; };
+    return [line(head), '|' + w.map(function (n) { return '-'.repeat(n + 2); }).join('|') + '|'].concat(rows.map(line)).join('\n');
+  }
+  function report(rows, levels, skills) {
+    const out = [];
+    const mons = {}, bosses = {};
+    for (const L of levels) { mons[L] = monsterTable(L); bosses[L] = bossInfo(L); }
+    out.push('## Monsters at depth = level (pool-weighted averages)\n');
+    out.push(table(['depth', 'normal hp', 'champion hp', 'rare hp', 'legendary hp', 'boss', 'boss hp', 'normal hit', 'champion hit', 'legendary hit', 'boss hit'],
+      levels.map(function (L) { const m = mons[L], b = bosses[L]; return [L, f0(m.normal.hp), f0(m.champion.hp), f0(m.rare.hp), f0(m.legendary.hp), b.name.split(',')[0], f0(b.hp), f0(m.normal.hit), f0(m.champion.hit), f0(m.legendary.hit), f0(b.hit)]; })));
+    for (const gearId of Object.keys(GEAR)) {
+      const R = rows.filter(function (r) { return r.gear === gearId; });
+      if (!R.length) continue;
+      for (const sid of skills) {
+        if (!R[0].sk[sid]) continue;
+        const sk = SKILL[sid];
+        out.push('\n## Gear: ' + gearId + ' · player: ' + sid + ' (Heat ' + sk.heat + ', Close Call every ' + sk.cc + ' s, uptime ' + sk.upBoss + ' boss / ' + sk.upPack + ' packs)\n');
+        const body = [];
+        for (const L of levels) {
+          const band = R.filter(function (r) { return r.L === L; });
+          const m = mons[L], b = bosses[L];
+          const blend = band.map(function (r) { const s = r.sk[sid]; const tm = m.rare.hp / s.st + 12 * m.normal.hp / s.pack; return (m.rare.hp + 12 * m.normal.hp) / tm; });
+          const avgB = mean(blend);
+          band.forEach(function (r, i) {
+            const s = r.sk[sid], c = r.cast.dmg || 1;
+            const pf = phaseFactor(b.id, sid);
+            body.push([L, r.cls + '/' + r.mode, r.kit, f0(s.st), f0(s.boss), f0(s.pack), f0(blend[i]), Math.round((blend[i] / avgB - 1) * 100) + '%',
+              (m.normal.hp / c).toFixed(1), (m.champion.hp / c).toFixed(1), (m.legendary.hp / c).toFixed(1),
+              (6 * m.normal.hp / (s.pack * sk.upPack)).toFixed(1), (3 * m.champion.hp / (Math.max(s.st, s.pack / 2) * sk.upBoss)).toFixed(1), (m.rare.hp / (s.st * sk.upBoss)).toFixed(1), (m.legendary.hp / (s.st * sk.upBoss)).toFixed(1),
+              (b.hp / (s.boss * sk.upBoss * pf)).toFixed(0), r.ttdPack >= 60 ? '60+' : r.ttdPack.toFixed(1), r.ttdBoss >= 90 ? '90+' : r.ttdBoss.toFixed(1)]);
+          });
+        }
+        out.push(table(['lvl', 'class/build', 'kit', 'ST dps', 'boss dps', 'pack dps', 'blend dps', 'vs band', 'hits normal', 'hits champ', 'hits legend', 'pack(6) s', 'champs(3) s', 'rare s', 'legend s', 'boss s', 'TTD pack s', 'TTD boss s'], body));
+        out.push('\nSummary (mean over class × build; spread = min/max blend dps vs the band mean)\n');
+        out.push(table(['lvl', 'hits normal', 'pack(6) s', 'champs(3) s', 'rare s', 'legend s', 'boss s', 'TTD pack s', 'TTD boss s', 'blend spread', 'ST spread (single builds)', 'pack spread (group builds)'],
+          levels.map(function (L) {
+            const band = R.filter(function (r) { return r.L === L; }), m = mons[L], b = bosses[L], pf = phaseFactor(b.id, sid);
+            const col = function (fn) { return mean(band.map(fn)); };
+            const bl = band.map(function (r) { const s = r.sk[sid]; return (m.rare.hp + 12 * m.normal.hp) / (m.rare.hp / s.st + 12 * m.normal.hp / s.pack); });
+            const spread = function (a) { const mu = mean(a); return Math.round((Math.min.apply(null, a) / mu - 1) * 100) + '% / +' + Math.round((Math.max.apply(null, a) / mu - 1) * 100) + '%'; };
+            const sing = band.filter(function (r) { return r.mode === 'single'; }).map(function (r) { return r.sk[sid].boss; });
+            const grp = band.filter(function (r) { return r.mode === 'aoe'; }).map(function (r) { return r.sk[sid].pack; });
+            return [L, col(function (r) { return m.normal.hp / (r.cast.dmg || 1); }).toFixed(1), col(function (r) { return 6 * m.normal.hp / (r.sk[sid].pack * sk.upPack); }).toFixed(1),
+              col(function (r) { const s = r.sk[sid]; return 3 * m.champion.hp / (Math.max(s.st, s.pack / 2) * sk.upBoss); }).toFixed(1),
+              col(function (r) { return m.rare.hp / (r.sk[sid].st * sk.upBoss); }).toFixed(1), col(function (r) { return m.legendary.hp / (r.sk[sid].st * sk.upBoss); }).toFixed(1),
+              col(function (r) { return b.hp / (r.sk[sid].boss * sk.upBoss * pf); }).toFixed(0), col(function (r) { return Math.min(60, r.ttdPack); }).toFixed(1), col(function (r) { return Math.min(90, r.ttdBoss); }).toFixed(1),
+              spread(bl), sing.length > 1 ? spread(sing) : '-', grp.length > 1 ? spread(grp) : '-'];
+          })));
+      }
+      out.push('\n### Stat lines (' + gearId + ')\n');
+      out.push(table(['lvl', 'class/build', 'life', 'armor', 'dmg%', 'skill%', 'crit', 'critDmg', '+skills', 'atk spd', 'cast spd', 'cdr', 'flat elem', 'weapon avg', 'main skill', 'per cast'],
+        R.map(function (r) { const s = r.stats; return [r.L, r.cls + '/' + r.mode, s.hpMax, s.armor, s.dmgPct, s.skillDmgPct, s.critChance, s.critDmg, s.allSkills, s.attackSpeed, s.castSpeed, s.cdr, Math.round(s.elem), f0(s.wAvg), r.cast.id, f0(r.cast.dmg)]; })));
+    }
+    if (skills.indexOf('avg') >= 0 && skills.indexOf('skilled') >= 0) {
+      out.push('\n## Skill reward: skilled vs average fight time (typical gear)\n');
+      const body = [];
+      for (const r of rows.filter(function (r) { return r.gear === 'typical'; })) {
+        const a = r.sk.avg, k = r.sk.skilled, A = SKILL.avg, K = SKILL.skilled, b = bosses[r.L];
+        const fa = phaseFactor(b.id, 'avg'), fk = phaseFactor(b.id, 'skilled');
+        body.push([r.L, r.cls + '/' + r.mode, Math.round((1 - (a.pack * A.upPack) / (k.pack * K.upPack)) * 100) + '%', Math.round((1 - (a.st * A.upBoss) / (k.st * K.upBoss)) * 100) + '%', Math.round((1 - (a.boss * A.upBoss * fa) / (k.boss * K.upBoss * fk)) * 100) + '%']);
+      }
+      out.push(table(['lvl', 'class/build', 'pack time saved', 'elite time saved', 'boss time saved'], body));
+    }
+    return out.join('\n');
+  }
+
+  // Act bosses and endgame tiers, each fought by a character of the floor's level (typical gear, both skill profiles).
+  function bossReport(classes, modes, skills, T) {
+    const depths = [5, 10, 15, 20, 25, 30, 35, 40, 50];
+    const body = [];
+    for (const depth of depths) {
+      const b = bossInfo(depth), res = {};
+      for (const sid of skills) res[sid] = [];
+      for (const cls of classes) for (const mode of modes) {
+        const acc = {};
+        for (let r = 0; r < REPS; r++) {
+          const p = build(cls, mode, depth, 'typical', 3000 + depth * 13 + cls.length * 7 + r * 7919);
+          for (const sid of skills) {
+            clearFoes();
+            const bd = dummy(p.x + (isRanged(p) ? 4.5 : 1.2), p.y, depth + 2, 'boss', b.e);
+            acc[sid] = (acc[sid] || 0) + dps(p, [bd], sid, T) / REPS;
+          }
+        }
+        for (const sid of skills) res[sid].push(b.hp / (acc[sid] * SKILL[sid].upBoss * phaseFactor(b.id, sid)));
+      }
+      const row = [depth, b.name.split(',')[0], f0(b.hp), f0(b.hit)];
+      for (const sid of skills) { const a = res[sid]; row.push(Math.round(Math.min.apply(null, a)) + ' / ' + Math.round(mean(a)) + ' / ' + Math.round(Math.max.apply(null, a))); }
+      body.push(row);
+    }
+    return '\n## Bosses: fight time in seconds, min / mean / max over class × build (typical gear, character level = depth)\n\n' +
+      table(['depth', 'boss', 'life', 'avg hit'].concat(skills.map(function (s) { return s + ' (s)'; })), body);
+  }
+
+  function runAll(q) {
+    const Q = new URLSearchParams(q || location.search);
+    const levels = (Q.get('levels') || '10,20,30,40,50').split(',').map(Number);
+    const classes = (Q.get('classes') || Object.keys(game.CLASSES).join(',')).split(',');
+    const modes = (Q.get('modes') || 'single,aoe,balanced').split(',');
+    const gears = (Q.get('gear') || 'typical,strong').split(',');
+    const skills = (Q.get('skill') || 'avg,skilled').split(',');
+    const T = +(Q.get('t') || (Q.get('quick') ? 12 : 20));
+    REPS = +(Q.get('reps') || (Q.get('quick') ? 1 : 6));
+    const save = {};
+    for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); save[k] = localStorage.getItem(k); }
+    if (G.meta) G.meta._noSave = true;
+    const rows = [];
+    const t0 = performance.now();
+    const jobs = [];
+    for (const gearId of gears) for (const L of levels) for (const cls of classes) for (const mode of modes) jobs.push([cls, mode, L, gearId]);
+    let ji = 0;
+    window.__BAL = { done: false, text: '', rows: rows };
+    function next() {
+      if (ji < jobs.length) {
+        const j = jobs[ji++];
+        $('status').textContent = 'running ' + ji + '/' + jobs.length + ' — ' + j.join(' ') + ' (' + Math.round((performance.now() - t0) / 1000) + ' s)';
+        try { rows.push(measure(j[0], j[1], j[2], j[3], gears.indexOf(j[3]) >= 0 && j[3] === 'strong' ? ['avg'] : skills, T)); }
+        catch (err) { H.errors.push('measure ' + j.join(' ') + ': ' + (err.stack || err)); }
+        setTimeout(next, 0);
+        return;
+      }
+      let text = '# Balance harness — ' + new Date().toISOString().slice(0, 16) + ' · sim ' + T + ' s per fight\n\n' + report(rows, levels, skills);
+      if (!Q.get('noboss')) {
+        try { text += '\n' + bossReport(classes, modes, skills, T); } catch (err) { H.errors.push('bosses: ' + (err.stack || err)); }
+      }
+      if (H.errors.length) text += '\n\nERRORS:\n' + H.errors.slice(0, 20).join('\n');
+      text += '\n\n(' + Math.round((performance.now() - t0) / 1000) + ' s)';
+      for (const k in save) localStorage.setItem(k, save[k]);
+      $('out').textContent = text;
+      $('status').textContent = 'done';
+      window.__BAL = { done: true, text: text, rows: rows, errors: H.errors.slice() };
+    }
+    next();
+  }
+  window.runBalance = runAll;
+  window.__bal = { build: build, dps: dps, dummy: dummy, clearFoes: clearFoes, isRanged: isRanged, perCast: perCast, monsterTable: monsterTable, bossInfo: bossInfo };
+  // Console helper: each skill of each plan's bar used alone (plus basic attacks only), ST and pack dps — for tuning skill numbers.
+  window.balSkills = function (L, classes, reps) {
+    reps = reps || 3;
+    const out = [];
+    for (const cls of classes || Object.keys(game.CLASSES)) for (const mode of ['single', 'aoe', 'balanced']) {
+      const acc = {};
+      for (let r = 0; r < reps; r++) {
+        const p = build(cls, mode, L, 'typical', 1000 + L * 17 + cls.length * 131 + r * 7919);
+        const bar = p.skillBar.slice();
+        const near = isRanged(p) ? 4.5 : 1.2, packD = isRanged(p) ? 2.6 : 1.5;
+        for (const id of bar.concat(['basic'])) {
+          if (!id) continue;
+          for (let i = 0; i < bar.length; i++) p.skillBar[i] = bar[i] === id ? id : null;
+          if (game.dismissMinions) game.dismissMinions();
+          clearFoes();
+          const st = dps(p, [dummy(p.x + near, p.y, L + 2, 'rare')], 'avg', 12);
+          clearFoes();
+          const pack = [];
+          for (let k = 0; k < 6; k++) { const a = k / 6 * Math.PI * 2; pack.push(dummy(p.x + packD + Math.cos(a) * 0.8, p.y + Math.sin(a) * 0.8, L, 'normal')); }
+          const pk = dps(p, pack, 'avg', 12, true);
+          clearFoes();
+          const a = acc[id] = acc[id] || { st: 0, pk: 0 };
+          a.st += st / reps; a.pk += pk / reps;
+        }
+      }
+      out.push(cls + '/' + mode + ': ' + Object.keys(acc).map(function (id) { return id + ' ' + f0(acc[id].st) + '/' + f0(acc[id].pk); }).join(', '));
+    }
+    return out.join('\n');
+  };
+  // Console helper: one line per level with the fitted quantities (typical gear, average play) — for refitting monster curves.
+  window.balCurve = async function (levels, reps) {
+    runAll('?gear=typical&skill=avg&noboss=1&reps=' + (reps || 4) + '&t=14&levels=' + levels);
+    await new Promise(function (r) { const i = setInterval(function () { if (window.__BAL.done) { clearInterval(i); r(); } }, 300); });
+    const rows = window.__BAL.rows, out = [], A = SKILL.avg;
+    const med = function (a) { a = a.slice().sort(function (x, y) { return x - y; }); return a.length % 2 ? a[(a.length - 1) / 2] : (a[a.length / 2 - 1] + a[a.length / 2]) / 2; };
+    const by = function (b, c) { return b.filter(function (r) { return c.indexOf(r.cls) >= 0; }).map(function (r) { return r.ttdPack.toFixed(1); }).join('/'); };
+    for (const L of Array.from(new Set(rows.map(function (r) { return r.L; })))) {
+      const b = rows.filter(function (r) { return r.L === L; }), m = monsterTable(L), bo = bossInfo(L);
+      const cast = mean(b.map(function (r) { return r.cast.dmg; })), st = mean(b.map(function (r) { return r.sk.avg.st; })), bs = mean(b.map(function (r) { return r.sk.avg.boss; }));
+      out.push([L, Math.round(cast), (m.normal.hp / cast).toFixed(1), (6 * m.normal.hp / mean(b.map(function (r) { return r.sk.avg.pack; })) / A.upPack).toFixed(1),
+        (m.champion.hp * 3 / mean(b.map(function (r) { return Math.max(r.sk.avg.st, r.sk.avg.pack / 2); })) / A.upBoss).toFixed(1), (m.rare.hp / st / A.upBoss).toFixed(1), (m.legendary.hp / st / A.upBoss).toFixed(1),
+        (bo.hp / bs / A.upBoss / phaseFactor(bo.id, 'avg')).toFixed(0), med(b.map(function (r) { return r.ttdPack; })).toFixed(1), by(b, ['warrior']), by(b, ['ranger', 'sorcerer']), by(b, ['necromancer']),
+        med(b.map(function (r) { return r.ttdBoss; })).toFixed(1), bo.id].join(' '));
+    }
+    return 'L cast hitsN pack6_s champs3_s rare_s leg_s boss_s ttdMed W R/S N ttdBoss id\n' + out.join('\n');
+  };
+  // Console helper: run, wait, and return a one-line-per-level parity digest (each class×build vs the band mean, ST and pack).
+  window.balQuick = async function (q, sid) {
+    sid = sid || 'avg';
+    runAll(q || '?gear=typical&skill=avg&noboss=1&reps=2&t=16');
+    await new Promise(function (r) { const i = setInterval(function () { if (window.__BAL.done) { clearInterval(i); r(); } }, 300); });
+    const rows = window.__BAL.rows, out = [];
+    for (const L of Array.from(new Set(rows.map(function (r) { return r.L; })))) {
+      const bl = rows.filter(function (r) { return r.L === L && r.sk[sid]; }).map(function (r) { const s = r.sk[sid]; return { k: r.cls[0] + r.mode[0], st: s.st, pk: s.pack, c: r.cast.dmg, ttd: r.ttdPack, tb: r.ttdBoss }; });
+      const mst = mean(bl.map(function (x) { return x.st; })), mpk = mean(bl.map(function (x) { return x.pk; }));
+      const rel = function (v, m) { return Math.round((v / m - 1) * 100); };
+      out.push(L + ' ST ' + bl.map(function (x) { return x.k + rel(x.st, mst); }).join(' ') + ' | PK ' + bl.map(function (x) { return x.k + rel(x.pk, mpk); }).join(' ') +
+        ' | ST ' + Math.round(mst) + ' PK ' + Math.round(mpk) + ' cast ' + Math.round(mean(bl.map(function (x) { return x.c; }))) + ' | TTD ' + bl.map(function (x) { return x.ttd.toFixed(1); }).join(',') + ' | TTDb ' + mean(bl.map(function (x) { return x.tb; })).toFixed(1));
+    }
+    out.push('like-for-like (single: elite-dummy dps, group: pack dps, balanced: blend) vs the mean of the same style:');
+    for (const L of Array.from(new Set(rows.map(function (r) { return r.L; })))) {
+      const m = monsterTable(L), line = [];
+      for (const mode of ['single', 'aoe', 'balanced']) {
+        const band = rows.filter(function (r) { return r.L === L && r.mode === mode && r.sk[sid]; });
+        const v = band.map(function (r) { const s = r.sk[sid]; return mode === 'single' ? s.st : mode === 'aoe' ? s.pack : (m.rare.hp + 12 * m.normal.hp) / (m.rare.hp / s.st + 12 * m.normal.hp / s.pack); });
+        const mu = mean(v);
+        line.push(mode[0] + ': ' + band.map(function (r, i) { return r.cls[0] + Math.round((v[i] / mu - 1) * 100); }).join(' ') + ' (' + Math.round(mu) + ')');
+      }
+      out.push(L + '  ' + line.join(' | '));
+    }
+    return out.join('\n') + '\nerrors ' + (window.__BAL.errors || []).length;
+  };
+  $('run').onclick = function () { runAll($('q').value ? '?' + $('q').value : location.search); };
+  $('status').textContent = 'ready' + (H.errors.length ? ' (load errors: ' + H.errors.join('; ') + ')' : '');
+  if (/[?&]auto/.test(location.search)) runAll(location.search);
+};
+</script>
+</body>
+</html>

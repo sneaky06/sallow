@@ -62,6 +62,22 @@
     return { min: w.dmgMin || 1, max: Math.max(w.dmgMax || 1, w.dmgMin || 1), aps: w.attackSpeed || 1.2, type: w.weaponType || 'none', ranged: RANGED[w.weaponType] ? 1 : 0 };
   }
 
+  // R18 stacking limits (docs/DESIGN.md §5 "Damage pipeline"). Percent stats count in full up to the first knee, half up to the
+  // second, a quarter beyond: SOFT[stat] = [knee1, knee2]. player.stats holds the effective values (what combat uses and the
+  // character sheet shows); player.bonus.raw keeps the uncapped sums (items' upgrade verdict reads them).
+  // dmgPct's knees rise with level (the primary stat alone adds ~2% a level): 100 + 3 × level, then +200.
+  game.SOFT = { dmgPct: function (L) { const k = 100 + 3 * (L || 1); return [k, k + 200]; }, critDmg: [150, 250], attackSpeed: [50, 100], castSpeed: [50, 100] };
+  game.softCap = function (v, k) {
+    if (!k || !(v > k[0])) return v;
+    if (v <= k[1]) return k[0] + (v - k[0]) * 0.5;
+    return k[0] + (k[1] - k[0]) * 0.5 + (v - k[1]) * 0.25;
+  };
+  game.softKnees = function (k, L) { const s = game.SOFT[k]; return typeof s === 'function' ? s(L) : s; };
+  game.ALL_SKILLS_CAP = 3;          // "+N to all skills" raises a learned skill at most 3 ranks above what you put in
+  game.CDR_CAP = 40;
+  game.REGEN_SOFT = [1, 2];          // permanent life regeneration, % of maximum life per second
+  game.CD_FLOOR = 0.5;              // no cooldown drops below half its rank-1 value (ranks, +skills and cdr together)
+
   // silent = true skips the player:stats event (used during creation / batch allocation).
   game.recomputeStats = function (ent, silent) {
     if (!ent || ent.type !== 'player') return;      // monsters carry fixed stats computed at spawn
@@ -79,7 +95,8 @@
     if (G.meta && G.meta.getMilestoneMods) { try { ms = G.meta.getMilestoneMods(); } catch (err) { ms = null; } }
     if (ms) for (const k in ms) if (st[k] !== undefined && typeof ms[k] === 'number') st[k] += ms[k];
 
-    const allSkills = st.allSkills | 0;
+    const rawAllSkills = st.allSkills | 0;
+    const allSkills = Math.min(game.ALL_SKILLS_CAP, rawAllSkills);
     for (const id in p.skills) {
       const sk = game.SKILLS[id], rank = p.skills[id];
       if (!sk || sk.kind !== 'passive' || !(rank > 0)) continue;
@@ -100,13 +117,18 @@
     if (G.items && G.items.getRelicEffects) {          // R7.10: relic powers of the Fallen use the same switchboard as mythic effects
       try { const rf = G.items.getRelicEffects(); for (const k in rf) if (rf[k]) bonus.fx[k] = true; } catch (err) { /* items not loaded */ }
     }
-    if (bonus.fx.hoarder) { bonus.hoard = Math.min(60, Math.floor((p.gold || 0) / 100)); st.dmgPct += bonus.hoard; }
+    if (bonus.fx.hoarder) { bonus.hoard = Math.min(60, Math.floor((p.gold || 0) / 100)); st.dmgPct += bonus.hoard; }          // permanent-% bucket (soft-capped below)
 
     st.str += p.attrs.str; st.dex += p.attrs.dex; st.int += p.attrs.int; st.vit += p.attrs.vit;
     const lv = p.level - 1;
     st.hpMax = Math.round((cls.hp + st.vit * (cls.hpVit || 8) + lv * cls.hpLvl + st.hpMax) * (1 + bonus.hpPct / 100));
     st.mpMax = Math.round((cls.mp + st.int * 4 + lv * cls.mpLvl + st.mpMax) * (1 + bonus.mpPct / 100));
     st.hpRegen = Math.round((0.6 + st.vit * 0.05 + st.hpRegen) * 100) / 100;
+    // R18: permanent life regeneration is soft-capped as a share of maximum life (full to 1 %/s, half to 2 %/s, a quarter
+    // beyond); timed effects (potions, shrines) come on top untouched. Stacked flat regen made late heroes unkillable in packs.
+    let effRegen = 0;
+    for (const e of p.effects) if (e.mods && e.mods.hpRegen) effRegen += e.mods.hpRegen;
+    if (st.hpMax > 0) st.hpRegen = Math.round((game.softCap((st.hpRegen - effRegen) / st.hpMax * 100, game.REGEN_SOFT) * st.hpMax / 100 + effRegen) * 100) / 100;
     st.mpRegen = Math.round((cls.mpRegen + st.int * 0.05 + st.mpRegen) * 100) / 100;
     st.armor = Math.round((st.str + st.armor) * (1 + bonus.armorPct / 100));
     st.dmgPct = Math.round(st.dmgPct + st[cls.primaryStat]);          // 1% damage per point of the class's primary stat
@@ -116,7 +138,11 @@
     st.critDmg = 50 + st.critDmg;
     st.dodge = Math.min(60, Math.round((st.dex * 0.1 + st.dodge) * 10) / 10);
     st.block = Math.min(60, st.block);
-    st.cdr = Math.min(60, st.cdr);
+    st.cdr = Math.min(game.CDR_CAP, st.cdr);
+    bonus.raw = { dmgPct: st.dmgPct, critDmg: st.critDmg, skillDmgPct: st.skillDmgPct, attackSpeed: st.attackSpeed, castSpeed: st.castSpeed, allSkills: rawAllSkills };
+    for (const k in game.SOFT) st[k] = Math.round(game.softCap(st[k], game.softKnees(k, p.level)));
+    st.skillDmgPct = Math.round(game.softCap(bonus.raw.dmgPct + bonus.raw.skillDmgPct, game.softKnees('dmgPct', p.level))) - st.dmgPct;          // skill damage shares the damage bucket (additive, one soft cap)
+    st.allSkills = allSkills;
     st.resFire = Math.min(75, st.resFire + st.resAll);
     st.resCold = Math.min(75, st.resCold + st.resAll);
     st.resLightning = Math.min(75, st.resLightning + st.resAll);
@@ -191,12 +217,12 @@
   // ---- skills ----
   game.skillRank = function (p, id) {
     const r = p.skills[id] || 0;
-    return r > 0 ? r + (p.stats.allSkills | 0) : 0;
+    return r > 0 ? r + Math.min(game.ALL_SKILLS_CAP, p.stats.allSkills | 0) : 0;
   };
   game.skillMpCost = function (sk, rank) { return Math.max(0, Math.round(sk.mp[0] + sk.mp[1] * (Math.max(1, rank) - 1))); };
   game.skillCooldown = function (p, sk, rank) {
     const cd = sk.cd[0] + sk.cd[1] * (Math.max(1, rank) - 1);
-    return Math.max(0, cd * (1 - (p.stats.cdr || 0) / 100));
+    return Math.max(sk.cd[0] * game.CD_FLOOR, cd * (1 - (p.stats.cdr || 0) / 100));
   };
 
   function canLearnFor(p, skillId, ignorePoints) {

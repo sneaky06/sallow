@@ -9,7 +9,7 @@
 // one of those files fails to download the install is rejected and the old worker keeps serving the old, complete build.
 // `emberdeep-assets-v1` holds art and sound; it survives releases, a file is fetched once (cache-first) and music is never
 // pre-downloaded, so a deploy does not re-download the assets and a failed asset never blocks an update.
-const VERSION = 'emberdeep-v27';      // cache key prefix stays 'emberdeep-' so old caches are found and deleted
+const VERSION = 'emberdeep-v28';      // cache key prefix stays 'emberdeep-' so old caches are found and deleted
 const SHELL_CACHE = 'emberdeep-shell-' + VERSION.replace(/^emberdeep-/, '');
 const ASSET_CACHE = 'emberdeep-assets-v1';
 const ASSET_MAX = 3000;               // entries kept in the asset cache (oldest-added dropped first)

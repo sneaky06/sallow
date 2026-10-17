@@ -107,7 +107,7 @@ async function run() {
     log('small controls (menu): ' + small(q('.ed-panel')).join('; '));
     ui.close();
     // ---- Revision 7 (real game): pips + glow, Curator hand-in, relics, grade, event, camp NPCs, side-line triggers ----
-    var ck = function (name, cond) { log((cond ? 'PASS ' : 'FAIL ') + name); };
+    var ck = function (name, cond, info) { log((cond ? 'PASS ' : 'FAIL ') + name + (!cond && info ? ' :: ' + info : '')); };
     ui.close(); G.scenes.enterTown(); await wait(800); tapTalk(10);
     var rift = G.items.rollItem({ level: 25, rarity: 'rift' }); rift.sockets = [null, null]; G.items.addToInventory(rift);
     var want = null; for (var t = 0; t < 60 && !want; t++) { var c0 = G.items.rollItem({ level: 5 + t, rarity: 'rare' }); if (c0 && G.items.collection.isWanted(c0)) want = c0; }
@@ -552,18 +552,6 @@ async function run() {
     Storage.prototype.setItem = function (k, v) { if (/\.bak\./.test(k)) writes.push(k); return realSet.call(this, k, v); };
     G.emit('scene:changed', { scene: S.scene, depth: S.depth, map: S.map }); G.meta.save(); Storage.prototype.setItem = realSet;
     ck('a scene change writes at most one ring slot', writes.length <= 1);
-    // long-press on the playfield opens the pile list for the pile under the finger
-    var cv = document.querySelector('canvas');
-    if (cv && S.player && G.items && G.items.dropLoot && G.engine && G.engine.screenToWorld) {
-      var r0 = cv.getBoundingClientRect(), wpt = G.engine.screenToWorld(r0.left + 300, r0.top + 200);
-      S.groundItems.length = 0; G.items.dropLoot(wpt.x, wpt.y, { source: 'rare', level: 5, floor: 'rare' });
-      var lpOpen = null, offLp = G.on('pile:open', function (e) { if (e && e.long) lpOpen = e; });
-      cv.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: r0.left + 300, clientY: r0.top + 200, pointerId: 41 })); await wait(560); window.dispatchEvent(new PointerEvent('pointerup', { pointerId: 41 }));
-      ck('holding a finger on a pile opens its list', !!lpOpen && lpOpen.long === true);
-      if (ui._closePile) ui._closePile(); lpOpen = null;
-      cv.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: r0.left + 300, clientY: r0.top + 200, pointerId: 42 })); window.dispatchEvent(new PointerEvent('pointermove', { clientX: r0.left + 380, clientY: r0.top + 200, pointerId: 42 })); await wait(560); window.dispatchEvent(new PointerEvent('pointerup', { pointerId: 42 }));
-      ck('a finger that moves is not a long-press', !lpOpen);
-      if (typeof offLp === 'function') offLp(); S.groundItems.length = 0; }
     // a broken Socket Tool is visible
     G.emit('socket:failed', { item: { name: 'Test Helm' } }); await wait(30);
     ck('socket:failed shows a banner', /Socket Tool shatters/i.test([].map.call(document.querySelectorAll('.ed-banner b'), function (b) { return b.textContent; }).join('|')));

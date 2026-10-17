@@ -58,3 +58,11 @@ Query options (work in both): `only=load,contract,run,harness` · `skip=run` · 
 - The service worker is not registered (the game runs in a `srcdoc` iframe), so the PWA path is not covered.
 - Canvas rendering is not inspected, only DOM text and errors.
 - The run uses real game code with random play; a hero can die (that is handled and noted). Kills/levels vary between runs.
+
+## Balance harness (not part of the gate)
+
+`tests/balance.html` measures the game's difficulty with the real items + game code (R18, `docs/BALANCE.md`): synthetic best-of-N
+kits per class × auto-build × level, hits-to-kill, fight times for packs / elites / bosses, time-to-death standing in a pack, DPS
+parity, average vs skilled play. Open it over `serve.ps1` and press **Run** (or add `?auto`); about 1 minute for the full matrix.
+Query: `levels=10,20` `classes=warrior` `modes=single,aoe` `gear=typical,strong` `skill=avg,skilled` `reps=6` `t=20` `noboss=1` `quick=1`.
+Console helpers: `balQuick()` (parity digest), `balCurve('1,5,10')` (per-level fit quantities), `balSkills(40)` (each skill alone).

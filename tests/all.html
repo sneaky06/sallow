@@ -526,7 +526,9 @@ async function runClass(s, cls, depths, reuseLoaded) {
     }
     if (d === 12 || (depths.indexOf(12) < 0 && di === 2)) {
       await stage('portal out and back', async function () {
-        S.paused = false; ui.close(); G.game.healPlayer(true);
+        S.paused = false; ui.close();
+        if (S.scene !== 'dungeon' || !S.player || S.player.dead) { if (S.player && S.player.dead) await respawnFlow(); G.scenes.enterDungeon(d); dismiss(); S.paused = false; await frames(10); }          // R18: the careless scripted hero may have died on this floor
+        G.game.healPlayer(true);
         var dd = S.depth;
         G.scenes.townPortal();
         if (S.scene !== 'town' || S.flags.portalDepth !== dd) fail(s, '[' + cls + '] town portal: scene=' + S.scene + ' portalDepth=' + S.flags.portalDepth + ' (expected town, ' + dd + ')');

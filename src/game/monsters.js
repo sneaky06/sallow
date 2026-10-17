@@ -19,23 +19,36 @@
   // the multipliers on top of the R5 curves; DMM is heaviest early so the first floors ramp quickly into the first boss.
   game.HPM = function (L) { return 1.6 + 1.2 * Math.min(1, Math.max(0, (L - 1) / 5)); };
   game.DMM = function (L) { return (1.15 + 1.15 * Math.min(1, Math.max(0, (17 - L) / 12))) * (L < 2 ? 0.8 : L < 3 ? 0.9 : 1); };
+  // R18 balance pass (docs/BALANCE.md, tests/balance.html): both curves are fitted to the measured on-level hero (typical gear,
+  // average play). Life: the main skill's hit × a target of 3 hits at depth 1 rising to 5 from depth 40 (hpScale = the R5 shape ×
+  // HPM × DEEP_HP, where DEEP_HP now carries the fit). Damage: a log-linear curve through DMG_CURVE so a hero who stands in a pack
+  // without dodging or drinking dies in about 4 s at every depth (3 s in the endgame) — harder than R17 down to depth 30, and no
+  // longer the sub-second deaths R17 had past depth 35. Past the last anchor it keeps the last segment's growth.
   game.hpScale = function (L) { return (1 + 0.25 * (L - 1)) * Math.pow(1.06, L - 1) * ramp(L, 0.9) * game.HPM(L) * game.DEEP_HP(L); };
-  game.dmgScale = function (L) { return 1.12 * (1 + 0.22 * (L - 1)) * Math.pow(1.05, L - 1) * ramp(L, 0.85) * game.DMM(L) * game.DEEP_DMG(L); };
+  game.DMG_CURVE = [[1, 3.6], [5, 13], [10, 28], [15, 34], [20, 45], [30, 70], [40, 104], [50, 228], [60, 330]];
+  game.curve = function (pts, L) {
+    let i = 0;
+    while (i < pts.length - 2 && L > pts[i + 1][0]) i++;
+    const a = pts[i], b = pts[i + 1], k = (L - a[0]) / (b[0] - a[0]);
+    return Math.exp(Math.log(a[1]) + (Math.log(b[1]) - Math.log(a[1])) * k);          // log-linear; extrapolates past either end
+  };
+  game.dmgScale = function (L) { return 1.12 * game.curve(game.DMG_CURVE, Math.max(1, L)); };
   game.SPEED_SCALE = 1.2;           // R6.3: the player moves ~19% faster; monsters keep pace
   game.XP_MULT = 1.8;               // tougher monsters, same generous levelling pace per minute
   // Out-levelling no longer trivialises a floor: monsters are never more than 3 levels below the player.
-  // R14: depth drives difficulty, not player level — monsters are the floor's level (elites add their offsets). Past depth 15
-  // the curve steepens (DEEP_HP / DEEP_DMG) so depths 25–30 and the endgame below are very hard for an on-level hero.
+  // R14: depth drives difficulty, not player level — monsters are the floor's level (elites add their offsets).
   game.monsterLevel = function (depth) { return Math.max(1, depth | 0); };
-  game.DEEP_HP = function (L) { return 1 + 0.035 * Math.pow(Math.max(0, L - 15), 1.3); };
-  game.DEEP_DMG = function (L) { return 1 + 0.025 * Math.pow(Math.max(0, L - 15), 1.25); };
+  // R18: ×1.8 everywhere (R17 trash took 1–2 hits to depth 20), easing 10% from depth 25 to 40: the measured on-level hit grows a little
+  // slower than the R5 life shape deep down, so the R17 steepening (×2.2 at depth 30, ×4.6 at 50) overshot to 7–9 hits.
+  game.DEEP_HP = function (L) { return 1.8 * (1 - 0.1 * Math.min(1, Math.max(0, (L - 25) / 15))); };
+  game.MINION_DMG = 1.2;          // R18: minion hit = this × the Necromancer's spell power (createMinion)
   game.xpScale = function (L) { return (1 + 0.2 * (L - 1)) * Math.pow(1.03, L - 1); };
 
   const RARITY_MULT = {
     normal:   { hp: 1,   dmg: 1,    xp: 1, scale: 1 },
-    champion: { hp: 2.2, dmg: 1.2,  xp: 3, scale: 1.15 },
-    rare:     { hp: 3.5, dmg: 1.3,  xp: 6, scale: 1.3 },
-    legendary: { hp: 6,  dmg: 1.45, xp: 18, scale: 1.5 },
+    champion: { hp: 2.2, deep: 0.7, dmg: 1.2,  xp: 3, scale: 1.15 },          // R18 deep: extra life share reached by depth 32 (elites stay real fights deep)
+    rare:     { hp: 4.4, deep: 0.4, dmg: 1.3,  xp: 6, scale: 1.3 },
+    legendary: { hp: 7.8, deep: 0.85, dmg: 1.45, xp: 18, scale: 1.5 },
     boss:     { hp: 1,   dmg: 1,    xp: 1, scale: 1 },
   };
   const ROMAN = ['', ' II', ' III', ' IV', ' V', ' VI', ' VII', ' VIII', ' IX', ' X'];
@@ -53,7 +66,7 @@
     level = Math.max(1, Math.round(level));
     const rm = RARITY_MULT[rarity], hs = game.hpScale(level), ds = game.dmgScale(level);
     const st = U.zeroStats();
-    st.hpMax = Math.max(1, Math.round(def.hp * hs * rm.hp));
+    st.hpMax = Math.max(1, Math.round(def.hp * hs * rm.hp * (1 + (rm.deep || 0) * Math.min(1, Math.max(0, (level - 12) / 20)))));
     st.armor = Math.round(def.armor * (1 + 0.3 * (level - 1)));
     if (def.res) {
       st.resFire = def.res.fire || 0; st.resCold = def.res.cold || 0; st.resLightning = def.res.lightning || 0; st.resPoison = def.res.poison || 0;
@@ -101,13 +114,19 @@
     return e;
   };
 
-  // Player minion: toughness follows monster damage growth, damage follows monster life growth, so it stays relevant.
+  // Player minion: toughness follows monster damage growth so it survives the floor; R18: damage follows your spell power
+  // (weapon damage per second × 0.75 like a cast, + flat damage, × damage % × skill damage %), not monster life.
+  game.minionPower = function (p) {
+    const w = p.bonus && p.bonus.w, st = p.stats;
+    if (!w) return 1;
+    return ((w.min + w.max) * 0.5 * w.aps * 0.75 + (st.dmgMin + st.dmgMax) * 0.5) * (1 + (st.dmgPct + (st.skillDmgPct || 0)) / 100);
+  };
   game.createMinion = function (monsterId, x, y, p, mult) {
     const def = M[monsterId], S0 = G.state;
     const L = S0.scene === 'dungeon' && S0.depth > 0 ? Math.min(p.level, game.monsterLevel(S0.depth) + 5) : p.level;          // R14: minions grow with the floor, at most 5 above it
     const e = game.createMonster(monsterId, x, y, L, 'normal', null, true);
     const hp = Math.round(def.hp * game.dmgScale(L) * (1 + L * 0.08) * mult);
-    const dm = game.hpScale(L) * mult * (1 + (p.stats.skillDmgPct || 0) / 100);
+    const dm = game.minionPower(p) / 4 * game.MINION_DMG * mult;          // a skeleton warrior (3–5) hits for about MINION_DMG × your spell power
     e.stats.hpMax = hp; e.hp = hp;
     e.dmgMin = def.dmg[0] * dm; e.dmgMax = def.dmg[1] * dm;
     e.atkCd = def.cd / (1 + (p.bonus.minionAS || 0) / 100);
@@ -131,10 +150,12 @@
     return { id: game.BOSS_ORDER[idx % game.BOSS_ORDER.length], tier: Math.floor(idx / game.BOSS_ORDER.length) };
   };
 
+  game.BOSS_HP = 0.5;
+  game.WORLD_BOSS_HP = 1.75;
   game.createBoss = function (depth, x, y) {
     const b = game.bossForDepth(depth);
     const e = game.createMonster(b.id, x, y, game.monsterLevel(depth) + 2, 'boss');
-    e.stats.hpMax = Math.round(e.stats.hpMax * 1.35 * (1 + depth * 0.03)); e.hp = e.stats.hpMax;      // player power snowballs with gear: bosses keep pace
+    e.stats.hpMax = Math.round(e.stats.hpMax * game.BOSS_HP * (M[b.id].worldBoss ? game.WORLD_BOSS_HP : 1)); e.hp = e.stats.hpMax;      // R18: fitted to 45–90 s act-boss fights, 2–3 min for the Hearthking
     if (b.tier > 0) {
       e.name += ROMAN[Math.min(b.tier, ROMAN.length - 1)];
       e.stats.hpMax = Math.round(e.stats.hpMax * (1 + 0.4 * b.tier)); e.hp = e.stats.hpMax;
@@ -403,7 +424,7 @@
   function fireShot(e, def, t) {
     const pj = def.proj || { shape: 'orb', color: '#ffffff', speed: 8 };
     let dmg = U.rand(e.dmgMin, e.dmgMax);
-    for (const f of e.effects) if (f.dealt) dmg *= Math.max(0.1, 1 + f.dealt / 100);
+    dmg *= game.dealtMult(e);
     const ang = Math.atan2(t.y - e.y, t.x - e.x) + U.rand(-0.06, 0.06);
     game.spawnProjectile({ x: e.x + Math.cos(ang) * 0.3, y: e.y + Math.sin(ang) * 0.3, ang: ang, speed: pj.speed, shape: pj.shape, color: pj.color,
       faction: e.faction, dmg: dmg, dtype: def.dtype || 'phys', st: def.onHit || null, srcId: e.id, lvl: e.level, affixes: e.affixes, life: (def.range + 3) / pj.speed });
@@ -449,7 +470,7 @@
         ai.atk = e.atkCd; ai.al = def.wind + 0.25; setAnim(e, 'cast');
         if (def.atk === 'blast') {
           let dmg = (e.dmgMin + e.dmgMax) * 0.5;
-          for (const f of e.effects) if (f.dealt) dmg *= Math.max(0.1, 1 + f.dealt / 100);
+          dmg *= game.dealtMult(e);
           game.addZone({ x: t.x, y: t.y, r: def.blast.r, delay: def.blast.tele, faction: 'enemy', dmg: dmg, dtype: def.dtype, st: def.onHit, lvl: e.level, srcId: e.id,
             affixes: e.affixes, fx: def.dtype === 'cold' ? 'frost' : 'explosion', color: COL[def.dtype] });
         } else {

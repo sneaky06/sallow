@@ -20,7 +20,7 @@
       // R6.3 class action: one charge, but it hits — foes in the path are knocked aside and struck
       action: { id: 'dash', kind: 'charge', name: 'Shoulder Charge', desc: 'Barge about 3.5 tiles toward your stick, knocking foes in your path aside for 60% weapon damage. Untouchable for a moment.',
         icon: { shape: 'shield', color: '#c9c2b0', accent: '#9a3b2e' }, cd: 4.5, d: 3.5, inv: 0.3, charges: 1 },
-      hp: 60, hpLvl: 12, hpVit: 11, dr: 15, mp: 26, mpLvl: 1.5, mpRegen: 1.2, mpOnHit: 2, starter: { dmgMin: 2, dmgMax: 4, attackSpeed: 1.4, weaponType: 'sword' },
+      hp: 60, hpLvl: 12, hpVit: 11, dr: 10, mp: 26, mpLvl: 1.5, mpRegen: 1.2, mpOnHit: 2, starter: { dmgMin: 2, dmgMax: 4, attackSpeed: 1.4, weaponType: 'sword' },
       trees: [
         { id: 'arms', name: 'Arms', desc: 'Precise, crushing blows against one foe.', skills: ['bash', 'weapon_mastery', 'charge', 'rend', 'execute', 'deadly_precision'] },
         { id: 'berserker', name: 'Berserker', desc: 'Wide swings and reckless momentum.', skills: ['cleave', 'frenzy', 'whirlwind', 'leap', 'bloodthirst', 'earthquake', 'ground_slam'] },
@@ -80,14 +80,14 @@
 
   // ============================== WARRIOR ==============================
   def('bash', { n: 'Bash', c: 'warrior', tr: 'arms', row: 0, col: 1, k: 'active', tags: ['single'], ic: ['mace', '#d9c9a3'], lvl: 1,
-    mp: [4, 0.5], tg: 'melee', v: { dmg: [200, 28], stun: [25, 5] },
+    mp: [4, 0.5], tg: 'melee', v: { dmg: [205, 30], stun: [25, 5] },
     text: 'Smash one foe for {dmg}% weapon damage. {stun}% chance to stun for 1.2s.',
     cast(p, t, V) { K().swing(p, t); K().hit(t, V.dmg, 'phys', { st: [['stun', V.stun, 1.2]] }); } });
   def('weapon_mastery', { n: 'Weapon Mastery', c: 'warrior', tr: 'arms', row: 1, col: 0, k: 'passive', tags: ['single'], ic: ['sword', '#c9c2b0'], lvl: 3,
-    v: { dmg: [8, 8], crit: [1, 1] }, text: 'Passive. +{dmg}% damage and +{crit}% critical chance.',
+    v: { dmg: [10, 10], crit: [1, 1] }, text: 'Passive. +{dmg}% damage and +{crit}% critical chance.',
     mods: V => ({ dmgPct: V.dmg, critChance: V.crit }) });
   def('charge', { n: 'Charge', c: 'warrior', tr: 'arms', row: 1, col: 1, k: 'active', tags: ['single', 'mobility'], ic: ['leap', '#e0b060'], lvl: 6, req: 'bash',
-    mp: [8, 0.5], cd: [8, -0.5], tg: 'enemy', range: 8, v: { dmg: [220, 32], stun: [1, 0.15] },
+    mp: [8, 0.5], cd: [8, -0.5], tg: 'enemy', range: 8, v: { dmg: [260, 40], stun: [1, 0.15] },
     text: 'Rush to a foe and strike for {dmg}% weapon damage, stunning for {stun}s.',
     cast(p, t, V) { K().dashTo(p, t.x, t.y, 1.0 + t.radius); K().swing(p, t); K().hit(t, V.dmg, 'phys', { st: [['stun', 100, V.stun]] }); U().shake(3, 0.15); } });
   def('rend', { n: 'Rend', c: 'warrior', tr: 'arms', row: 2, col: 2, k: 'active', tags: ['single'], ic: ['slash', '#d04a3a'], lvl: 10, req: 'bash',
@@ -95,7 +95,7 @@
     text: 'Slash for {dmg}% weapon damage and open a wound that bleeds for {bleed}% over 4s.',
     cast(p, t, V) { K().swing(p, t); K().hit(t, V.dmg, 'phys', { st: [['bleed', 100, 4, V.bleed / V.dmg / 4]] }); } });
   def('execute', { n: 'Execute', c: 'warrior', tr: 'arms', row: 3, col: 1, k: 'active', tags: ['single'], ic: ['axe', '#e04a3a'], lvl: 16, req: 'charge',
-    mp: [10, 1], cd: [6, -0.5], tg: 'melee', v: { dmg: [340, 50] },
+    mp: [10, 1], cd: [6, -0.5], tg: 'melee', v: { dmg: [400, 60] },
     text: 'A killing blow for {dmg}% weapon damage — doubled against foes below 30% life.',
     cast(p, t, V) { K().swing(p, t); K().hit(t, t.hp < t.stats.hpMax * 0.3 ? V.dmg * 2 : V.dmg, 'phys'); U().shake(3, 0.12); } });
   def('deadly_precision', { n: 'Deadly Precision', c: 'warrior', tr: 'arms', row: 3, col: 0, k: 'passive', tags: ['single'], ic: ['star', '#e0b060'], lvl: 20, req: 'weapon_mastery',
@@ -103,7 +103,7 @@
     mods: V => ({ critDmg: V.cd, critChance: V.crit }) });
 
   def('cleave', { n: 'Cleave', c: 'warrior', tr: 'berserker', row: 0, col: 1, k: 'active', tags: ['aoe'], ic: ['slash', '#e8e0d0'], lvl: 1,
-    mp: [5, 0.5], tg: 'melee', v: { dmg: [150, 22] },
+    mp: [5, 0.5], tg: 'melee', v: { dmg: [120, 17] },
     text: 'A wide swing hitting every foe in front of you for {dmg}% weapon damage.',
     cast(p, t, V, aim) {
       K().swing(p, t, 2.4);
@@ -144,7 +144,7 @@
     v: { ar: [8, 8], pct: [10, 10] }, text: 'Passive. +{ar} armour and +{pct}% total armour.',
     mods: V => ({ armor: V.ar }), bonus: V => ({ armorPct: V.pct }) });
   def('battle_shout', { n: 'Battle Shout', c: 'warrior', tr: 'guardian', row: 0, col: 2, k: 'active', tags: ['buff'], ic: ['buff', '#e0b060'], lvl: 4,
-    mp: [8, 0.5], cd: [30, 0], tg: 'self', v: { dmg: [15, 5], ar: [10, 10] },
+    mp: [8, 0.5], cd: [30, 0], tg: 'self', v: { dmg: [20, 6], ar: [10, 10] },
     text: 'A rallying roar: +{dmg}% damage and +{ar} armour for 20s. Your minions feel it too.',
     cast(p, t, V) { K().shout(p, '#e0b060'); K().buff(p, { id: 'battle_shout', t: 20, mods: { dmgPct: V.dmg, armor: V.ar } }); } });
   def('toughness', { n: 'Toughness', c: 'warrior', tr: 'guardian', row: 1, col: 0, k: 'passive', tags: ['defense'], ic: ['heal', '#c9c2b0'], lvl: 6,
@@ -168,7 +168,7 @@
   // ============================== RANGER ==============================
   const arrow = (extra) => Object.assign({ shape: 'arrow', color: '#e8dcb0', speed: 15, type: 'phys' }, extra);
   def('aimed_shot', { n: 'Aimed Shot', c: 'ranger', tr: 'marksman', row: 0, col: 1, k: 'active', tags: ['single'], ic: ['arrow', '#e8dcb0'], lvl: 1,
-    mp: [4, 0.5], tg: 'aim', range: 9, v: { dmg: [170, 25] },
+    mp: [4, 0.5], tg: 'aim', range: 9, v: { dmg: [150, 15] },
     text: 'A careful shot for {dmg}% weapon damage with +20% critical chance.',
     cast(p, t, V, aim) { U().sfx('arrow'); K().shoot(p, aim.ang, arrow({ pct: V.dmg, crit: 20 })); } });
   def('eagle_eye', { n: 'Eagle Eye', c: 'ranger', tr: 'marksman', row: 1, col: 0, k: 'passive', tags: ['single'], ic: ['star', '#e8dcb0'], lvl: 3,
@@ -190,7 +190,7 @@
     cast(p, t, V, aim) { U().sfx('arrow'); U().shake(2, 0.1); K().shoot(p, aim.ang, arrow({ pct: V.dmg, crit: 30, speed: 24, color: '#ff8a6a', radius: 0.3, life: 0.7 })); } });
 
   def('multishot', { n: 'Multishot', c: 'ranger', tr: 'barrage', row: 0, col: 1, k: 'active', tags: ['aoe'], ic: ['multishot', '#e8dcb0'], lvl: 1,
-    mp: [6, 0.5], tg: 'aim', range: 8, v: { dmg: [85, 10], n: [3, 0.5] },
+    mp: [6, 0.5], tg: 'aim', range: 8, v: { dmg: [125, 16], n: [3, 0.5] },
     text: 'Loose a fan of {n} arrows, each dealing {dmg}% weapon damage.',
     cast(p, t, V, aim) {
       U().sfx('arrow');
@@ -201,7 +201,7 @@
   def('rapid_fire', { n: 'Rapid Fire', c: 'ranger', tr: 'barrage', row: 1, col: 0, k: 'passive', tags: ['buff'], ic: ['buff', '#b89a5a'], lvl: 4,
     v: { as: [6, 5] }, text: 'Passive. +{as}% attack speed.', mods: V => ({ attackSpeed: V.as }) });
   def('rain_of_arrows', { n: 'Rain of Arrows', c: 'ranger', tr: 'barrage', row: 1, col: 1, k: 'active', tags: ['aoe'], ic: ['multishot', '#7fd4ff'], lvl: 8, req: 'multishot',
-    mp: [10, 1], cd: [8, -0.5], tg: 'point', range: 8, v: { dmg: [60, 10] },
+    mp: [10, 1], cd: [8, -0.5], tg: 'point', range: 8, v: { dmg: [70, 12] },
     text: 'Arrows hammer an area for 2s: 5 volleys of {dmg}% weapon damage.',
     cast(p, t, V, aim) { U().sfx('arrow'); K().zone({ x: aim.x, y: aim.y, r: 3, t: 2.1, every: 0.4, pct: V.dmg, dtype: 'phys', fx: 'spark', color: '#e8dcb0', tele: 0.3 }); } });
   def('explosive_arrow', { n: 'Explosive Arrow', c: 'ranger', tr: 'barrage', row: 2, col: 2, k: 'active', tags: ['aoe'], ic: ['fire', '#ff7a2b'], lvl: 12,
@@ -212,7 +212,7 @@
     v: { ch: [15, 10] }, text: 'Passive. Basic attacks have a {ch}% chance to loose two extra arrows.',
     bonus: V => ({ extraArrow: V.ch }) });
   def('arrow_storm', { n: 'Arrow Storm', c: 'ranger', tr: 'barrage', row: 3, col: 1, k: 'active', tags: ['aoe'], ic: ['multishot', '#ff5b4a'], lvl: 22, req: 'rain_of_arrows',
-    mp: [18, 1.5], cd: [15, -1], tg: 'self', v: { dmg: [130, 20] },
+    mp: [18, 1.5], cd: [15, -1], tg: 'self', v: { dmg: [240, 36] },
     text: 'Fire an arrow at every foe in sight (up to 14) for {dmg}% weapon damage each.',
     cast(p, t, V) {
       U().sfx('arrow');
@@ -257,13 +257,13 @@
     text: 'Hurl a bolt of flame for {dmg}% weapon damage as fire. Sets the target burning.',
     cast(p, t, V, aim) { U().sfx('fire'); K().shoot(p, aim.ang, { pct: V.dmg, type: 'fire', shape: 'fireball', color: COL.fire, speed: 13, st: [['burn', 100, 3, 0.1]] }); } });
   def('fireball', { n: 'Fireball', c: 'sorcerer', tr: 'fire', row: 1, col: 1, k: 'active', tags: ['aoe'], ic: ['fire', '#ffb347'], lvl: 4, req: 'fire_bolt',
-    mp: [9, 1], tg: 'aim', range: 9, v: { dmg: [150, 22] },
+    mp: [9, 1], tg: 'aim', range: 9, v: { dmg: [140, 22] },
     text: 'An exploding ball of fire: {dmg}% weapon damage to everything in the blast.',
     cast(p, t, V, aim) { U().sfx('fire'); K().shoot(p, aim.ang, { pct: V.dmg, type: 'fire', shape: 'fireball', color: '#ffb347', speed: 11, radius: 0.35, explode: 2.3 }); } });
   def('fire_mastery', { n: 'Fire Mastery', c: 'sorcerer', tr: 'fire', row: 1, col: 0, k: 'passive', tags: ['single', 'aoe'], ic: ['fire', '#e04a3a'], lvl: 6,
     v: { f: [8, 8] }, text: 'Passive. +{f}% fire damage.', bonus: V => ({ elem_fire: V.f }) });
   def('incinerate', { n: 'Incinerate', c: 'sorcerer', tr: 'fire', row: 2, col: 2, k: 'active', tags: ['single'], ic: ['fire', '#ff3b2e'], lvl: 10,
-    mp: [10, 1], cd: [4, -0.25], tg: 'enemy', range: 8, v: { dmg: [100, 15] },
+    mp: [10, 1], cd: [4, -0.25], tg: 'enemy', range: 8, v: { dmg: [80, 12] },
     text: 'A searing jet strikes one foe 4 times for {dmg}% weapon damage as fire.',
     cast(p, t, V) { U().sfx('fire'); K().buff(p, { id: 'incinerate', t: 0.85, every: 0.2, acc: 0.2, pct: V.dmg, tid: t.id }); } });
   def('combustion', { n: 'Combustion', c: 'sorcerer', tr: 'fire', row: 2, col: 0, k: 'passive', tags: ['single', 'aoe'], ic: ['star', '#ff7a2b'], lvl: 12,
@@ -279,7 +279,7 @@
     text: 'A shard of ice for {dmg}% weapon damage as cold. Chills, slowing the target.',
     cast(p, t, V, aim) { U().sfx('ice'); K().shoot(p, aim.ang, { pct: V.dmg, type: 'cold', shape: 'shard', color: COL.cold, speed: 14, st: [['chill', 100, 2.5]] }); } });
   def('frost_nova', { n: 'Frost Nova', c: 'sorcerer', tr: 'frost', row: 1, col: 1, k: 'active', tags: ['aoe', 'defense'], ic: ['ice', '#d8f4ff'], lvl: 4,
-    mp: [10, 1], cd: [9, -0.5], tg: 'self', v: { dmg: [110, 20], fr: [1.6, 0.2] },
+    mp: [10, 1], cd: [9, -0.5], tg: 'self', v: { dmg: [170, 30], fr: [1.6, 0.2] },
     text: 'A ring of frost: {dmg}% weapon damage as cold and freezes nearby foes for {fr}s.',
     cast(p, t, V) {
       U().sfx('ice'); U().fx('nova', p.x, p.y, { radius: 3.6, color: COL.cold });
@@ -295,7 +295,7 @@
   def('shatter', { n: 'Shatter', c: 'sorcerer', tr: 'frost', row: 2, col: 0, k: 'passive', tags: ['single', 'aoe'], ic: ['gem', '#7fd4ff'], lvl: 14,
     v: { d: [10, 8] }, text: 'Passive. +{d}% damage against chilled or frozen foes.', bonus: V => ({ vsChilled: V.d }) });
   def('glacial_spike', { n: 'Glacial Spike', c: 'sorcerer', tr: 'frost', row: 3, col: 1, k: 'active', tags: ['single'], ic: ['ice', '#b0e8ff'], lvl: 18, req: 'ice_shard',
-    mp: [14, 1], cd: [6, -0.5], tg: 'aim', range: 10, v: { dmg: [360, 55] },
+    mp: [14, 1], cd: [6, -0.5], tg: 'aim', range: 10, v: { dmg: [320, 48] },
     text: 'A massive spike of ice for {dmg}% weapon damage as cold. Freezes for 1.5s.',
     cast(p, t, V, aim) { U().sfx('ice'); K().shoot(p, aim.ang, { pct: V.dmg, type: 'cold', shape: 'shard', color: '#d8f4ff', speed: 16, radius: 0.35, st: [['freeze', 100, 1.5]] }); } });
   def('rime_step', { n: 'Rime Step', c: 'sorcerer', tr: 'frost', row: 0, col: 2, k: 'passive', tags: ['mobility', 'defense'], ic: ['ice', '#b0e8ff'], lvl: 3,
@@ -306,7 +306,7 @@
     v: { mp: [8, 8], reg: [0.6, 0.6] }, text: 'Passive. +{mp}% maximum mana and +{reg} mana per second.',
     mods: V => ({ mpRegen: V.reg }), bonus: V => ({ mpPct: V.mp }) });
   def('chain_lightning', { n: 'Chain Lightning', c: 'sorcerer', tr: 'storm', row: 0, col: 1, k: 'active', tags: ['aoe'], ic: ['bolt', '#fff06a'], lvl: 4,
-    mp: [8, 1], tg: 'enemy', range: 8, v: { dmg: [125, 18], n: [3, 0.5] },
+    mp: [8, 1], tg: 'enemy', range: 8, v: { dmg: [150, 22], n: [3, 0.5] },
     text: 'Lightning strikes a foe for {dmg}% weapon damage and arcs to {n} more.',
     cast(p, t, V) { U().sfx('bolt'); K().chain(p, t, Math.floor(V.n), V.dmg, 'lightning'); } });
   def('teleport', { n: 'Teleport', c: 'sorcerer', tr: 'storm', row: 1, col: 2, k: 'active', tags: ['mobility', 'defense'], ic: ['star', '#b98cff'], lvl: 6,
@@ -325,7 +325,7 @@
     text: 'For 15s, {pct}% of damage taken drains mana instead of life.',
     cast(p, t, V) { U().fx('ring', p.x, p.y, { radius: 1, color: COL.mana, duration: 0.4 }); K().buff(p, { id: 'mana_shield', t: 15, pct: V.pct }); } });
   def('overcharge', { n: 'Overcharge', c: 'sorcerer', tr: 'storm', row: 2, col: 0, k: 'passive', tags: ['single', 'aoe'], ic: ['bolt', '#b98cff'], lvl: 12,
-    v: { sd: [5, 5], cs: [3, 3] }, text: 'Passive. +{sd}% skill damage and +{cs}% cast speed.',
+    v: { sd: [3, 3], cs: [2, 2] }, text: 'Passive. +{sd}% skill damage and +{cs}% cast speed.',
     mods: V => ({ skillDmgPct: V.sd, castSpeed: V.cs }) });
   def('thunderstorm', { n: 'Thunderstorm', c: 'sorcerer', tr: 'storm', row: 2, col: 1, k: 'active', tags: ['aoe', 'buff'], ic: ['bolt', '#ffffff'], lvl: 16, req: 'chain_lightning',
     mp: [20, 1.5], cd: [20, 0], tg: 'self', v: { dmg: [130, 20] },
@@ -349,7 +349,7 @@
       for (const e of K().around(corpse.x, corpse.y, 2.7)) { K().hit(e, V.dmg, 'fire'); if (amp && !e.dead) game.addEffect(e, { id: 'amp', t: 6, taken: amp.amp }); }
     } });
   def('skeletal_mage', { n: 'Skeletal Mage', c: 'necromancer', tr: 'summoning', row: 2, col: 1, k: 'active', tags: ['summon', 'aoe'], ic: ['summon', '#7fd4ff'], lvl: 8, req: 'raise_skeleton',
-    mp: [10, 1], cd: [4, 0], tg: 'self', v: { n: [1, 0.5], pow: [100, 15] },
+    mp: [10, 1], cd: [4, 0], tg: 'self', v: { n: [1, 0.5], pow: [55, 9] },
     text: 'Raise skeletal mages that hurl frost from range (max {n}, {pow}% power).',
     cast(p, t, V) { K().summon(p, 'skeletal_mage', 'minion_mage', Math.floor(V.n), V.pow); } });
   def('golem', { n: 'Bone Golem', c: 'necromancer', tr: 'summoning', row: 3, col: 1, k: 'active', tags: ['summon', 'defense'], ic: ['summon', '#c08a4a'], lvl: 14,
@@ -375,7 +375,7 @@
       K().buff(p, { id: 'bone_armor', t: 20, absorb: Math.round((15 + p.level * 8) * V.abs / 100) });
     } });
   def('bone_nova', { n: 'Bone Nova', c: 'necromancer', tr: 'bone', row: 1, col: 1, k: 'active', tags: ['aoe'], ic: ['whirl', '#e8e0d0'], lvl: 6, req: 'bone_spear',
-    mp: [9, 1], cd: [1.5, 0], tg: 'self', v: { dmg: [95, 14], n: [8, 1] },
+    mp: [9, 1], cd: [1.5, 0], tg: 'self', v: { dmg: [140, 18], n: [8, 1] },
     text: 'Burst {n} shards of bone outward, each dealing {dmg}% weapon damage.',
     cast(p, t, V) {
       U().sfx('cast');
@@ -390,7 +390,7 @@
     v: { l: [3, 2], m: [2, 1] }, text: 'Passive. Each kill restores {l} life and {m} mana.',
     mods: V => ({ lifeOnKill: V.l, manaOnKill: V.m }) });
   def('bone_spirit', { n: 'Bone Spirit', c: 'necromancer', tr: 'bone', row: 3, col: 1, k: 'active', tags: ['single'], ic: ['skull', '#b98cff'], lvl: 18, req: 'bone_spear',
-    mp: [14, 1], cd: [6, -0.5], tg: 'aim', range: 11, v: { dmg: [400, 60] },
+    mp: [14, 1], cd: [6, -0.5], tg: 'aim', range: 11, v: { dmg: [440, 66] },
     text: 'A vengeful spirit hunts down a foe for {dmg}% weapon damage.',
     cast(p, t, V, aim) { U().sfx('cast'); K().shoot(p, aim.ang, { pct: V.dmg, type: 'phys', shape: 'orb', color: COL.shadow, speed: 8, radius: 0.35, life: 3, homing: t ? t.id : 0 }); } });
 

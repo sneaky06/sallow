@@ -634,11 +634,11 @@ window.startHarness = function () {
     for (let i = 0; i < 400; i++) { const hpB = d.hp; game.playerHit(d, { pct: 200, type: 'phys', skill: false }); sum += hpB - d.hp; }
     const avg200 = sum / 400, expect = (lo + hi) / 2 * 2 * (1 + st.critChance / 100 * st.critDmg / 100);
     ok(Math.abs(avg200 / expect - 1) < 0.12, '200% skill multiplier doubles average damage', avg200.toFixed(1) + ' vs ' + expect.toFixed(1));
-    ok(game.armorReduction(0, 5) === 0 && game.armorReduction(1e9, 1) === 0.75 && game.armorReduction(100, 5) > game.armorReduction(50, 5) && game.armorReduction(100, 5) > game.armorReduction(100, 50),
-      'armour mitigation: 0 → 0%, monotonic, capped at 75%, weaker against higher-level attackers');
+    ok(game.armorReduction(0, 5) === 0 && game.armorReduction(1e9, 1) === game.ARMOR_CAP && game.armorReduction(100, 5) > game.armorReduction(50, 5) && game.armorReduction(100, 5) > game.armorReduction(100, 50),
+      'armour mitigation: 0 → 0%, monotonic, capped at ' + Math.round(game.ARMOR_CAP * 100) + '% (R18: was 75%), weaker against higher-level attackers');
     d.stats.armor = 1e9; d.hp = 1e9;
     game.applyHit(d, { phys: 1000 }, { src: p });
-    ok(Math.abs((1e9 - d.hp) - 250) <= 1, 'armour cap: 1000 physical → 250 through infinite armour', 1e9 - d.hp);
+    ok(Math.abs((1e9 - d.hp) - 1000 * (1 - game.ARMOR_CAP)) <= 1, 'armour cap: 1000 physical → ' + Math.round(1000 * (1 - game.ARMOR_CAP)) + ' through infinite armour', 1e9 - d.hp);
     d.stats.armor = 0; d.stats.resFire = 500; d.hp = 1e9;
     game.applyHit(d, { fire: 1000 }, { src: p });
     ok(Math.abs((1e9 - d.hp) - 250) <= 1, 'resist cap 75: 1000 fire → 250 through 500% resistance', 1e9 - d.hp);
@@ -651,7 +651,7 @@ window.startHarness = function () {
     p.stats.dodge = 100;
     ok(hitP({ canDodge: true }) === 0 && hitP({}) === 1000, 'dodge avoids dodgeable attacks only');
     p.stats.dodge = 0; p.stats.block = 100;
-    ok(hitP({ canBlock: true }) === 300, 'block reduces a hit by 70%');
+    ok(hitP({ canBlock: true }) === Math.round(1000 * game.BLOCK_TAKEN), 'block reduces a hit by ' + Math.round((1 - game.BLOCK_TAKEN) * 100) + '% (R18: was 70%)');
     p.stats.block = 0;
     game.addEffect(p, { id: 'shield_wall', t: 5, taken: -50 });
     ok(hitP() === 500, 'damage-taken effects (Shield Wall −50%)');
@@ -748,7 +748,7 @@ window.startHarness = function () {
     for (let i = 0; i < 6; i++) game.learnSkill('bash');
     ok(p.skills.bash === 5 && game.canLearn('bash').reason === 'Max rank', 'max rank 5');
     const info = game.getSkillInfo('bash'), info0 = game.getSkillInfo('execute');
-    ok(info.rank === 5 && info.nextRankDesc === null && info.mpCost > 0 && info.cooldown === 0 && info.learnable === false && info.name === 'Bash' && /312%/.test(info.desc), 'getSkillInfo (learned, max rank): ' + info.desc);
+    ok(info.rank === 5 && info.nextRankDesc === null && info.mpCost > 0 && info.cooldown === 0 && info.learnable === false && info.name === 'Bash' && /325%/.test(info.desc), 'getSkillInfo (learned, max rank): ' + info.desc);
     ok(info0.rank === 0 && info0.learnable === false && !!info0.lockedReason && !!info0.nextRankDesc && info0.cooldown === 6, 'getSkillInfo (locked): ' + info0.lockedReason);
     game.setSkillSlot(3, 'bash');
     ok(p.skillBar[3] === 'bash' && p.skillBar[0] === null, 'setSkillSlot moves a skill (no duplicates)');
@@ -920,9 +920,9 @@ window.startHarness = function () {
     [mA, mB].forEach(function (e) { e.speed = 0; e.dmgMin = e.dmgMax = 0; S.entities.push(e); });
     step(0.1);
     G.input.attackHeld = true;
-    step(8, function () { return !mA.dead; });
+    step(16, function () { return !mA.dead; });          // R18: depth-1 skeletons take ~3 skill hits (twice the R17 life)
     ok(mA.dead && !mB.dead, 'hold attack → auto-targets the nearest enemy first');
-    step(12, function () { return !mB.dead; });
+    step(24, function () { return !mB.dead; });
     G.input.attackHeld = false;
     ok(mB.dead, 'hold attack keeps chaining to the next enemy');
     o5();
@@ -1245,6 +1245,7 @@ ok(back.hp < 1e6 && front[0].hp < 1e6 && front[1].hp < 1e6, 'Whirlwind hits all 
     ok(grp[0].hp === 1e6 && game.zones.length === 1 && game.zones[0].delay > 0, 'Meteor is telegraphed (lands after a delay)');
     step(0.7);
     ok(grp[0].hp < 1e6, 'Meteor lands');
+    const gearWas = H.gear; H.gear = 30;          // R18: minions hit with your spell power, so they need an on-level weapon
     p = fresh('necromancer', true); p = toLevel(p, 30); p.skills = { raise_skeleton: 5, skeletal_mage: 3, golem: 1, corpse_explosion: 1, life_drain: 1, amplify_damage: 1 }; p.skillBar = ['raise_skeleton', 'skeletal_mage', 'golem', 'corpse_explosion']; game.recomputeStats(p); p.mp = p.stats.mpMax = 1e5;
     step(0.1); game.useSkill(0); step(0.7); game.useSkill(1); step(0.7); game.useSkill(2); step(0.2);
     const mins = S.entities.filter(function (e) { return e.faction === 'player'; });
@@ -1258,7 +1259,7 @@ ok(back.hp < 1e6 && front[0].hp < 1e6 && front[1].hp < 1e6, 'Whirlwind hits all 
     ok(game.useSkill(3) === true, 'Corpse Explosion finds the corpse'); step(0.2);
     ok(bystander.hp < 1e6 && victim.exploded, 'Corpse Explosion damages enemies near the corpse and consumes it');
     step(1.2); ok(game.useSkill(3) === false, 'Corpse Explosion with no corpse → false');
-    bystander.dead = true;
+    bystander.dead = true; H.gear = gearWas;
     step(4);
     G.scenes.descend(); p = S.player; step(0.2);
     ok(S.entities.filter(function (e) { return e.faction === 'player'; }).length === 7, 'minions are re-raised beside the player on the next floor');
@@ -1283,7 +1284,7 @@ ok(back.hp < 1e6 && front[0].hp < 1e6 && front[1].hp < 1e6, 'Whirlwind hits all 
       const same = JSON.stringify(S.player) === snap;
       const killsBefore = S.flags.kills;
       for (let i = 0; i < 5; i++) { const e = game.createMonster("skeleton", S.player.x + 3 + i * 0.5, S.player.y - 2 + i, 3); e.ai.st = "chase"; S.entities.push(e); }
-      step(10, function () { S.player.hp = 1e6; if (Math.random() < 0.2) game.useSkill(slot++ % 4); });
+      step(20, function () { S.player.hp = 1e6; if (Math.random() < 0.2) game.useSkill(slot++ % 4); });          // R18: ~2× the monster life (was 10 s)
       G.input.attackHeld = false;
       ok(okJson && same && H.errors.length === errR && S.flags.kills > killsBefore && S.player !== p,
         cid + ': player/entities/projectiles survive JSON.parse(JSON.stringify()) and the fight goes on (' + (S.flags.kills - killsBefore) + ' kills after reload)',
@@ -1604,13 +1605,14 @@ ok(back.hp < 1e6 && front[0].hp < 1e6 && front[1].hp < 1e6, 'Whirlwind hits all 
     ok(S.projectiles.length === 0, 'split projectiles do not split again');
     // corpse_blast
     p = fresh('warrior', true); H.mods = { dmgMin: 50, dmgMax: 50 }; withFx(p, 'corpse_blast');
-    const a = dummy(p.x + 2, p.y, 1), b = dummy(p.x + 3.5, p.y, 1e6), c2 = dummy(p.x + 2, p.y + 2, 100), d2 = dummy(p.x + 2, p.y + 4.2, 1e6);
+    const a = dummy(p.x + 2, p.y, 1), b = dummy(p.x + 3.5, p.y, 1e6), c2 = dummy(p.x + 2, p.y + 2, 30), d2 = dummy(p.x + 2, p.y + 4.2, 1e6);
     a.stats.hpMax = 1000; c2.stats.hpMax = 400; step(0.05);
     let booms = 0; const oB = G.on('fx:spawn', function (e) { if (e.type === 'explosion') booms++; });
     game.playerHit(a, { pct: 100, type: 'phys' }); step(0.2);
-    ok(a.dead && 1e6 - b.hp === 250 && c2.dead, 'corpse_blast: a kill explodes for 25% of its max life as fire within 2.5 tiles', (1e6 - b.hp));
+    const blastHit = 1e6 - b.hp;          // R18 (audit GM-9): 90% of your hit, not 25% of the victim's life (that would be 250 here)
+    ok(a.dead && blastHit > 20 && blastHit < 250 && c2.dead, 'corpse_blast: a kill explodes for 90% of your hit as fire within 2.5 tiles', blastHit);
     step(0.3); oB();
-    ok(1e6 - d2.hp === 100 && booms >= 2, 'corpse_blast chains through enemies it kills', (1e6 - d2.hp) + ' / booms ' + booms);
+    ok(1e6 - d2.hp > 20 && booms >= 2, 'corpse_blast chains through enemies it kills', (1e6 - d2.hp) + ' / booms ' + booms);
     // chain_spark
     p = fresh('warrior', true); H.mods = { dmgMin: 100, dmgMax: 100 }; withFx(p, 'chain_spark');
     m = dummy(p.x + 1, p.y, 1e6); const near = [dummy(p.x + 2, p.y + 1, 1e6), dummy(p.x + 2, p.y - 1, 1e6), dummy(p.x + 3, p.y, 1e6), dummy(p.x + 3, p.y + 2, 1e6)];
@@ -2076,10 +2078,10 @@ ok(back.hp < 1e6 && front[0].hp < 1e6 && front[1].hp < 1e6, 'Whirlwind hits all 
     game.addZone({ x: p.x, y: p.y, r: 1.6, delay: 0.5, faction: 'enemy', dmg: 50, dtype: 'fire', lvl: 6 });
     step(0.2); p.x += 3; game.onPlayerMoved(true); const hpC = p.hp; step(0.5);
     const cc = game.getEffect(p, 'close_call');
-    ok(cc && cc.stacks === 1 && cc.dealt === 15 && p.hp === hpC && p.cooldowns[cdSkill] < 4.5 && texts.indexOf('CLOSE CALL') >= 0, 'stepping out of a telegraph at the last moment: CLOSE CALL (+15% damage, cooldowns −1 s)');
+    ok(cc && cc.stacks === 1 && cc.dealt === game.CC_PER && p.hp === hpC && p.cooldowns[cdSkill] < 4.5 && texts.indexOf('CLOSE CALL') >= 0, 'stepping out of a telegraph at the last moment: CLOSE CALL (+' + game.CC_PER + '% damage, cooldowns −1 s)');
     step(1);
     game.addZone({ x: p.x, y: p.y, r: 1.6, delay: 0.5, faction: 'enemy', dmg: 50, dtype: 'fire', lvl: 6 }); step(0.2); p.x -= 3; game.onPlayerMoved(true); step(0.5);
-    ok(game.getEffect(p, 'close_call').stacks === 2 && game.getEffect(p, 'close_call').dealt === 30, 'chained close calls stack (×2 → +30%)');
+    ok(game.getEffect(p, 'close_call').stacks === 2 && game.getEffect(p, 'close_call').dealt === 2 * game.CC_PER, 'chained close calls stack (×2 → +' + 2 * game.CC_PER + '%)');
     p.effects = []; step(1); const hpS = p.hp;
     game.addZone({ x: p.x, y: p.y, r: 1.6, delay: 0.5, faction: 'enemy', dmg: 50, dtype: 'fire', lvl: 6 }); step(0.8);
     game.addZone({ x: p.x + 2.5, y: p.y, r: 1.6, delay: 0.5, faction: 'enemy', dmg: 50, dtype: 'fire', lvl: 6 }); step(0.8);
@@ -2089,8 +2091,8 @@ ok(back.hp < 1e6 && front[0].hp < 1e6 && front[1].hp < 1e6, 'Whirlwind hits all 
 
     // ------------------------------------------------------------------
     section('R6 difficulty pass');
-    ok(game.monsterLevel(3) === 3 && (function () { const q = fresh('warrior', true); toLevel(q, 20); return game.monsterLevel(3) === 3 && game.monsterLevel(30) === 30; })() && game.DEEP_HP(30) > 2 && game.DEEP_HP(15) === 1,
-      'R14: monster level follows depth only (depth 3 stays 3 for a level-20 hero); the curve steepens past depth 15 (life ×' + game.DEEP_HP(30).toFixed(2) + ' at 30)');
+    ok(game.monsterLevel(3) === 3 && (function () { const q = fresh('warrior', true); toLevel(q, 20); return game.monsterLevel(3) === 3 && game.monsterLevel(30) === 30; })() && game.DEEP_HP(15) > 1.5 && game.DEEP_HP(60) < game.DEEP_HP(15) && game.dmgScale(60) > game.dmgScale(30),
+      'R14: monster level follows depth only (depth 3 stays 3 for a level-20 hero); R18 fit: life ×' + game.DEEP_HP(15).toFixed(2) + ' easing to ×' + game.DEEP_HP(60).toFixed(2) + ' deep, damage on DMG_CURVE');
     ok(game.hpScale(8) / ((1 + 0.25 * 7) * Math.pow(1.06, 7)) > 2.7 && game.DMM(3) > game.DMM(20) && game.createMonster('skeleton', 1, 1, 5).speed === game.MONSTERS.skeleton.spd * game.SPEED_SCALE,
       'monster life ×' + game.HPM(8).toFixed(1) + ' from level 6, damage ×' + game.DMM(3).toFixed(2) + ' early → ×' + game.DMM(20).toFixed(2) + ' deep, monsters ' + game.SPEED_SCALE + '× faster');
 

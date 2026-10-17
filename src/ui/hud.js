@@ -167,7 +167,7 @@
         const hold = { g: lg, fired: false, t: 0 };
         hold.t = setTimeout(function () {
           hold.fired = true;
-          if (lg.pileId != null && ui._openPile) { ui._sfx('click'); ui._openPile(lg.pileId); } else lootAll(lg);
+          if (lg.pileId != null) { ui._sfx('click'); G.emit('pile:open', { pileId: lg.pileId, long: true }); } else lootAll(lg);
         }, 450);
         lootHold = hold;
         return;

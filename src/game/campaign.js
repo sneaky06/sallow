@@ -8,7 +8,7 @@
   const U = game.U, W = game.W, COL = game.COLORS, M = game.MONSTERS, SP = game.SPECIAL;
 
   function setAnim(e, a) { if (e.anim !== a) { e.anim = a; e.animT = 0; } }
-  function avgDmg(e) { let a = (e.dmgMin + e.dmgMax) * 0.5; for (const f of e.effects) if (f.dealt) a *= Math.max(0.1, 1 + f.dealt / 100); return a; }
+  function avgDmg(e) { return (e.dmgMin + e.dmgMax) * 0.5 * game.dealtMult(e); }
   function ezone(e, x, y, r, delay, mult, dtype, extra) {
     return game.addZone(Object.assign({ x: x, y: y, r: r, delay: delay, faction: 'enemy', dmg: avgDmg(e) * mult, dtype: dtype || 'phys', lvl: e.level, srcId: e.id,
       fx: dtype === 'cold' ? 'frost' : dtype === 'poison' ? 'poison' : 'explosion', color: COL[dtype || 'phys'] }, extra || {}));

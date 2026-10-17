@@ -241,19 +241,26 @@
     if (G.game && G.game.MARTIAL) return !!G.game.MARTIAL[p.classId];
     return p.classId === 'warrior' || p.classId === 'ranger';
   }
+  // R18: percent stats are soft-capped by src/game (G.game.softCap / SOFT); the verdict uses the uncapped sums
+  // (player.bonus.raw) as the base and caps the totals the same way, so a roll past the knee counts for what it really adds.
+  function soft(k, v, p) { const Gm = G.game; return Gm && Gm.softCap && Gm.softKnees ? Gm.softCap(v, Gm.softKnees(k, p && p.level)) : v; }
   function offence(p, prof, eq, cur) {
-    const g = modsOf(eq), st = p.stats || {}, prim = prof.primary;
-    const base = function (k, dflt) { return st[k] !== undefined ? st[k] - cur[k] : dflt; };
+    const g = modsOf(eq), st = p.stats || {}, prim = prof.primary, raw = (p.bonus && p.bonus.raw) || {};
+    const sc = function (k, v) { return soft(k, v, p); };
+    const base = function (k, dflt) { const v = raw[k] !== undefined ? raw[k] : st[k]; return v !== undefined ? v - cur[k] : dflt; };
     const dmgMin = base('dmgMin', 0) + g.dmgMin, dmgMax = base('dmgMax', 0) + g.dmgMax;
-    const dmgPct = (st.dmgPct !== undefined ? st.dmgPct - cur.dmgPct - cur[prim] : ((p.attrs && p.attrs[prim]) || 0)) + g.dmgPct + g[prim];
-    const crit = Math.min(75, base('critChance', 5) + g.critChance), critDmg = base('critDmg', 50) + g.critDmg;
+    const rawPct = raw.dmgPct !== undefined ? raw.dmgPct : st.dmgPct;
+    const rawDmg = (rawPct !== undefined ? rawPct - cur.dmgPct - cur[prim] : ((p.attrs && p.attrs[prim]) || 0)) + g.dmgPct + g[prim];
+    const martial = isMartial(p);
+    const dmgPct = sc('dmgPct', rawDmg + (martial ? 0 : base('skillDmgPct', 0) + g.skillDmgPct));          // casters: skill damage shares the bucket
+    const crit = Math.min(75, base('critChance', 5) + g.critChance), critDmg = sc('critDmg', base('critDmg', 50) + g.critDmg);
     const elem = g.fireDmg + g.coldDmg + g.lightningDmg + g.poisonDmg + base('fireDmg', 0) + base('coldDmg', 0) + base('lightningDmg', 0) + base('poisonDmg', 0);
     const w = weaponOf(eq), avg = (w.dmgMin + w.dmgMax + dmgMin + dmgMax) / 2;
     const scale = (1 + dmgPct / 100) * (1 + crit / 100 * critDmg / 100);
     const pf = penFactor(eq.weapon, prof);
-    if (isMartial(p)) return pf * (avg + elem) * w.attackSpeed * (1 + (base('attackSpeed', 0) + g.attackSpeed) / 100) * scale;
-    return pf * (avg * w.attackSpeed * 0.75 + elem) * scale * (1 + (base('skillDmgPct', 0) + g.skillDmgPct) / 100) *
-      (1 + (base('castSpeed', 0) + g.castSpeed) / 100);
+    if (martial) return pf * (avg + elem) * w.attackSpeed * (1 + sc('attackSpeed', base('attackSpeed', 0) + g.attackSpeed) / 100) * scale;
+    return pf * (avg * w.attackSpeed * 0.75 + elem) * scale *
+      (1 + sc('castSpeed', base('castSpeed', 0) + g.castSpeed) / 100);
   }
 
   // 'up' | 'down' | 'same' | null. Weapons are judged on offence first (a clearly harder-hitting weapon is an upgrade even
