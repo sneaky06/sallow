@@ -16,7 +16,7 @@ if (-not $up) {
 }
 $profile = Join-Path $env:TEMP ("sallow-headless-" + [guid]::NewGuid().ToString("N"))
 $url = "http://localhost:$Port/tests/all.html" + $(if ($Query) { "?$Query" } else { "" })
-$proc = Start-Process $chrome -ArgumentList @("--headless=new", "--remote-debugging-port=$DebugPort", "--user-data-dir=$profile", "--window-size=1100,800", "--no-first-run", "--disable-background-timer-throttling", "--disable-renderer-backgrounding", "--disable-backgrounding-occluded-windows", "--autoplay-policy=no-user-gesture-required", $url) -PassThru -WindowStyle Hidden
+$proc = Start-Process $chrome -ArgumentList @("--headless=new", "--mute-audio", "--remote-debugging-port=$DebugPort", "--user-data-dir=$profile", "--window-size=1100,800", "--no-first-run", "--disable-background-timer-throttling", "--disable-renderer-backgrounding", "--disable-backgrounding-occluded-windows", "--autoplay-policy=no-user-gesture-required", $url) -PassThru -WindowStyle Hidden
 $code = 2
 try {
   $ws = $null; $deadline = (Get-Date).AddSeconds(30)
