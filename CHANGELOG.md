@@ -4,6 +4,7 @@ Every build pushed to the live site, newest first (from the git history). The fu
 [docs/history/CONTRACT-r1-r10.md](docs/history/CONTRACT-r1-r10.md); the current design is [docs/DESIGN.md](docs/DESIGN.md).
 
 - **2026-10-15** · `8d37c48` · Revision 10 polish: dash crosses the Leap, rift-core finale, Heat HUD and embers, low-effects mode and FPS counter, UI sweep, consolidated docs/DESIGN.md
+- **2026-10-17** · `de13c47` · R18 balance pass (see docs/BALANCE.md)
 - **2026-10-16** · `195131c` · Audit fix round (tests/all.html 11/11 PASS)
 - **2026-10-15** · `d6447a4` · Audit reports, regression check page, service-worker version bump
 - **2026-10-15** · `f0dd9a2` · Hotfix: load errors from the Wren relic text; town portal restored
