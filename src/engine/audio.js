@@ -6,10 +6,13 @@
   let ac = null, master = null, noiseBuf = null, sfxBus = null, ambBus = null, musicBus = null, toBus = null;
   const last = Object.create(null), volSet = { sfx: -1, amb: -1, mus: -1 };
   let recent = 0, recentT = 0;
+  // ?mute (tests, the browser pane): the context is created but kept suspended and silent, music elements are never made
+  let MUTED = false;
+  try { MUTED = /[?&]mute(=1|=true)?(&|$)/.test(location.search); } catch (err) { /* no location */ }
 
   // iOS moves the context to 'interrupted' (call, Siri, lock, route change), not 'suspended'; both need a resume().
   function resume() {
-    if (!ac || ac.state === 'running' || ac.state === 'closed' || !ac.resume) return;
+    if (MUTED || !ac || ac.state === 'running' || ac.state === 'closed' || !ac.resume) return;
     try { const p = ac.resume(); if (p && p.catch) p.catch(function () {}); } catch (err) { /* next gesture retries */ }
   }
   function unlock() {
@@ -19,7 +22,7 @@
         if (!AC) return;
         ac = new AC();
         master = ac.createGain();
-        master.gain.value = 0.42;
+        master.gain.value = MUTED ? 0 : 0.42;
         master.connect(ac.destination);
         // R6.4 volume buses: state.settings.sfxVolume / ambienceVolume / musicVolume (0..1), applied in tick()
         sfxBus = ac.createGain(); ambBus = ac.createGain(); musicBus = ac.createGain();
@@ -34,7 +37,8 @@
         s.buffer = ac.createBuffer(1, 1, ac.sampleRate);
         s.connect(ac.destination);
         s.start(0);
-        ac.onstatechange = function () { if (ac && ac.state !== 'running' && ac.state !== 'closed' && !document.hidden) resume(); };
+        if (MUTED && ac.suspend) { const q = ac.suspend(); if (q && q.catch) q.catch(function () {}); }
+        ac.onstatechange = function () { if (!MUTED && ac && ac.state !== 'running' && ac.state !== 'closed' && !document.hidden) resume(); };
       }
       resume();
       if (bankDirty) wakeBanks();
@@ -333,7 +337,7 @@
   function nextTrack(t) { return MUSIC_FALLBACK[t] || (/_[bc]$/.test(t) ? t.slice(0, -2) : /^boss_/.test(t) ? 'boss' : null); }
   function trackFile(t) { let g = 0; while (t && !files['music_' + t] && g++ < 5) t = nextTrack(t); return t ? files['music_' + t] || null : null; }
   function blessMusic() {
-    if (mus.els.length || !ac) return;
+    if (MUTED || mus.els.length || !ac) return;
     let any = false;
     for (const n in files) if (files[n].music) { any = true; break; }
     if (!any) return;
@@ -513,7 +517,7 @@
   }
 
   U.audio = {
-    unlock: unlock, resume: resume, names: Object.keys(R), isRunning: function () { return !!ac && ac.state === 'running'; },
+    unlock: unlock, resume: resume, muted: MUTED, names: Object.keys(R), isRunning: function () { return !!ac && ac.state === 'running'; },
     setBed: function (kind, pallorTier) { wantBed = typeof kind === 'string' ? kind : 'none'; wantPallor = pallorTier | 0; },
     tick: function () { try { tickBed(); } catch (err) { toBus = null; /* audio must never break the game */ } },
     addFile: addFile,

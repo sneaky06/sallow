@@ -244,7 +244,7 @@
         const order = back ? BACK_FRONT : FRONT_ORDER;
         for (let i = 0; i < order.length; i++) if (pieces[order[i]]) lay(pieces[order[i]], r);
       }
-      out.anims[anim] = { c: c, n: b.n, rows: b.rows, cell: cell, top: b.top };
+      out.anims[anim] = { c: c, n: b.n, rows: b.rows, cell: cell, top: b.top, fps: b.fps, loop: b.loop, stride: b.stride };      // the body's timing carries over
     }
     return out;
   }
@@ -263,7 +263,8 @@
     return settled;
   }
   function signature(p, eq) {
-    let s = (settledVer() * 977 + bump) | 0;
+    const hb = handBase(p);                // a base body that finishes loading (or gains an animation) rebuilds the sheet
+    let s = (settledVer() * 977 + bump + (hb ? (hb.ver | 0) * 7919 + 1 : 0)) | 0;
     for (let i = 0; i < SLOTS.length; i++) {
       const it = eq[SLOTS[i]];
       s = (Math.imul(s, 31) + (it ? (typeof it.id === 'number' ? it.id : 7) + 1 : 0)) | 0;
@@ -278,7 +279,8 @@
   }
   function fullKey(p, eq) {
     const d = p.sprite || {};
-    let k = (p.classId || '') + '|' + d.body + '|' + d.color + '|' + d.accent + '|' + d.weapon;
+    const hb = handBase(p);
+    let k = (p.classId || '') + '|' + d.body + '|' + d.color + '|' + d.accent + '|' + d.weapon + '|' + (hb ? hb.ver : 0);
     for (let i = 0; i < SLOTS.length; i++) k += '|' + pieceKey(eq[SLOTS[i]], SLOTS[i]);
     return k;
   }

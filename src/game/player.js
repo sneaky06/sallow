@@ -299,6 +299,7 @@
     }
     p.potions[kind]--;
     ctl.potCd[kind] = POTION_CD;
+    G.emit('potion:used', { kind: kind });          // play log (ui/playlog.js)
     U.sfx('potion');
     return true;
   };

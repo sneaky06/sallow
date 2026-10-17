@@ -94,6 +94,27 @@
     else { out.x = out.y = 0; }
   }
   const tgt = { x: 0, y: 0 };
+  // R17 eased camera: a critically damped follow (no velocity jump when the player starts or stops) that leads a little
+  // in the direction of travel, so the player stays near the centre while moving and the view settles softly on a stop.
+  const cam = { vx: 0, vy: 0, lx: 0, ly: 0, px: 0, py: 0 }, CAM_T = 0.14;
+  function damp(cur, target, vel, key, smooth, dt) {
+    const w = 2 / smooth, x = w * dt, ex = 1 / (1 + x + 0.48 * x * x + 0.235 * x * x * x);
+    const ch = cur - target, tmp = (vel + w * ch) * dt;
+    cam[key] = (vel - w * tmp) * ex;
+    return target + (ch + tmp) * ex;
+  }
+  function follow(dt) {
+    if (!(dt > 0)) return;
+    const mx = tgt.x - cam.px, my = tgt.y - cam.py;
+    cam.px = tgt.x; cam.py = tgt.y;
+    const k = 1 - Math.exp(-dt * 10), sp = Math.hypot(mx, my) / dt;
+    let lx = 0, ly = 0;
+    if (sp < 30) { lx = mx / dt * CAM_T; ly = my / dt * CAM_T; const n = Math.hypot(lx, ly); if (n > 0.8) { lx *= 0.8 / n; ly *= 0.8 / n; } }      // lead = the follow lag: centred while moving
+    const kk = lx * lx + ly * ly < cam.lx * cam.lx + cam.ly * cam.ly ? 1 - Math.exp(-dt * 30) : k;      // drop the lead fast on a stop: no swing past the player
+    cam.lx += (lx - cam.lx) * kk; cam.ly += (ly - cam.ly) * kk;
+    V.camX = damp(V.camX, tgt.x + cam.lx, cam.vx, 'vx', CAM_T, dt);
+    V.camY = damp(V.camY, tgt.y + cam.ly, cam.vy, 'vy', CAM_T, dt);
+  }
   function computeOffsets() {
     // snapped to whole backing pixels, so 2x art scrolls smoothly instead of in logical-pixel steps
     V.offX = Math.round(((V.camX - V.camY) * HW - V.W / 2) * V.R) / V.R;
@@ -109,8 +130,9 @@
     if (map !== V.lastMap) { V.lastMap = map; V.snap = true; V.info = null; V.mapT = V.time; }
     if (glint.t > 0) glint.t -= dt;
     camTarget(tgt);
-    if (V.snap || Math.abs(tgt.x - V.camX) + Math.abs(tgt.y - V.camY) > 8) { V.camX = tgt.x; V.camY = tgt.y; V.snap = false; }
-    else { const k = 1 - Math.exp(-dt * 12); V.camX += (tgt.x - V.camX) * k; V.camY += (tgt.y - V.camY) * k; }
+    if (V.snap || Math.abs(tgt.x - V.camX) + Math.abs(tgt.y - V.camY) > 8) { V.camX = tgt.x; V.camY = tgt.y; V.snap = false; cam.vx = cam.vy = cam.lx = cam.ly = 0; cam.px = tgt.x; cam.py = tgt.y; }
+    else if (lowFx()) { const k = 1 - Math.exp(-dt * 12); V.camX += (tgt.x - V.camX) * k; V.camY += (tgt.y - V.camY) * k; cam.px = tgt.x; cam.py = tgt.y; }
+    else follow(dt);
     computeOffsets();
     U.fx.update(dt);
     U.audio.setBed(map && S.scene !== 'menu' ? U.rift.bed(U.variant.get(map).sound) : 'none', pal.tier);
@@ -249,7 +271,9 @@
   const lights = [], bars = [], labels = [], beams = [], marks = [];
   let nLights = 0, nBars = 0, nLabels = 0, nBeams = 0, nMarks = 0;
   const seen = new Map();          // ground item id → time first drawn (drop hop)
-  const fr = { low: false, torch: null, torchR: 1, flick: 1, ox: 0, oy: 0, W: 0, H: 0, psx: 0, psy: 0, pd: 0, hasP: false, filter: 0 };
+  const fr = { low: false, torch: null, torchR: 1, flick: 1, ox: 0, oy: 0, W: 0, H: 0, psx: 0, psy: 0, pd: 0, hasP: false, filter: 0, hi: false };
+  let nLava = 0, nTrails = 0;
+  const trailList = [];
 
   function pushItem(kind, ref, x, y, bias, lit) {
     const sx = (x - y) * HW - fr.ox, sy = (x + y) * HH - fr.oy;
@@ -260,12 +284,13 @@
     it.b = Math.floor(x) + Math.floor(y); it.k = x + y + bias; it.kind = kind; it.ref = ref;
     it.sx = Math.round(sx * V.R) / V.R; it.sy = Math.round(sy * V.R) / V.R; it.lit = lit;
   }
-  function addLight(x, y, r, key) {
-    if (nLights >= (fr.low ? 14 : 40) || !(r > 0)) return;
+  // bloom (R17, 0..1): fire, spells and loot also get a soft additive glow drawn over the lit scene
+  function addLight(x, y, r, key, bloom) {
+    if (nLights >= (fr.low ? 14 : 48) || !(r > 0)) return;
     let l = lights[nLights];
-    if (!l) l = lights[nLights] = { x: 0, y: 0, r: 0, key: '' };
+    if (!l) l = lights[nLights] = { x: 0, y: 0, r: 0, key: '', b: 0 };
     nLights++;
-    l.x = x; l.y = y; l.r = r; l.key = key;
+    l.x = x; l.y = y; l.r = r; l.key = key; l.b = bloom > 0 ? bloom : 0;
   }
   const cmp = function (a, b) { return a.b - b.b || a.k - b.k; };
 
@@ -470,10 +495,12 @@
     const A = sh.anims;
     return A[anim] || (anim === 'cast' ? A.attack : anim === 'attack' ? A.cast : null) || A.idle || A.walk || A[Object.keys(A)[0]];
   }
-  function frameOf(sh, e, dead, t) {
+  // m = the entity's motion state (motion.js) or null: walk frames then follow the ground covered, not the clock
+  function frameOf(sh, e, dead, t, m) {
     if (!sh.hd) {
-      FD.img = sh.c; FD.d = sh.cell; FD.s = sh.cell;
-      FD.sx = (dead ? (e.anim === 'die' ? U.sprites.column('die', t) : 15) : U.sprites.column(e.anim, t + (e.anim === 'idle' || !e.anim ? (e.id || 0) * 0.37 : 0))) * sh.cell;
+      FD.img = sh.c; FD.d = sh.cell; FD.s = sh.cell; FD.T = 0.27;
+      const wt = m && e.anim === 'walk' ? U.motion.walkPhase(m, null, sh.cell / 40) * 0.5 : t;
+      FD.sx = (dead ? (e.anim === 'die' ? U.sprites.column('die', t) : 15) : U.sprites.column(e.anim, e.anim === 'walk' ? wt : t + (e.anim === 'idle' || !e.anim ? (e.id || 0) * 0.37 : 0))) * sh.cell;
       FD.sy = U.sprites.row(e.facing) * sh.cell; FD.ox = sh.ox; FD.oy = sh.oy; FD.mirror = false; FD.top = sh.top;
       return FD;
     }
@@ -488,7 +515,9 @@
     const n = rec.n, T = H.TIME[anim] || 1;
     let f;
     const loops = (anim === 'idle' || anim === 'walk') && rec.loop !== false;
+    FD.T = rec.fps ? n / rec.fps : T;
     if (dead && anim === 'die' && e.anim !== 'die') f = n - 1;                       // lying corpse
+    else if (m && anim === 'walk' && loops) f = Math.floor(U.motion.walkPhase(m, rec, rec.cell / H.CELL) * n) % n;   // R17: locked to ground speed
     else if (rec.fps) {                                                              // per-file fps from assets.js
       const q = Math.floor((t + (anim === 'idle' ? (e.id || 0) * 0.37 : 0)) * rec.fps);
       f = loops ? q % n : Math.min(n - 1, q);
@@ -569,17 +598,24 @@
   }
 
   function drawEntity(ctx, it) {
-    const e = it.ref, sx = it.sx, sy = it.sy, P = G.state.player, echo = isEcho(e);
+    const e = it.ref, P = G.state.player, echo = isEcho(e);
     const sh = (e === P && U.gear.sheetFor(e)) || (echo && e.equipment && U.gear.sheetFor(e)) || (U.assets && U.assets.spriteFor(e))
       || (echo && P && P.classId === e.classId && U.gear.sheetFor(P)) || U.sprites.get((e.type === 'npc' && npcLook(e)) || e.sprite);
     const dead = !!e.dead || e.anim === 'die';
-    const t = typeof e.animT === 'number' && isFinite(e.animT) ? e.animT : V.time;
+    // R17 motion: knockback easing, hit recoil / hit-stop, death slide; positions stay on whole backing pixels
+    const m = U.motion.step(e, V.dt || 0, fr.low);
+    const sx = it.sx + Math.round(m.ox * V.R) / V.R, sy = it.sy + Math.round(m.oy * V.R) / V.R;
+    const t = typeof e.animT === 'number' && isFinite(e.animT) ? m.t : V.time;
     const fallen = isFallen(e), world = !fallen && isWorldBoss(e);
     const rim = !dead && e.type === 'monster' ? (echo ? '#9fd8ff' : fallen ? RIM.fallen : world ? RIM.world : RIM[e.rarity]) : null;
-    const fd = frameOf(sh, e, dead, t);
+    const fd = frameOf(sh, e, dead, t, m);
+    const pv = echo ? null : U.motion.blend(m, fd, m.anim, V.dt || 0, fr.low);
     if (!dead) {
       const w = Math.round((sh.hd ? fd.d * 0.62 : sh.cell) * (sh.wide ? 0.42 : 0.3) * (sh.hover ? 0.75 : 1) * (sh.hd ? 1.6 : 1));
-      shadowAt(ctx, sx, sy, w);
+      // R17: the contact shadow leans a little away from the player's light
+      let shx = 0, shy = 0;
+      if (!fr.low && fr.hasP && e !== P) { const dx = sx - fr.psx, dy = sy - fr.psy, d = Math.hypot(dx, dy); if (d > 1 && d < 160) { const k = 1.6 * (1 - d / 160) / d; shx = dx * k; shy = dy * k * 0.5; } }
+      shadowAt(ctx, sx + shx, sy + shy, w);
       if (rim) {
         const a = U.aura(rim, Math.max(20, Math.min(64, (w * 1.9) & ~1)));
         ctx.globalCompositeOperation = 'lighter';
@@ -605,12 +641,27 @@
       ctx.globalAlpha = 1;
       if (e.hitFlash > 0 && !dead) { ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = 0.6; paint(ctx, fd, img, sx, sy); ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over'; }
     } else if (sh.hd) {
-      paint(ctx, fd, fd.img, sx, sy);
+      if (pv && pv.a >= 1) paint(ctx, pv, pv.img, sx, sy);                // hold the outgoing frame for a beat
+      else {
+        paint(ctx, fd, fd.img, sx, sy);
+        if (pv) { ctx.globalAlpha = pv.a; paint(ctx, pv, pv.img, sx, sy); ctx.globalAlpha = 1; }      // cross-fade
+      }
       if (e.hitFlash > 0 && !dead) { ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = 0.7; paint(ctx, fd, fd.img, sx, sy); ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over'; }
     } else {
-      paint(ctx, fd, (e.hitFlash > 0 && !dead) ? sh.flash() : rim ? sh.outlined(rim) : sh.c, sx, sy);
+      const img = (e.hitFlash > 0 && !dead) ? sh.flash() : rim ? sh.outlined(rim) : sh.c;
+      if (pv && pv.a >= 1) paint(ctx, pv, img, sx, sy);
+      else {
+        paint(ctx, fd, img, sx, sy);
+        if (pv) { ctx.globalAlpha = pv.a; paint(ctx, pv, img, sx, sy); ctx.globalAlpha = 1; }
+      }
     }
     ctx.imageSmoothingEnabled = false;
+    if (!fr.low && !dead && e.anim === 'attack' && nTrails < 12) {      // weapon trails are drawn after the light pass (over whatever stands in front)
+      let tr = trailList[nTrails];
+      if (!tr) tr = trailList[nTrails] = { e: null, x: 0, y: 0, m: null, T: 0, k: 1 };
+      nTrails++;
+      tr.e = e; tr.x = sx; tr.y = sy; tr.m = m; tr.T = fd.T; tr.k = sh.hd ? fd.d / 48 : sh.cell / 40;
+    }
     if (e === P) { if (!dead) drawDash(ctx, sx, sy); return; }
     if (dead) return;
     if (e.type === 'npc' || (e.type === 'monster' && (rim || e.hp < ((e.stats && e.stats.hpMax) || e.hp)))) {
@@ -688,6 +739,7 @@
       nReicons++;
       ri.img = icon; ri.x = sx - (isz >> 1); ri.y = sy - isz + 3 - hop - lift;
     }
+    if (glow && fr.hi) addLight(sx, sy - 5, 0.55 + 0.22 * glow, rar.color, 0.15 + 0.08 * glow);     // R17: good loot lights its patch of floor
     if (glow && nBeams < 60) {
       let b = beams[nBeams];
       if (!b) b = beams[nBeams] = { x: 0, y: 0, c: '', o: 0 };
@@ -717,6 +769,8 @@
       const P = propArt(pr);
       const n = P.frames.length;
       const img = pr.type === 'gate' ? P.frames[(V.info ? V.info[(pr.y | 0) * G.state.map.w + (pr.x | 0)] & 1 : 0) % n] : n > 1 ? P.frames[((V.time * (P.fps || (n >= 3 ? 8 : 2.5)) + pr.x * 3 + pr.y) | 0) % n] : P.frames[0];
+      const shw = fr.hi ? PROP_SHADOW[pr.type] : 0;              // R17: props sit on the ground with a soft contact shadow
+      if (shw) shadowAt(ctx, sx, sy + 1, shw);
       U.blit(ctx, it.lit ? img : U.dim(img), sx - 24, sy - 56);
       if (it.lit && !pr.used) {
         const r = pr.light > 0 ? pr.light : (P.light ? P.light[0] : 0);
@@ -725,7 +779,7 @@
           const RFt = U.rift.F, cold = RFt.town && RFt.warmth === 0;          // the town's dead hearths
           if (cold && pr.type === 'campfire') return;
           // torches follow the floor variant: colour, reach and how hard they flicker
-          addLight(sx, sy - 12, (cold ? 0.6 : 1) * (warm ? r * fr.torchR * (0.9 + fr.flick * (0.08 * Math.sin(V.time * 11 + pr.x * 5 + pr.y * 3) + 0.06 * Math.sin(V.time * 23.7 + pr.x))) : r), warm && fr.torch ? fr.torch : key);
+          addLight(sx, sy - 12, (cold ? 0.6 : 1) * (warm ? r * fr.torchR * (0.9 + fr.flick * (0.08 * Math.sin(V.time * 11 + pr.x * 5 + pr.y * 3) + 0.06 * Math.sin(V.time * 23.7 + pr.x))) : r), warm && fr.torch ? fr.torch : key, PROP_BLOOM[pr.type] || 0.3);
         }
       }
       return;
@@ -740,8 +794,12 @@
     if (p.radius > 0.45) ctx.drawImage(sp, sx - 20, sy - 32, 40, 40);
     else ctx.drawImage(sp, sx - 10, sy - 22, 20, 20);
     ctx.imageSmoothingEnabled = false;
-    if (p.shape !== 'arrow') addLight(sx, sy - 12, 1.8, U.lightKeyFor(U.projectileColor(p.shape, p.color)));
+    if (p.shape !== 'arrow') addLight(sx, sy - 12, 1.8, U.lightKeyFor(U.projectileColor(p.shape, p.color)), 0.7);
   }
+  // R17 contact-shadow widths (logical px) per prop; flat ones (bones, corpse, signs on the ground…) get none
+  const PROP_SHADOW = { chest: 20, chest_open: 20, barrel: 15, crate: 17, surface_crate: 17, shrine: 22, pillar: 18, stash: 20, tree: 22,
+    bush: 18, fountain: 26, stall: 26, well: 24, tombstone: 14, crystal: 14, waypoint: 24, sign: 8, torch: 6, campfire: 18, chute: 18 };
+  const PROP_BLOOM = { torch: 0.9, campfire: 1, inn_fire: 1, portal: 0.7, crystal: 0.6, waypoint: 0.5, shrine: 0.5, dungeon_entrance: 0.6, corpse: 0.4 };
 
   // Loot spill (engine pitch): a new drop bursts out of the pile point and gathers back into it, so every item of a
   // kill gets its own beat on screen before it settles into the heap. Cosmetic only; a fixed pool, nothing allocated.
@@ -991,6 +1049,50 @@
   const WARP = { a: 1, b: 1, dx: 0 };
   function LS(key) { return V.R > 1 && !fr.low ? U.lightSoft(key) : U.lightSprite(key); }
 
+  // R17 colour grade per act (multiplied into the light map, so it tints light and shadow alike and costs one 64x64
+  // draw): the Shallows a damp bog-green, the Deep a cold blue-violet, the Hellscape scorched red, the Endless bruised;
+  // the town goes from frost-blue to hearth-amber with its warmth (0..3). With the smooth light map, a vignette too.
+  const GRADE = {
+    shallows: [212, 236, 220], deep: [204, 210, 255], hellscape: [255, 204, 186], endless: [236, 198, 228],
+    town0: [194, 212, 255], town1: [224, 228, 242], town2: [255, 236, 212], town3: [255, 226, 192],
+  };
+  const grade = { key: '', c: null };
+  function gradeMap(map, vig) {
+    const RF = U.rift.F, act = map.kind === 'town' ? 'town' + RF.warmth : map.act;
+    const key = act + (vig ? 'v' : '');
+    if (grade.key === key && grade.c) return grade.c;
+    grade.key = key;
+    const c = grade.c || (grade.c = U.makeCanvas(64, 64)), x = c.getContext('2d'), g = GRADE[act] || [255, 255, 255];
+    x.globalCompositeOperation = 'source-over';
+    x.fillStyle = 'rgb(' + g[0] + ',' + g[1] + ',' + g[2] + ')';
+    x.fillRect(0, 0, 64, 64);
+    if (vig) {                                    // oval (stretched to the screen), a touch above centre where the hero stands
+      const rg = x.createRadialGradient(32, 30, 14, 32, 30, 46);
+      rg.addColorStop(0, '#ffffff'); rg.addColorStop(0.55, '#e4e4e4'); rg.addColorStop(1, '#7a7a7a');
+      x.globalCompositeOperation = 'multiply';
+      x.fillStyle = rg; x.fillRect(0, 0, 64, 64);
+      x.globalCompositeOperation = 'source-over';
+    }
+    return c;
+  }
+  // R17 bloom: a soft additive glow over the brightest sources (fire, spells, loot) after the light pass
+  function drawBloom(ctx) {
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.imageSmoothingEnabled = true;
+    let n = 0;
+    for (let i = 0; i < nLights && n < 24; i++) {
+      const l = lights[i];
+      if (!(l.b > 0) || l.x < -40 || l.y < -40 || l.x > fr.W + 40 || l.y > fr.H + 40) continue;
+      n++;
+      const rx = l.r * 9, ry = rx * 0.75;
+      ctx.globalAlpha = Math.min(0.4, 0.26 * l.b);
+      ctx.drawImage(U.lightSoft(l.key), l.x - rx, l.y - ry, rx * 2, ry * 2);
+    }
+    ctx.globalAlpha = 1;
+    ctx.imageSmoothingEnabled = false;
+    ctx.globalCompositeOperation = 'source-over';
+  }
+
   // ---------------------------------------------------------------- render
   E.render = function () {
     const ctx = V.ctx;
@@ -1020,6 +1122,9 @@
     fr.ox = ox; fr.oy = oy; fr.W = W; fr.H = H;
     fr.hasP = !!(p && isFinite(p.x) && isFinite(p.y));
     if (fr.hasP) { fr.psx = (p.x - p.y) * HW - ox; fr.psy = (p.x + p.y) * HH - oy; fr.pd = p.x + p.y; }
+    U.motion.begin(fr.hasP ? p : null);
+    fr.hi = V.R > 1 && !fr.low;                    // R17 lighting extras (vignette, bloom, more lights) need the smooth light map; the grade only !lowFx
+    nLava = nTrails = 0;
     const st = S.settings || {};
     fr.filter = (C.RARITY[st.lootFilter] || C.RARITY.common).order;
     dn = nLights = nBars = nLabels = nBeams = nMarks = nBadges = nReicons = 0;
@@ -1054,6 +1159,11 @@
         const lit = !vis || vis[i];
         const sx = e * HW - ox - 16, sy = d * HH - oy;
         U.blit(ctx, lit ? img : U.dim(img), sx, sy);
+        // R17: lava glows — a sparse grid of slow-breathing lights over molten tiles in view
+        if (fr.hi && lit && nLava < 10 && (t === T.LAVA || t === T.DEEP_LAVA) && ((tx + ty * 3) & 3) === 0) {
+          nLava++;
+          addLight(sx + 16, sy + 8, (t === T.DEEP_LAVA ? 1.9 : 1.4) * (0.9 + 0.1 * Math.sin(V.time * 1.7 + tx * 1.3 + ty)), t === T.DEEP_LAVA ? 'warm' : 'red', 0.35);
+        }
         if (tnt && tnt[i] && !(fr.low && tnt[i] < 2) && (t === T.FLOOR || t === T.PATH || t === T.GRASS || t === T.RUBBLE || t === T.STAIRS_DOWN)) {     // rift taint: sinew veins
           const dc = U.rift.decal(Math.min(3, tnt[i]), h & 1, RF.vein, RF.hell > 0);
           ctx.globalAlpha = U.rift.taintAlpha(Math.min(3, tnt[i]));
@@ -1171,6 +1281,7 @@
     // ---- lighting: additive light map multiplied over the scene
     U.rift.lights(map, addLight, ox, oy, W, H, V.time);
     emberLights(ox, oy, W, H);
+    if (fr.hi) U.fx.lights(addLight, ox, oy, W, H);                 // R17: explosions, novas, flashes light the room for a moment
     if (lightX) {
       lightX.globalCompositeOperation = 'source-over';
       lightX.fillStyle = U.rift.amb(VR);
@@ -1184,11 +1295,19 @@
         const l = lights[i], rx = l.r * 22, ry = rx * 0.6;
         lightX.drawImage(LS(l.key), (l.x - rx) / 2, (l.y - ry) / 2, rx, ry);
       }
+      // R17 per-act colour grade and vignette, folded into the low-res light map: one small multiply, no full-screen pass
+      if (!fr.low) {
+        lightX.globalCompositeOperation = 'multiply';
+        lightX.imageSmoothingEnabled = true;
+        lightX.drawImage(gradeMap(map, fr.hi), 0, 0, LW, LH);
+        lightX.imageSmoothingEnabled = false;
+      }
       ctx.globalCompositeOperation = 'multiply';
       ctx.imageSmoothingEnabled = V.R > 1 && !fr.low;     // D2-style: the light map is filtered, not blocky
       ctx.drawImage(lightC, 0, 0, LW * 2, LH * 2);
       ctx.imageSmoothingEnabled = false;
       ctx.globalCompositeOperation = 'source-over';
+      if (fr.hi) drawBloom(ctx);
     }
 
     // ---- Pallor (R5.2): the world drains of colour by tier. One composite fill over the lit world, before loot,
@@ -1229,6 +1348,7 @@
         }
       }
     }
+    for (let i = 0; i < nTrails; i++) { const tr = trailList[i]; U.motion.trail(ctx, tr.e, tr.x, tr.y, tr.m, tr.T, tr.k); }
     drawSpills(ctx, ox, oy);
     drawRoute(ctx, map, ox, oy, W, H);
     drawGaps(ctx, ox, oy, W, H, map);

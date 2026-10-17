@@ -123,6 +123,7 @@
         if (o.crit) U.shake(2, 0.08);
       }
       if (game.onMonsterHurt) game.onMonsterHurt(t, src);
+      if (src && src.faction === 'player') G.emit('player:dealt', { amount: total, target: t, crit: !!o.crit, dot: !!o.dot, minion: !!src.summon });          // play log (ui/playlog.js)
     }
 
     if (o.melee && !o.noThorns && src && !src.dead) {

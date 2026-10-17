@@ -141,9 +141,11 @@
     else { t.atlas = null; t.img = U.text(s, col); }
     t.scale = crit ? 2 : 1; t.dx = Math.round((rnd() - 0.5) * 16);
   });
+  // R17: shake reads cleanly on a phone — about half the old amplitude (soft-capped near 4 px), a smooth wobble from two
+  // sines instead of white noise, and a quadratic fade. lowFx keeps the old jitter.
   G.on('fx:shake', function (e) {
     const amt = Math.max(0.5, Math.min(10, num(e && e.amount, 3))), dur = Math.max(0.05, Math.min(1.5, num(e && e.duration, 0.2)));
-    if (amt * dur >= shake.amt * (shake.dur - shake.t)) { shake.amt = amt; shake.dur = dur; shake.t = 0; }
+    if (amt * dur >= shake.amt * (shake.dur - shake.t)) { shake.amt = amt; shake.dur = dur; shake.t = 0; shake.ph = rnd() * 6.283; }
   });
   G.on('scene:changed', function () {
     life.fill(0);
@@ -165,6 +167,27 @@
     shake: shake,
     particle: p,
     burst: burst,
+    // R17: live effects light the scene for a moment (rings / novas / explosions, flashes, beams, drawn strips),
+    // fading with the effect. add(x, y, radiusTiles, key, bloom) is the renderer's addLight.
+    lights: function (add, offX, offY, W, H) {
+      let n = 0;
+      for (let i = 0; i < FXN && n < 8; i++) {
+        const f = fxs[i];
+        if (!f.on || f.kind === 'slash' || f.kind === 'cleave') continue;
+        const sx = (f.x - f.y) * 16 - offX, sy = (f.x + f.y) * 8 - offY;
+        if (sx < -60 || sy < -60 || sx > W + 60 || sy > H + 60) continue;
+        const k = f.t / f.dur, fade = 1 - k * k;
+        let r;
+        if (f.kind === 'flash') r = 1.4 * fade;
+        else if (f.kind === 'ring') r = Math.min(4, 1 + f.r * 0.8) * fade;
+        else if (f.kind === 'beam') r = 1.6 * fade;
+        else if (f.kind === 'sprite') r = Math.min(4, 1 + f.r) * fade;
+        else continue;
+        if (r < 0.2) continue;
+        n++;
+        add(sx, sy - 8, r, f.kind === 'sprite' ? 'warm' : f.color, 0.6 * fade);
+      }
+    },
     update: function (dt) {
       for (let i = 0; i < N; i++) {
         if (life[i] <= 0) continue;
@@ -177,8 +200,16 @@
       for (let i = 0; i < TN; i++) { const t = texts[i]; if (t.on && (t.t += dt) >= t.dur) t.on = false; }
       if (shake.t < shake.dur) {
         shake.t += dt;
-        const k = Math.max(0, 1 - shake.t / shake.dur) * shake.amt;
-        shake.x = Math.round((rnd() * 2 - 1) * k); shake.y = Math.round((rnd() * 2 - 1) * k);
+        const S = G.state, low = S && S.settings && S.settings.lowFx;
+        if (low) {
+          const k = Math.max(0, 1 - shake.t / shake.dur) * shake.amt;
+          shake.x = Math.round((rnd() * 2 - 1) * k); shake.y = Math.round((rnd() * 2 - 1) * k);
+        } else {
+          const f = Math.max(0, 1 - shake.t / shake.dur), a = shake.amt, k = f * f * (a <= 2 ? a * 0.6 : 1.2 + (a - 2) * 0.35), t = shake.t, ph = shake.ph || 0;
+          const R = (U.view && U.view.R) || 1;                     // whole backing pixels: smooth at 2x, never blurry
+          shake.x = Math.round((Math.sin(t * 38 + ph) * 0.65 + Math.sin(t * 64 + ph * 2) * 0.35) * k * R) / R;
+          shake.y = Math.round((Math.sin(t * 33 + ph * 3) * 0.65 + Math.sin(t * 57 + ph) * 0.35) * k * 0.7 * R) / R;
+        }
       } else { shake.x = shake.y = 0; shake.amt = 0; }
     },
     draw: function (ctx, offX, offY, W, H) {

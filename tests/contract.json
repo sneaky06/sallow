@@ -42,6 +42,6 @@
     "scavenger:appear", "scavenger:race", "scavenger:grab", "echo:rise", "boss:blackout",
     "relic:granted", "relic:combined", "collection:registered", "collection:page", "collection:tier", "item:cleansed",
     "town:warmed", "settings:changed", "milestone:reached",
-    "fx:spawn", "fx:text", "fx:shake", "sfx", "ui:toast"
+    "player:dealt", "potion:used", "closecall:ui", "fx:spawn", "fx:text", "fx:shake", "sfx", "ui:toast"
   ]
 }

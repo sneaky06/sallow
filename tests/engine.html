@@ -27,6 +27,8 @@
 <div id="panel"></div>
 <script>
 window.G = { manifest: {} };
+// silent by default: audio.js reads ?mute (AudioContext kept suspended, no music). Open with ?sound to hear the zoo.
+if (!/[?&](mute|sound)\b/.test(location.search)) try { history.replaceState(null, '', location.pathname + (location.search ? location.search + '&' : '?') + 'mute' + location.hash); } catch (e) { /* file:// */ }
 (function () {
   function load(src) {
     return new Promise(function (res) {
@@ -410,6 +412,7 @@ window.G = { manifest: {} };
       else end(3);
       S.settings.hud = keep; if (!keep) delete S.settings.hud;
       loaderTests(ok);
+      r17Tests(ok);
       log(res.join('\n'));
       window.__touch = res;
       return res;
@@ -491,6 +494,92 @@ window.G = { manifest: {} };
         var px = tx2.getImageData(0, 0, 100, 30).data, lit = 0; for (var q = 3; q < px.length; q += 4) if (px[q]) lit++;
         ok('digit atlas draws numbers (' + lit + ' px) and is cached per colour', lit > 60 && U.glyphAtlas('#ffffff') === at && U.glyphAtlas('#ff0000') !== at);
       } finally { console.warn = quiet; }
+    }
+
+    // ------------------------------------------------------------ R17 fidelity pass: motion state, walk sync, shake, lighting extras
+    function r17Tests(ok) {
+      var U = E._, M = U.motion, A = U.assets, dt = 1 / 60, keepLow = S.settings.lowFx;
+      S.settings.lowFx = false;
+      try {
+        var mk = function (o) { return Object.assign({ id: 9000 + Math.floor(Math.random() * 999), type: 'monster', x: 10.5, y: 10.5, facing: 0, anim: 'idle', animT: 0, hitFlash: 0, dead: false }, o || {}); };
+        var run = function (e, n, f) { for (var i = 0; i < n; i++) { M.begin(null); if (f) f(i); M.step(e, dt, false); } return M.get(e); };
+        // walk cycle locked to ground speed: one loop per STRIDE art px covered, nothing while standing; 8 and 16 frames agree
+        var e = mk({ anim: 'walk' }), ref = ((G.game && G.game.BASE_SPEED) || 5) * Math.hypot(C.TILE_W / 2, C.TILE_H / 2) * 2;
+        var stepX = ref / 2 / Math.hypot(C.TILE_W / 2, C.TILE_H / 2) * dt;          // world tiles per frame along x at the reference screen speed
+        var m = run(e, 1);
+        var p0 = M.walkPhase(m, null, 1);
+        run(e, 30, function () { e.x += stepX; });
+        var loops = M.walkPhase(m, null, 1) - p0;
+        ok('walk: 0.5 s at the reference speed = one loop (' + loops.toFixed(3) + ')', Math.abs(loops - 1) < 0.03);
+        var p1 = M.walkPhase(m, null, 1);
+        run(e, 30);
+        ok('walk: standing still does not advance the cycle (no moonwalk)', M.walkPhase(m, null, 1) === p1);
+        run(e, 30, function () { e.x += stepX / 2; });
+        ok('walk: half the speed = half the cycle rate (' + (M.walkPhase(m, null, 1) - p1).toFixed(3) + ')', Math.abs(M.walkPhase(m, null, 1) - p1 - 0.5) < 0.03);
+        var r8 = { n: 8 }, r16 = { n: 16 }, ph = M.walkPhase(m, r8, 1);
+        ok('walk: 8- and 16-frame sheets share the phase (frame ' + Math.floor(ph * 8) % 8 + '/8 ~ ' + Math.floor(ph * 16) % 16 + '/16)', Math.abs(Math.floor(ph * 16) % 16 / 2 - Math.floor(ph * 8) % 8) <= 0.5);
+        ok('walk: a file stride / fps sets the loop length', M.walkPhase(m, { n: 12, stride: M.stride() * 2 }, 1) === ph / 2 && Math.abs(M.walkPhase(m, { n: 12, fps: 24 }, 1) - ph) < 1e-9);
+        ok('walk: a 192 cell takes twice the stride', Math.abs(M.walkPhase(m, null, 2) - ph / 2) < 1e-9);
+        // knockback easing: a 1-tile shove eases out over ~0.25 s instead of popping
+        e = mk(); run(e, 2);
+        var shoved = run(e, 1, function (i) { e.x += 1; });
+        var k0 = Math.hypot(shoved.kx, shoved.ky);
+        run(e, 15);
+        ok('knockback: a shove starts at its old spot (offset ' + k0.toFixed(2) + ' tiles) and eases out (' + Math.hypot(shoved.kx, shoved.ky).toFixed(3) + ' after 0.25 s)', k0 > 0.7 && Math.hypot(shoved.kx, shoved.ky) < 0.05);
+        var far = mk(); run(far, 2); run(far, 1, function () { far.x += 6; });
+        ok('knockback: a teleport (6 tiles) just snaps', M.get(far).kx === 0);
+        // hit: recoil + hit-stop freeze the pose, then the clock catches up to where the game says minus the stop
+        e = mk({ anim: 'idle', animT: 0.3 }); run(e, 2);
+        e.hitFlash = 0.12;
+        m = run(e, 1);
+        var frozenAt = m.t;
+        run(e, 2, function () { e.animT += dt; });
+        ok('hit-stop: the pose holds for a few frames (' + frozenAt.toFixed(3) + ' -> ' + m.t.toFixed(3) + ')', m.t - frozenAt < dt * 0.6);
+        run(e, 10, function () { e.animT += dt; e.hitFlash = Math.max(0, e.hitFlash - dt); });
+        ok('hit-stop: the clock runs again afterwards, behind by the stop only (' + (e.animT - m.t).toFixed(3) + ' s)', e.animT - m.t > 0.03 && e.animT - m.t < 0.08);
+        ok('hit: the body jolts and comes back', Math.abs(m.ox) + Math.abs(m.oy) < 2.5);
+        // death: the body slides with its momentum, settles, and stays
+        e = mk({ anim: 'walk' }); run(e, 1); run(e, 10, function () { e.x += 0.08; });
+        e.dead = true; e.anim = 'die'; e.animT = 0;
+        m = run(e, 40, function () { e.animT += dt; });
+        var o1 = [m.ox, m.oy];
+        run(e, 30, function () { e.animT += dt; });
+        ok('death: the body slid on (' + o1[0].toFixed(1) + ', ' + o1[1].toFixed(1) + ' px) and settled', Math.hypot(o1[0], o1[1]) > 1 && Math.abs(m.ox - o1[0]) < 0.01 && Math.abs(m.oy - o1[1]) < 0.01);
+        // blend: an animation change holds / cross-fades the outgoing frame for < 0.15 s, never into hit / die
+        e = mk({ anim: 'attack' }); m = run(e, 1);
+        var fd = { img: {}, sx: 0, sy: 0, s: 96, d: 48, ox: 24, oy: 42, mirror: false };
+        M.blend(m, fd, 'attack', dt, false);
+        e.anim = 'idle'; e.animT = 0; run(e, 1);
+        var pv = M.blend(m, { img: {}, sx: 96 }, 'idle', dt, false), held = pv && pv.a === 1, t = 0;
+        while (pv && t < 1) { M.begin(null); M.step(e, dt, false); pv = M.blend(m, { img: {}, sx: 96 }, 'idle', dt, false); t += dt; }
+        ok('blend: attack -> idle holds the swing\'s last frame, then fades (' + Math.round(t * 1000) + ' ms)', held && t > 0.08 && t < 0.15);
+        e.anim = 'hit'; e.animT = 0; run(e, 1);
+        ok('blend: no blend into hit', !M.blend(m, { img: {}, sx: 0 }, 'hit', dt, false));
+        // lowFx: the old look, no motion extras
+        e = mk(); run(e, 2);
+        e.hitFlash = 0.12; M.begin(null); m = M.step(e, dt, true);
+        M.begin(null); e.x += 1; M.step(e, dt, true);
+        ok('lowFx: no recoil, hit-stop or knockback easing', m.stop === 0 && m.kx === 0 && m.ox === 0);
+        // shake: smooth, about half the old amplitude
+        G.emit('fx:shake', { amount: 10, duration: 0.6 });
+        var mx = 0, moved = 0, last = 0;
+        for (var i = 0; i < 36; i++) { U.fx.update(dt); mx = Math.max(mx, Math.abs(U.fx.shake.x), Math.abs(U.fx.shake.y)); moved += Math.abs(U.fx.shake.x - last); last = U.fx.shake.x; }
+        ok('shake: amount 10 stays under ~4 px (max ' + mx.toFixed(2) + ') and moves smoothly (mean step ' + (moved / 36).toFixed(2) + ' px; white noise would be ~2.7)', mx <= 4.2 && mx > 1 && moved / 36 < 1.3);
+        for (var j = 0; j < 60; j++) U.fx.update(dt);
+        // fx lights: a live explosion lends the scene light
+        G.emit('fx:spawn', { type: 'explosion', x: 10, y: 12, radius: 2 });
+        var got = 0; U.fx.lights(function (x, y, r, key, b) { if (r > 0 && b > 0) got++; }, (10 - 12) * 16 - 100, (10 + 12) * 8 - 100, 200, 200);
+        ok('fx: an explosion adds a blooming light (' + got + ')', got > 0);
+        // stride survives the loader
+        var pc = U.makeCanvas(16 * 96, 480), px = pc.getContext('2d'); px.fillStyle = '#a0a0c0'; for (var f = 0; f < 16; f++) px.fillRect(f * 96 + 40, 40, 16, 44);
+        A.inject('sprites/zz_s/idle.png', pc);
+        ok('loader: { file, stride } is stored on the walk', A.inject('sprites/zz_s/walk.png', pc, { stride: 120 }) && A.sprite('zz_s').anims.walk.stride === 120 && A.sprite('zz_s').anims.walk.n === 16);
+        // render both ways without throwing
+        var threw = null;
+        try { S.settings.lowFx = false; E.update(dt); E.render(); S.settings.lowFx = true; E.update(dt); E.render(); } catch (err) { threw = err; }
+        ok('render: normal and lowFx frames draw' + (threw ? ' (' + threw + ')' : ''), !threw);
+      } catch (err) { ok('R17 tests threw: ' + (err && err.stack ? String(err.stack).split('\n').slice(0, 2).join(' | ') : err), false); }
+      finally { S.settings.lowFx = keepLow; }
     }
 
 

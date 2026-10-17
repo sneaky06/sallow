@@ -48,6 +48,7 @@ async function run() {
     localStorage.clear();
     var cls = Object.keys(G.game.CLASSES)[0];
     G.scenes.startNewGame(cls, 'Tester');
+    try { var stg = G.state.settings; stg.sfx = false; stg.sfxVolume = 0; stg.musicVolume = 0; stg.ambienceVolume = 0; } catch (e) { }          // no sound from test runs
     await wait(900);
     // opening: home narration -> note page -> arrival -> elder
     log('opening first line: ' + (q('.ed-talk-text') || {}).textContent);
@@ -566,6 +567,34 @@ async function run() {
     ui._confirm('one', 'Yes', function () {}, { pause: true }); ui._confirm('two', 'Yes', function () {}, { pause: true });
     var cancels = document.querySelectorAll('.ed-modal .ed-btn'); [].filter.call(cancels, function (b) { return b.textContent === 'Cancel'; })[1].click();
     ck('closing one of two pausing modals keeps the game paused', S.paused === true); ui._closeModals(); ck('and closing the last resumes it', S.paused === false);
+    // play log: off by default, record -> export -> clear, zero listeners when off
+    var PL = ui._playLog, plRaw = function () { return localStorage.getItem(PL.key); };
+    ck('play log is off by default and holds nothing', !S.settings.playLog && !PL.enabled() && PL.count() === 0);
+    G.scenes.enterDungeon(2); await wait(1200); tapTalk(6); S.paused = false;
+    ck('nothing is recorded while it is off', PL.count() === 0 && !plRaw());
+    S.settings.playLog = true; G.emit('settings:changed', { key: 'playLog' });
+    ck('switching it on starts recording', PL.enabled());
+    var seen = 0, offDealt = G.on('player:dealt', function (e) { seen += e.amount; });
+    var mob = S.entities.filter(function (e) { return e.type === 'monster' && !e.dead && e.rarity !== 'boss'; })[0];
+    if (mob) G.game.applyHit(mob, { phys: 5 }, { src: S.player });
+    ck('a real hit of the player emits player:dealt', !mob || seen > 0, 'seen ' + seen); offDealt();
+    var boss = { id: 'tb1', rarity: 'boss', name: 'Test Boss', monsterId: 'tb' };
+    G.emit('player:dealt', { amount: 400, target: boss, crit: true }); G.emit('player:damaged', { amount: 90 });
+    G.emit('monster:killed', { monster: { rarity: 'champion' } }); G.emit('monster:killed', { monster: { rarity: 'normal' } }); G.emit('monster:killed', { monster: boss });
+    G.emit('potion:used', { kind: 'hp' }); G.emit('flow:chain', { count: 5 }); G.emit('item:picked', { item: { type: 'gold', qty: 37 } }); G.emit('item:picked', { item: { type: 'weapon', rarity: 'rare' } });
+    S.time += 75; G.emit('player:died', { cause: { kind: 'monster', id: 'rat', name: 'Giant Rat' } });
+    G.scenes.enterTown(); await wait(700); tapTalk(6); S.paused = false;
+    ck('leaving the floor stores one record', PL.count() === 1 && !!plRaw());
+    var txt = PL.export();
+    ck('export has the header, a table row and the data block', /SALLOW PLAYLOG v1/.test(txt) && /\n S?\s*2 /.test(txt) && /DATA \(/.test(txt) && /Giant Rat|Gian@/.test(txt), txt.slice(0, 300));
+    ck('export records the boss win, kills, potion, gold and the rare', /Test \d+sW/.test(txt) && /1\/1\/0\/0\/1/.test(txt) && /\n2,[a-z]+,75,/.test(txt) && / 37 /.test(txt), txt);
+    ck('export stays small', txt.length < 2500, txt.length + ' chars');
+    log('PLAYLOG EXAMPLE\n' + txt);
+    S.settings.playLog = false; G.emit('settings:changed', { key: 'playLog' });
+    var before = plRaw(); G.emit('player:dealt', { amount: 5, target: {} }); G.emit('monster:killed', { monster: { rarity: 'rare' } });
+    ck('off again: no listeners, log kept', !PL.enabled() && plRaw() === before && PL.count() === 1);
+    PL.clear();
+    ck('clear empties the log and storage', PL.count() === 0 && !plRaw() && /Nothing recorded/.test(PL.export()));
     G.ui.open('journal'); await wait(50); log('journal ok: ' + !!q('.ed-panel .ed-page')); ui.close();
     log('small controls (hud): ' + small(q('.ed-hud')).join('; '));
   } catch (err) { ERR.push('TEST: ' + err.stack); }

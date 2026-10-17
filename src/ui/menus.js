@@ -202,6 +202,11 @@
             toggleRow('Edit HUD layout', 'Move buttons, size, fade', h('span', { class: 'ed-gold', text: '>' }), function () { ui._editHud(); }),
           ];
         })() : null,
+        ui._playLog ? [
+          toggleRow(TX.playlog.recordLog, TX.playlog.note, !!st.playLog, function () { st.playLog = !st.playLog; G.emit('settings:changed', { key: 'playLog' }); }),
+          st.playLog || ui._playLog.count() ? ui._btn(TX.playlog.copyLog, function () { ui._playLog.copy(); }) : null,
+          ui._playLog.count() ? ui._btn(TX.playlog.clear + ' (' + ui._playLog.count() + TX.playlog.recorded + ')', function () { ui._playLog.clear(); ui.toast(TX.playlog.cleared, '#a89f8f'); ui._refreshNow(); }) : null,
+        ] : null,
         h('div', { class: 'ed-h', text: TX.common.junkRules }),
         ui._junkBlock ? ui._junkBlock() : null,
         ui._junkButton ? ui._junkButton() : null,

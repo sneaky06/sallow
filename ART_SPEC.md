@@ -14,7 +14,7 @@ anything you haven't made keeps its generated version, so you can work one file 
 1. Save it under `assets/` with the exact path from ART_LIST.md / SOUND_LIST.md (all lower case, e.g. `assets/sprites/warrior/walk.png`).
 2. Add the path to `assets/assets.js`, e.g. `'sprites/warrior/walk.png',` or `'sound/sfx/weapons/wpn_sword_swing.m4a',`. There is no limit on the number of entries.
    An entry can also be an object to set the playback rate of that file's frames: `{ file: 'sprites/goblin/walk.png', fps: 14 }` (characters, props and
-   fx strips; `loop: false` makes a normally looping idle/walk play once and hold its last frame). Without `fps` the default timing below is used.
+   fx strips; `loop: false` makes a normally looping idle/walk play once and hold its last frame; `stride` sets how much ground one loop of a walk covers). Without them the default timing below is used (section 2, "Smooth animation").
 3. Reload the game. A listed file that is missing, mis-sized or in an unknown folder is ignored, the generated version stays, and the browser console prints
    **one warning that names the file and says what is wrong** (open the game with `?assetdebug=1` to also log every file as it loads or is released; with
    Settings → Show FPS on, the counter ends in `ART <loaded>/<listed>`, plus `X<n>` = how many were rejected).
@@ -33,7 +33,7 @@ more); keep a clean silhouette so characters read against dark floors.
 ## Rules for every image
 
 - **PNG, 32-bit RGBA, transparent background.** Export at 100%, never upscaled. sRGB.
-- **No ground shadows, no lighting baked across the scene.** The game adds a soft shadow under every creature and lights the
+- **No ground shadows, no lighting baked across the scene.** The game adds a soft contact shadow under every creature and standing prop and lights the
   world with torches and the player's light. Paint form shading only (light from the **top-left**, like Diablo II).
 - **Keep 2 px of empty margin** inside every cell, so nothing touches the cell edge.
 - **Value contrast:** keep floors dark and in a narrow value range; characters, loot and props clearly lighter or darker.
@@ -101,21 +101,50 @@ Rows a theme doesn't use can be left transparent (the generated tile is used).
   (S, SW, W, NW, N, NE, E, SE) and name the file `<anim>_8.png`.
 - **Columns = frames**, left to right. Sheet size = frames × cell wide, 5 × cell tall (e.g. walk: 768 × 480).
 
-| File | Frames | Timing | Notes |
-|---|---|---|---|
-| `idle.png` | 4 | 1 s loop | breathing; NPCs only need this one |
-| `walk.png` | 8 | 0.5 s loop (two steps) | contact, down, pass, up × 2 |
-| `attack.png` | 6 | 0.27 s, last frame holds | wind-up (1–2), strike with the weapon fully out (3–4), recover |
-| `cast.png` | 6 | 0.33 s | raise, release (arms/staff up), recover |
-| `hit.png` | 2 | 0.2 s | recoil |
-| `die.png` | 6 | 0.5 s | fall; **the last frame stays on the ground** as the body (paint any blood pool into it) |
+| File | Minimum | **Smooth (recommended)** | Timing | Notes |
+|---|---|---|---|---|
+| `idle.png` | 4 | **8** | 1 s loop | breathing; NPCs only need this one |
+| `walk.png` | 8 | **12–16** (player 16) | one loop per ~89 px of ground (see below) | two steps: contact, down, pass, up × 2 |
+| `attack.png` | 6 | **10–12** (player 12) | 0.27 s, last frame holds | wind-up, strike with the weapon fully out (at the middle), recover |
+| `cast.png` | 6 | **10** | 0.33 s | raise, release (arms/staff up), recover |
+| `hit.png` | 2 | **3–4** | 0.2 s | recoil |
+| `die.png` | 6 | **10–12** | 0.5 s | fall; **the last frame stays on the ground** as the body (paint any blood pool into it) |
 
-- **Any frame count works** (the table is the minimum; the catalogue recommends 12 walk / 10 attack / 8 idle): the animation is spread over the same
-  time, or runs at `fps` when the file is listed with one. Trailing frames that are empty in *every* direction are ignored.
+- **Any frame count works** — see **Smooth animation** below for how frames map to time. Trailing frames that are empty in *every* direction are ignored.
 - **Boss phases:** `<anim>_p2.png` / `<anim>_p3.png` (e.g. `walk_p2.png`, `idle_p3_8.png`) replace the matching animation while the boss is in phase 2 / 3.
 - **Missing animations fall back:** cast ↔ attack, everything else → idle. A sprite needs at least `idle.png`.
 - Draw the creature's weapon into its sprite. The player is the exception (section 3).
 - The old 1× format (`sprites/<id>.png`, 640 × 80, 16 columns × 2 rows of 40 px) still loads.
+
+### Smooth animation (R17)
+
+More frames = smoother, more realistic motion; the game never needs a fixed count. What it does with the frames you give it:
+
+- **Frames = width ÷ cell.** A 16-frame walk at 96 px is 1536 × 480; a 12-frame boss attack at 192 px is 2304 × 960 (keep any sheet ≤ 4096 px wide,
+  the iPhone texture limit: ≤ 42 frames at 96, ≤ 21 at 192).
+- **Time-based animations** (idle, attack, cast, hit, die) spread **all** their frames evenly over the duration in the table: frame *k* of *n* shows from
+  *k/n × duration* to *(k+1)/n × duration*. So a 12-frame attack shows each frame for 22 ms, a 6-frame one for 45 ms — same length, smoother motion.
+  Idle loops; attack, cast, hit and die play once and hold the last frame.
+- **Your own rate:** list the file as `{ file: 'sprites/goblin/attack.png', fps: 30 }` and it plays at 30 frames a second instead (a 12-frame attack then
+  lasts 0.4 s). `loop: false` makes an idle play once and hold. Use this when the action really is slower or faster than the default.
+- **Walk is tied to the ground, not the clock.** The walk advances by the distance the character actually moves, so feet never slide: one loop of the
+  walk = **~89 px of screen ground** for a 96 cell (the distance the player covers in 0.5 s at base speed), ~178 px for a 192 cell. Paint the loop so the
+  planted foot moves back by about that much over two steps (≈ 45 px per step) and it will stay glued to the floor at every speed — slow zombies,
+  hasted players, knock-backs. If your cycle covers a different distance, say so: `{ file: 'sprites/brute/walk.png', stride: 120 }` (art px per loop).
+  With only `fps` on a walk, the loop length is taken as the distance covered at base speed in *frames ÷ fps* seconds.
+- **Attack strike frame:** put the weapon fully out at the **middle** of the attack (frame 6–7 of 12). When the player's swing connects the game freezes that
+  pose for a beat (hit-stop) and draws a weapon trail across the strike, so the middle frame is the one people see.
+- **Transitions are blended by the game:** after an attack or cast the last frame holds ~50 ms, then cross-fades (~70 ms) into idle/walk; idle ↔ walk
+  cross-fades too. No need to paint in-between frames for these.
+- **Death:** the body keeps a little of its momentum (it slides up to ~1/3 tile away from the killer) and lands with a small thud near the end of `die`,
+  so paint the fall in place around the anchor — don't move the body sideways in the frames.
+- **Gear overlays** should have exactly the body's frame count for each animation (they are resampled if not, but then poses drift); they inherit the body's
+  `fps` / `stride`.
+- **Recommended counts:** walk **12–16**, attack **10–12**, idle **8**, cast **10**, hit **3–4**, die **10–12** (player: 16 / 12 / 8 / 10 / 4 / 12).
+  `docs/ART_CATALOG.md` lists every file at these counts.
+- **Blender route (recommended for the player, gear, bosses):** render each clip at the chosen count by sampling it evenly over one loop (walk: one full
+  two-step cycle, the frame after the last = the first), at 3× the cell, then reduce with Lanczos. For walks, measure how far the root moves in one cycle
+  in the render and set `stride` to that many final art px if it is not ~89 (96 cell). Details in ART_CATALOG section 2.
 
 ## 3. The player and visible gear — `sprites/player_base/` + `assets/gear/<key>/<anim>.png`
 

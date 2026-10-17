@@ -157,3 +157,48 @@ item's `look.family`, e.g. `gear/rusted_mail_chest.png`). Listed in `assets/asse
 - **Props:** `prop.look` → `props/<look>.png` if drawn, else the base type recoloured toward `prop.tint` (by `prop.corrupt`).
 - **Templates:** gear overlays are isolated from the procedural rig by diffing the body with and without one item, then
   converted to 2x (`assets_templates/gear/<key>/<anim>.png`); `<class>_base` bodies too. 2,185 templates in all.
+
+## Revision 17 (engine side) — fidelity pass "B" and smooth animation
+New file `src/engine/motion.js` (manifest: before render.js). Everything below is off with `settings.lowFx` (the old look stays: old camera, old
+shake, old lights); "hi" = smooth light map (R > 1) and not lowFx.
+- **Lighting:** per-act colour grade (Shallows bog-green, Deep cold blue-violet, Hellscape scorched red, Endless bruised; town frost-blue → hearth-amber
+  with `flags.warmth`) and an oval vignette, both multiplied into the half-res light map (one 64×64 cached canvas — no full-screen pass). hi only:
+  bloom (soft additive glow over fire props, projectiles, spell fx and good loot, ≤ 24 sprites), lava tiles light the room (sparse grid, ≤ 10 lights),
+  live fx (explosions, novas, flashes, beams, drawn strips) light the scene while they play (`U.fx.lights`), rare+ loot lights its patch of floor,
+  soft contact shadows under standing props (`PROP_SHADOW` widths in render.js), creature shadows lean ~1.5 px away from the player's light.
+  `addLight(x, y, r, key, bloom)` takes an optional bloom 0..1; the light cap is 48 (14 in lowFx, unchanged).
+- **Camera:** critically damped follow (smooth time 0.14 s) with a lead of the same length in the direction of travel, so the player sits at the centre
+  while moving and the view settles without swinging past on a stop.
+- **Motion state** (`U.motion`, a WeakMap beside each entity; the game's x / y / anim / animT are never written): shoves/knockback faster than 14 tiles/s
+  ease out over ~0.2 s instead of popping (not the player; > 3 tiles = teleport, snaps); a new hit (`hitFlash` rising) jolts the target ~0.1 tile away
+  from the player and freezes its pose 65 ms (player 45 ms); `player:dealt` (melee, not dot/minion) freezes the player's swing 50 ms (crit 80 ms) at
+  the middle of the attack, where the strike frame is; dead bodies slide on with their momentum (≤ 0.38 tile, away from the killer), land with a 1.5 px
+  thud and a dust puff near the end of `die`, and keep that offset; animation changes hold the outgoing frame 50 ms after attack/cast, then cross-fade
+  70 ms (never into hit/die); melee swings (player with a non-ranged weapon, monsters without `proj`) draw a crescent weapon trail after the light pass.
+- **Walk cycle locked to ground speed** (always, lowFx too — it is correctness, not an effect): the walk frame comes from the screen distance the entity
+  actually covered, one loop per `U.motion.stride()` ≈ 89 art px (player base speed × 0.5 s) for a 96 cell, scaled by cell size; a file's
+  `{ stride }` or `{ fps }` overrides. Standing still in 'walk' does not animate.
+- **Shake:** about half the old amplitude, soft-capped near 4 logical px for amount 10, smooth two-sine wobble, quadratic fade, whole backing pixels.
+- **Loader:** `{ file, stride }` entries (walk). Gear: composed player sheets keep the body's fps / loop / stride; a hand-drawn base body that finishes
+  loading after the first frame is now picked up at once (the sheet signature/cache key include the base's version — before, it waited for the next
+  floor change). HD sheet `ver` is now unique across reloads.
+- **Tests:** tests/engine.html → "run touch tests" now also runs 21 R17 checks (walk sync at 1×/0.5×/standing, 8 vs 16 frames, stride/fps/192 cell,
+  knockback ease, teleport snap, hit-stop, recoil, death settle, blend hold/fade, no blend into hit, lowFx off-switch, shake bounds, fx lights,
+  loader stride, normal + lowFx frames render).
+- **Audio `?mute`:** any page opened with `?mute` creates the AudioContext suspended at gain 0 and never starts music (`U.audio.muted`);
+  tests/engine.html adds it to its own URL unless opened with `?sound`.
+- **Frame cost (R17).** Headless Chrome, iPhone viewport 375×812 @3x (R 2, 282×609 logical), 4× CPU throttle, a fixed scene per act (seed 4242,
+  8 monsters around the player, 3 drops, an explosion + hit every 40 frames), E.update + E.render + GPU flush per frame, median of 3 alternated
+  before/after runs × 3 rounds × 300 frames. Before = HEAD 6bae9a1.
+
+  | Act (depth) | before normal | after normal | Δ | before lowFx | after lowFx | Δ |
+  |---|---:|---:|---:|---:|---:|---:|
+  | Town (0) | 11.58 ms | 12.08 ms | +4% | 11.10 ms | 10.70 ms | −4% |
+  | The Shallows (3) | 3.08 ms | 3.17 ms | +3% | 3.08 ms | 3.00 ms | −3% |
+  | The Deep (13) | 4.63 ms | 4.97 ms | +7% | 4.31 ms | 4.30 ms | 0% |
+  | Hellscape (23) | 4.48 ms | 4.57 ms | +2% | 3.49 ms | 3.46 ms | −1% |
+
+  Unthrottled (single run each): +9% / +8% / +6% / +9% normal, lowFx unchanged. Run-to-run noise is about ±5%, so lowFx is "no change".
+  Screenshots (canvas only, 0.4 scale of the 1125×2436 phone): `docs/handover/r17-<act>-before.png`, `-after.png`, `-after-lowfx.png`.
+- **Measuring note:** never `getImageData` the game canvas to time it — Chrome then demotes it to software rendering and the town's full-screen
+  `color` blend (warmth 0 frost wash) costs ~160 ms a frame. The bench reads through a 1×1 sink canvas instead.

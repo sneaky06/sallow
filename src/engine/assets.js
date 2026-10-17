@@ -7,6 +7,7 @@
 // assets.js entries: 'sprites/goblin/walk.png'  |  { file: 'sprites/goblin/walk.png', fps: 12, loop: true }   (no cap on the count)
 //   fps  = playback rate of that file's frames (characters, props, fx strips); without it the engine's default timing is used
 //   loop = false makes a normally looping animation (idle/walk) play once and hold its last frame
+//   stride = walk only: art px of ground one loop of the walk covers (R17; default: from fps, else ~89 px per 96 cell)
 //
 // Accepted paths (all lower-case snake_case; every other path is rejected with a warning):
 //   tiles/<theme>[_<variantId>].png            sprites/<id>.png (1x sheet)    sprites/<id>/<anim>[_8|_p2|_p3].png
@@ -216,6 +217,7 @@
     return { c: px.c, n: n, rows: rows, cell: cell, top: top };
   }
   // HD sheet object read by render.js / gear.js
+  let hdVer = 0;
   function hdObj() {
     return { hd: true, cell: HD.CELL, ox: HD.OX, oy: HD.OY, top: 60, scale: HD.SCALE, anims: Object.create(null), hover: false, wide: false, ver: 0, phased: false };
   }
@@ -225,7 +227,7 @@
     else if (anim === 'idle' || !target.anims.idle) {
       target.cell = rec.cell; target.ox = rec.cell >> 1; target.oy = Math.round(rec.cell * 7 / 8); target.top = rec.top;
     }
-    target.ver++;
+    target.ver = ++hdVer;                 // unique across reloads, so a sheet composed from a released copy is never reused
   }
   // 'walk_8' / 'walk_p2' / 'walk_p2_8' → { anim: 'walk', key: 'walk_p2', rows: 8 } or null
   function animOf(s) {
@@ -236,6 +238,7 @@
   function timing(rec, meta) {
     if (meta && meta.fps > 0) rec.fps = meta.fps;
     if (meta && meta.loop === false) rec.loop = false;
+    if (meta && meta.stride > 0) rec.stride = meta.stride;        // walk: art px of ground one loop covers (R17)
     return rec;
   }
 
@@ -397,7 +400,8 @@
         meta = {};
         if (typeof it.fps === 'number' && it.fps > 0 && it.fps <= 120) meta.fps = it.fps; else if (it.fps != null) warn(path, 'fps must be a number between 0 and 120 - ignored');
         if (it.loop === false) meta.loop = false;
-      } else { warn('assets.js entry #' + i, 'expected a path string or { file, fps, loop } - ignored'); continue; }
+        if (typeof it.stride === 'number' && it.stride > 0 && it.stride <= 2000) meta.stride = it.stride; else if (it.stride != null) warn(path, 'stride must be a number of pixels between 0 and 2000 - ignored');
+      } else { warn('assets.js entry #' + i, 'expected a path string or { file, fps, loop, stride } - ignored'); continue; }
       if (recs[path]) continue;
       nListed++;
       if (/^sound\//.test(path)) { nSound++; if (U.audio && U.audio.addFile) U.audio.addFile(path, BASE + path); continue; }

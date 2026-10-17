@@ -326,3 +326,9 @@ Status: tests/combat.html → 494/494, 0 errors.
   kills from 8+ tiles, kills while moving, Close Calls (Ranger); shatters, freezes, Close Calls within 1 s of a Blink (Sorcerer);
   minion kills, Corpse Explosions, 8 minions at once (Necromancer). Names are placeholders for the story team.
 - Wave B data: harness `runTTK()` (?real=1) — see the round report.
+
+## Play-log signals (ui/playlog.js)
+Two one-line emits were added for the optional play log; nothing else in combat/player changed:
+- `player:dealt { amount, target, crit, dot, minion }` at the end of the monster branch in `game.applyHit` (combat.js), only when the source is `faction: 'player'` (minions included, flagged).
+- `potion:used { kind }` in `game.usePotion` (player.js) after the potion is spent.
+Both are no-ops with no listener; the log only listens while "Record play log" is on.
