@@ -66,3 +66,4 @@ kits per class × auto-build × level, hits-to-kill, fight times for packs / eli
 parity, average vs skilled play. Open it over `serve.ps1` and press **Run** (or add `?auto`); about 1 minute for the full matrix.
 Query: `levels=10,20` `classes=warrior` `modes=single,aoe` `gear=typical,strong` `skill=avg,skilled` `reps=6` `t=20` `noboss=1` `quick=1`.
 Console helpers: `balQuick()` (parity digest), `balCurve('1,5,10')` (per-level fit quantities), `balSkills(40)` (each skill alone).
+- `tests/firstrun.html`: plays a scripted new player for every class and prints the first-ten-minutes timeline. Not part of the release gate.
