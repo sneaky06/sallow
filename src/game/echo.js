@@ -149,21 +149,25 @@
   }
 
   game.createEcho = function (ec, x, y, depth) {
-    const s = ec.snap, L = game.monsterLevel(depth) + 2;
+    // a new hero's shallow corpse run meets a faint Echo (firstrun.js): your level, your life, under half a common monster's swing
+    const faint = !!(game.faintEcho && game.faintEcho(depth));
+    const s = ec.snap, L = faint ? Math.max(1, Math.min(game.monsterLevel(depth), s.level | 0 || 1)) : game.monsterLevel(depth) + 2;
     const e = game.createMonster('echo', x, y, L, 'normal', null, true);
     const legHp = M.skeleton.hp * game.hpScale(L) * 6;
     e.name = 'Echo of ' + s.name; e.echo = true; e.ghost = true; e.rarity = 'legendary'; e.affixes = [];
     e.classId = s.classId; e.equipment = s.equipment; e.sprite = Object.assign({}, s.sprite, { scale: 1 });
-    e.stats.hpMax = e.hp = Math.round(Math.max(2.5 * s.hpMax, legHp * 0.9));
+    e.stats.hpMax = e.hp = Math.round(faint ? Math.max(s.hpMax, legHp * 0.3) : Math.max(2.5 * s.hpMax, legHp * 0.9));
     e.stats.armor = s.armor | 0; e.stats.dodge = Math.min(25, s.dodge || 0); e.stats.block = Math.min(25, s.block || 0);
     e.stats.resFire = s.res.fire | 0; e.stats.resCold = s.res.cold | 0; e.stats.resLightning = s.res.lightning | 0; e.stats.resPoison = s.res.poison | 0;
-    const swing = 3 * game.dmgScale(L) * 1.45 * 0.8;          // a legendary monster's swing at this depth, ×0.8
+    if (faint) e.faint = true;
+    const swing = 3 * game.dmgScale(L) * (faint ? 0.45 : 1.45 * 0.8);          // a legendary monster's swing at this depth, ×0.8 (faint: a common one's, ×0.45)
     e.dmgMin = swing * 0.85; e.dmgMax = swing * 1.15;
     e.speed = (game.BASE_SPEED || 5) * (1 + (s.moveSpeed || 0) / 100) * 0.8;
     e.xp = Math.round(e.xp * 3); e.noLoot = true; e.radius = 0.32;
     const st = game.getStyle(s.style);
     e.kit = { moves: buildKit(s), ranged: !!s.ranged, opener: st.opener, hpAt: U.clamp(st.hpAt, 0.2, 0.6), pots: Math.min(3, Math.max(1, Math.round(st.potions / 4))),
       dash: (st.shares.dash || 0) > 0.03, charges: (game.CLASSES[s.classId] && game.CLASSES[s.classId].action && game.CLASSES[s.classId].action.charges) || 1 };
+    if (faint) e.kit.pots = 0;
     e.kit.dashN = e.kit.charges;
     e.anim = 'die'; e.animT = 99;          // lies where it fell until you come close
     return e;

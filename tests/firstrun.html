@@ -1,0 +1,365 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sallow — first ten minutes</title>
+<style>
+  html,body { margin:0; background:#0b0a0f; color:#e8e2d0; font:12px/1.4 system-ui,sans-serif; }
+  #wrap { display:flex; gap:16px; padding:12px; align-items:flex-start; flex-wrap:wrap; }
+  #main { flex:1 1 560px; min-width:0; }
+  iframe { border:1px solid #333; width:375px; height:667px; background:#000; }
+  table { border-collapse:collapse; width:100%; margin:6px 0 14px; }
+  td,th { border-bottom:1px solid #2a2733; padding:3px 6px; text-align:left; vertical-align:top; }
+  td.t { white-space:nowrap; color:#8a8576; font-family:ui-monospace,Consolas,monospace; }
+  .k-tip { color:#ffcf5b; } .k-talk { color:#bfe6ff; } .k-mile { color:#5bd66b; font-weight:700; } .k-warn { color:#ff7b5b; font-weight:700; }
+  .k-banner { color:#d8a0ff; } .k-hint { color:#ffe45b; font-style:italic; } .k-toast { color:#8a8576; } .k-panel { color:#9cc2ff; }
+  h2 { font-size:14px; margin:10px 0 2px; }
+  button { background:#2a2733; color:#e8e2d0; border:1px solid #444; padding:5px 10px; border-radius:4px; cursor:pointer; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="main">
+    <b>First ten minutes</b> — a scripted new player per class, at phone size, from the title screen.
+    <button id="bRun">Run</button> <span id="st"></span>
+    <div style="color:#8a8576">Query: classes=warrior,ranger · mins=10 (player-clock budget) · seed=n · nolog=toast. The clock is game time while unpaused
+      plus an estimated reading time for every card/line (words ÷ 3.5 + 0.8 s) and ~1.5 s per menu decision. Not a gate: the bot is random.</div>
+    <div id="out"></div>
+  </div>
+  <iframe id="gframe" title="game"></iframe>
+</div>
+<script>
+'use strict';
+var Q = new URLSearchParams(location.search);
+var ROOT = location.href.replace(/tests\/firstrun\.html.*$/, '');
+var sleep = function (ms) { return new Promise(function (r) { setTimeout(r, ms); }); };
+var $ = function (id) { return document.getElementById(id); };
+var esc = function (t) { return String(t).replace(/[&<>]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]; }); };
+var gframe = $('gframe');
+// rAF is replaced so only this page steps the game (deterministic clock); errors are collected
+var HOOK = '(function(){window.__T={errors:[],mainLoaded:false};window.requestAnimationFrame=function(){return 0};' +
+  'window.addEventListener("error",function(e){__T.errors.push("window error: "+e.message+" @ "+String(e.filename||"").split("/").slice(-2).join("/")+":"+e.lineno)});' +
+  'var ce=console.error;console.error=function(){__T.errors.push("console.error: "+[].map.call(arguments,function(x){return x&&x.stack?String(x.stack).split("\\n").slice(0,2).join(" | "):String(x)}).join(" "));ce.apply(console,arguments)};' +
+  'document.addEventListener("load",function(e){var t=e.target;if(t&&t.src&&/core\\/main\\.js$/.test(t.src))__T.mainLoaded=true},true);})();';
+// loaded by URL (so ?mute reaches the game); the hook goes in once main.js has run, and stops the rAF loop at its next frame
+async function loadGame() {
+  gframe.src = 'about:blank'; await sleep(50);
+  gframe.src = ROOT + 'index.html?' + (Q.get('gameq') || 'mute');
+  var t0 = Date.now();
+  while (Date.now() - t0 < 45000) {
+    await sleep(60);
+    var w = gframe.contentWindow;
+    if (w && w.G && w.G.ui && w.G.state && w.document.readyState === 'complete' && w.document.querySelector('.ed-title .ed-btn')) { w.eval(HOOK); await sleep(100); return w; }
+  }
+  throw new Error('game did not load');
+}
+
+// ------------------------------------------------------------------ one new player
+async function runClass(cls, budgetMin) {
+  try { Object.keys(localStorage).filter(function (k) { return /^emberdeep/.test(k); }).forEach(function (k) { localStorage.removeItem(k); }); } catch (e) { /* ignore */ }
+  var w = await loadGame(), d = w.document, G = w.G, S = G.state, ui = G.ui;
+  var R = { cls: cls, rows: [], read: 0, firsts: {}, deaths: 0, tips: [], minHp: {}, potions: 0, floors: {}, modalsAt: [] };
+  var clock = function () { return (S.time || 0) + R.read; };
+  var fmt = function (t) { var m = Math.floor(t / 60), s = Math.floor(t % 60); return m + ':' + (s < 10 ? '0' : '') + s; };
+  function row(kind, text) { R.rows.push({ t: clock(), kind: kind, text: String(text).replace(/\s+/g, ' ').trim().slice(0, 220) }); }
+  function first(key, text) { if (R.firsts[key] != null) return; R.firsts[key] = clock(); row('mile', key + (text ? ' — ' + text : '')); }
+  var words = function (t) { return String(t || '').split(/\s+/).filter(Boolean).length; };
+  var readCost = function (t) { return words(t) / 3.5 + 0.8; };
+
+  // ---- observe
+  var origBanner = ui._banner;
+  ui._banner = function (title, text) { if (!/^(Depth|Act)/.test(String(text || ''))) row('banner', title + (text ? ' · ' + text : '')); else row('banner', title + ' · ' + text); return origBanner.apply(this, arguments); };
+  var origToast = ui.toast;
+  ui.toast = function (text) { if (Q.get('nolog') !== 'toast') row('toast', text); return origToast.apply(this, arguments); };
+  G.on('monster:killed', function (e) { if (e && e.monster && e.monster.faction !== 'player') { first('first kill', e.monster.name); if (e.monster.rarity === 'boss') first('first boss killed', e.monster.name); if (e.monster.echo) first('echo slain'); } });
+  G.on('item:picked', function (e) {
+    var it = e && e.item; if (!it || it.type === 'gold') return;
+    first('first item picked', it.rarity + ' ' + it.name);
+    var v = G.items.verdict ? G.items.verdict(it) : null;
+    if (v === 'up') first('first ▲ upgrade picked', it.name);
+  });
+  G.on('equipment:changed', function () { if (R.firsts['first ▲ upgrade picked'] != null) first('first upgrade equipped'); });
+  G.on('player:levelup', function (e) { row('mile', 'level ' + e.level); if (e.level === 2) first('first level-up'); });
+  G.on('skill:learned', function (e) { first('first skill learned', e.skillId + (e.auto ? ' (auto)' : '')); });
+  var hits = [];
+  G.on('player:damaged', function (e) { var s = e && e.source; hits.push({ t: S.time, a: Math.round(e && e.amount || 0), who: s ? (s.echo ? 'ECHO ' : '') + (s.name || s.monsterId || '?') + (s.rarity && s.rarity !== 'normal' ? '[' + s.rarity + ']' : '') : '?' }); if (hits.length > 40) hits.shift(); });
+  G.on('player:died', function () {
+    R.deaths++; first('first death', 'depth ' + S.depth + ', level ' + S.player.level);
+    var p = S.player, recent = hits.filter(function (x) { return S.time - x.t < 8; }), by = {};
+    recent.forEach(function (x) { by[x.who] = (by[x.who] || 0) + x.a; });
+    var near = (S.entities || []).filter(function (e) { return e.type === 'monster' && !e.dead && e.faction !== 'player' && Math.hypot(e.x - p.x, e.y - p.y) < 6; }).length;
+    row('warn', 'DIED on depth ' + S.depth + ' (' + R.deaths + '), level ' + p.level + ', max life ' + Math.round(p.stats.hpMax) + ', potions left ' + p.potions.hp + ', foes within 6: ' + near + ', last 8 s: ' + Object.keys(by).map(function (k) { return k + ' ' + by[k]; }).join(', '));
+  });
+  G.on('npc:interact', function (e) { if (e && e.role === 'merchant') first('first trader visit'); });
+  G.on('scene:changed', function (e) { if (!e) return; row('mile', e.scene === 'town' ? 'arrive in town' : 'arrive depth ' + e.depth); if (e.scene === 'dungeon') { first('first floor', 'depth ' + e.depth); R.floors[e.depth] = R.floors[e.depth] || { t: clock() }; } });
+  G.on('player:damaged', function () { var p = S.player; if (!p) return; var k = S.depth; var f = p.hp / p.stats.hpMax; if (R.minHp[k] == null || f < R.minHp[k]) R.minHp[k] = f; });
+  G.on('input:potion', function () { R.potions++; });
+  var origReclaim = G.scenes.reclaimCorpse;
+  G.scenes.reclaimCorpse = function () { first('corpse reclaimed'); return origReclaim.apply(this, arguments); };
+
+  // ---- the clock-stepping loop (rAF is off)
+  function step(dt) {
+    if (S.scene !== 'menu' && !S.paused) { var ts = S.timeScale > 0 && S.timeScale <= 1 ? S.timeScale : 1; S.time += dt * ts; try { G.game.update(dt * ts); } catch (e) { w.console.error('[game.update]', e); } }
+    try { G.engine.update(dt); if ((step.n = (step.n | 0) + 1) % 6 === 0) G.engine.render(); } catch (e) { w.console.error('[engine]', e); }
+    try { ui.update(dt); } catch (e) { w.console.error('[ui.update]', e); }
+  }
+  // read and dismiss whatever card / line / dialog is up (one at a time, like a player). Returns true if it did something.
+  function handleModal() {
+    var talk = d.querySelector('.ed-talk');
+    if (talk) {
+      var txt = talk.innerText.replace(/▶ tap|■ close/i, '');
+      if (!handleModal.lastTalk || handleModal.lastTalk !== txt) { row('talk', txt); handleModal.lastTalk = txt; }
+      R.read += readCost(txt); R.modalsAt.push(clock()); talk.click(); return true;
+    }
+    var m = d.querySelector('.ed-modal');
+    if (m && m === handleModal.lastEl) {          // a card ignores taps for its first 0.4 s (real time): wait, then tap again
+      if (Date.now() - handleModal.lastAt < 450) return true;
+      var b2 = [].filter.call(m.querySelectorAll('.ed-btn'), function (x) { return /^(close|ok|continue|got it|decline|no|not now|later|skip)$/i.test(x.textContent.trim()); })[0] || m.querySelector('.ed-btn');
+      if (b2) b2.click(); else m.click();
+      handleModal.lastAt = Date.now();
+      return true;
+    }
+    if (m) {
+      handleModal.lastEl = m; handleModal.lastAt = Date.now();
+      var tx = m.innerText;
+      var tipdlg = m.querySelector('.ed-tipdlg');
+      row(tipdlg ? 'tip' : 'dialog', tx.replace(/OK|Turn tips off|Tap anywhere to continue.*$/gim, ''));
+      if (tipdlg) R.tips.push(clock());
+      R.read += readCost(tx); R.modalsAt.push(clock());
+      var b = [].filter.call(m.querySelectorAll('.ed-btn'), function (x) { return /^(close|ok|continue|got it|decline|no|not now|later|skip)$/i.test(x.textContent.trim()); })[0];
+      if (!b) b = m.querySelector('.ed-btn');
+      if (b) { b.click(); } else { m.click(); }
+      return true;
+    }
+    return false;
+  }
+  async function settle(maxSteps) { var quiet = 0; for (var i = 0; i < (maxSteps || 40) * 10; i++) { await sleep(5); step(0.05); if (handleModal()) quiet = 0; else if (++quiet > 4) return; } }
+  var think = function (s) { R.read += s; };
+
+  // ---- title → class → name → begin (real buttons)
+  await sleep(200); step(0.05);
+  if (G.meta.hasSave()) { G.meta.deleteSave(); ui._showTitle(); await sleep(50); }          // the previous frame saved on unload
+  var ng = [].filter.call(d.querySelectorAll('.ed-title .ed-btn'), function (b) { return /new game/i.test(b.textContent); })[0];
+  if (!ng) { row('warn', 'no New Game button'); return R; }
+  ng.click(); think(2); await sleep(50);
+  var cb = [].filter.call(d.querySelectorAll('.ed-class'), function (b) { return b.textContent.toLowerCase().indexOf(G.game.CLASSES[cls].name.toLowerCase()) >= 0; })[0];
+  if (cb) cb.click();
+  think(6 + readCost(d.querySelector('.ed-cdesc') ? d.querySelector('.ed-cdesc').innerText : ''));      // compare classes, read one
+  var inp = d.querySelector('.ed-name input'); if (inp) { inp.value = 'Nova'; inp.dispatchEvent(new w.Event('input')); think(4); }
+  [].filter.call(d.querySelectorAll('.ed-title .ed-btn'), function (b) { return /begin/i.test(b.textContent); })[0].click();
+  row('mile', 'game started');
+  // the opening plays after a short timer
+  for (var k = 0; k < 40; k++) { await sleep(60); step(0.05); if (handleModal()) k = 0; else if (k > 12) break; }
+  first('opening done');
+
+  // ---- helpers for play
+  var I = G.items;
+  function dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
+  function tap(x, y) { G.emit('input:tap', { x: x, y: y }); }
+  function nearestFoe(p, r) { var best = null, bd = r || 1e9; (S.entities || []).forEach(function (e) { if (e.type === 'monster' && !e.dead && e.faction !== 'player' && e.faction !== 'neutral') { var dd = dist(e, p); if (dd < bd && G.world.hasLineOfSight(S.map, p.x, p.y, e.x, e.y)) { bd = dd; best = e; } } }); return best; }
+  function findProp(type) { return (S.map.props || []).find(function (pr) { return pr.type === type || pr.interact === type; }); }
+  function stairsDown() { var T = G.C.TILE.STAIRS_DOWN, m = S.map; for (var i = 0; i < m.tiles.length; i++) if (m.tiles[i] === T) return { x: i % m.w + 0.5, y: ((i / m.w) | 0) + 0.5 }; return null; }
+  function frontier(p) {
+    var m = S.map, best = null, bd = 1e9, W = m.w;
+    for (var y = 1; y < m.h - 1; y++) for (var x = 1; x < W - 1; x++) {
+      var i = y * W + x; if (m.explored[i] || !G.world.isWalkable(m, x, y)) continue;
+      if (!(m.explored[i - 1] || m.explored[i + 1] || m.explored[i - W] || m.explored[i + W])) continue;
+      var dd = Math.hypot(x + 0.5 - p.x, y + 0.5 - p.y); if (dd < bd && dd > 2) { bd = dd; best = { x: x + 0.5, y: y + 0.5 }; }
+    }
+    return best;
+  }
+  function explored() { try { var e = G.game.getExplored(); return e && e.value != null ? e.value : 0; } catch (e2) { return 0; } }
+  // a new player notices a badge after a while, opens the panel, presses the obvious thing
+  var noticeSkill = 0, noticeBag = 0, lastHit = -9;
+  G.on('player:damaged', function () { lastHit = S.time; });
+  function calm() { return S.time - lastHit > 3 && !nearestFoe(S.player, 6); }
+  async function spendSkillPoints() {
+    var p = S.player; if (!(p.skillPoints > 0)) { noticeSkill = 0; return; }
+    if (!noticeSkill) noticeSkill = S.time; if (S.time - noticeSkill < 8 || !calm()) return;
+    ui.open('skills'); await sleep(20); think(4);
+    var body = d.querySelector('.ed-panel'); row('panel', 'Skills panel: ' + (body ? body.innerText.slice(0, 160) : ''));
+    // the auto-build buttons are "front and centre": a new player takes the first one
+    var ab = d.querySelectorAll('.ed-panel .ed-autobtn')[S.player.autoBuild ? 99 : 2];
+    if (ab) { ab.click(); row('panel', 'pressed "' + ab.textContent.trim() + '"'); await sleep(20); }
+    await settle(); ui.close(); await settle(); noticeSkill = 0;
+    if (p.skillPoints > 0 && !p.autoBuild) { row('warn', 'still ' + p.skillPoints + ' skill point(s) after visiting the Skills panel'); G.game.setAutoBuild('balanced'); }
+  }
+  async function equipUpgrades() {
+    var p = S.player, idx = -1;
+    p.inventory.forEach(function (it, i) { if (idx < 0 && it && it.slot && I.verdict(it) === 'up') idx = i; });
+    if (idx < 0) { noticeBag = 0; return; }
+    if (!noticeBag) noticeBag = S.time; if (S.time - noticeBag < 6 || !calm()) return;
+    ui.open('inventory'); await sleep(20); think(5);
+    var it = p.inventory[idx]; I.equip(idx); row('panel', 'equipped ' + it.rarity + ' ' + it.name + ' (' + it.slot + ') from the bag'); await settle(); ui.close(); await settle(); noticeBag = 0;
+  }
+  function bagCount() { return S.player.inventory.filter(Boolean).length; }
+
+  async function townVisit(reason) {
+    row('mile', 'town visit: ' + reason);
+    await settle(60);
+    // talk to the Elder once (the tracker says so), accept the main step
+    if (!R.elder && !S.flags.fte) {          // a new hero (flags.fte) follows the guide arrow instead
+      R.elder = true; var el = S.entities.find(function (e) { return e.role === 'elder'; });
+      await walkTo(el.x, el.y + 1.2, 40);
+      G.emit('npc:interact', { role: 'elder', entity: el }); await sleep(30); await settle();
+      var pan = d.querySelector('.ed-panel'); var acc = pan ? [].filter.call(pan.querySelectorAll('.ed-btn'), function (b) { return /accept/i.test(b.textContent); }) : [];
+      row('panel', 'Elder panel: ' + acc.length + ' ACCEPT buttons; ' + words(pan ? pan.innerText : '') + ' words');
+      think(12); if (acc[0]) acc[0].click(); await settle(); ui.close(); await settle();
+    }
+    if (bagCount() >= 6 || (ui._coachState && ui._coachState().guide === 'sell')) {
+      var mer = S.entities.find(function (e) { return e.role === 'merchant'; });
+      await walkTo(mer.x, mer.y + 1.2, 40);
+      G.emit('npc:interact', { role: 'merchant', entity: mer }); await sleep(30); await settle();
+      var pn = d.querySelector('.ed-panel');
+      row('panel', 'Merchant: ' + (pn ? pn.innerText.replace(/\s+/g, ' ').slice(0, 200) : 'no panel'));
+      think(15);
+      var g0 = S.player.gold;
+      try { if (I.sellAtOrBelow) I.sellAtOrBelow('uncommon'); } catch (e) { /* ignore */ }
+      row('panel', 'sold to the merchant: +' + (S.player.gold - g0) + ' gold');
+      await settle(); ui.close(); await settle();
+    }
+    await settle(10);
+    if (ui._coachState && ui._coachState().guide === 'healer') {          // the guide's next stop: flasks
+      var hl = S.entities.find(function (e) { return e.role === 'healer'; });
+      await walkTo(hl.x, hl.y + 1.2, 40);
+      G.emit('npc:interact', { role: 'healer', entity: hl }); await sleep(30); await settle(); think(8);
+      var n0 = S.player.potions.hp; for (var b = 0; b < 4 && S.player.potions.hp < 5; b++) G.items.buyPotion('hp');
+      row('panel', 'healer: bought ' + (S.player.potions.hp - n0) + ' flasks'); ui.close(); await settle();
+    }
+    // back down: the portal if one is open, else the entrance, then the corpse floor if there is one, else the deepest waypoint
+    if (S.flags.portalDepth > 0) { var pt = findProp('portal'); if (pt) await walkTo(pt.x + 0.5, pt.y + 0.5, 30); think(2); G.scenes.usePortal(); await settle(); return; }
+    var ent = findProp('dungeon_entrance'); await walkTo(ent.x + 0.5, ent.y + 1.5, 40);
+    var target = S.flags.corpse ? S.flags.corpse.depth : Math.max.apply(null, S.flags.waypoints || [1]);
+    var way = (S.flags.waypoints || [1]).filter(function (x) { return x <= target; }); think(3);
+    G.scenes.enterDungeon(Math.max.apply(null, way.length ? way : [1]));
+    await settle();
+  }
+  async function walkTo(x, y, secs) {
+    for (var i = 0; i < secs * 20; i++) {
+      var p = S.player; if (dist(p, { x: x, y: y }) < 1.4) return true;
+      if (i % 30 === 0) tap(x, y);
+      if (S.paused) { if (!handleModal() && ui.isOpen()) ui.close(); }
+      step(0.05); if (i % 10 === 9) await sleep(0);
+    }
+    return false;
+  }
+
+  // ---- town → the dungeon
+  await townVisit('start');
+
+  // ---- play until the budget runs out
+  var budget = budgetMin * 60, i = 0, floorStart = S.time, goal = null, goalT = 0, lastDepth = S.depth;
+  while (clock() < budget) {
+    var p = S.player; i++;
+    if (S.scene === 'town') { await townVisit(R.deaths ? 'after death' : 'portal'); floorStart = S.time; continue; }
+    if (p.dead || (ui._current() && ui._current().name === 'death')) {
+      for (var t = 0; t < 40 && !d.querySelector('.ed-death .ed-btn'); t++) { await sleep(30); step(0.05); }
+      var db = d.querySelector('.ed-death .ed-btn');
+      row('panel', 'Death screen: ' + (d.querySelector('.ed-death') ? d.querySelector('.ed-death').innerText.replace(/\s+/g, ' ').slice(0, 260) : '?'));
+      think(readCost(d.querySelector('.ed-death') ? d.querySelector('.ed-death').innerText : '')); if (db) db.click(); else G.scenes.respawn();
+      await settle(); continue;
+    }
+    if (S.paused) { if (!handleModal()) { if (ui.isOpen() && ui._current().name !== 'death') { row('panel', 'closed panel ' + ui._current().name); ui.close(); } else S.paused = false; } await sleep(5); continue; }
+    if (S.depth !== lastDepth) { lastDepth = S.depth; floorStart = S.time; goal = null; }
+    if (i % 40 === 0) { await spendSkillPoints(); await equipUpgrades(); }
+    // fight
+    var foe = nearestFoe(p, 9);
+    G.input.attackHeld = !!foe;
+    if (foe) {
+      var dd = dist(p, foe), ranged = p.bonus && p.bonus.w && p.bonus.w.ranged;
+      var want = ranged ? 4.5 : 1.0;
+      if (dd > want + 0.5) { G.input.move.x = (foe.x - p.x) / dd; G.input.move.y = (foe.y - p.y) / dd; }
+      else { G.input.move.x = G.input.move.y = 0; }
+      if (i % 25 === 0) for (var sl = 0; sl < 4; sl++) if (p.skillBar[sl]) { G.emit('input:skill', { slot: sl }); break; }
+      if (p.hp < p.stats.hpMax * 0.35 && i % 10 === 0 && p.potions.hp > 0) G.emit('input:potion', { kind: 'hp' });
+      if (p.hp < p.stats.hpMax * 0.5 && dd < 2 && i % 60 === 0) G.emit('input:classaction', {});
+    } else {
+      G.input.move.x = G.input.move.y = 0;
+      var gi = (S.groundItems || []).filter(function (g) { return g.item && g.item.type !== 'gold' && dist(g, p) < 10; })[0];
+      if (gi && bagCount() < 50) { if (i % 15 === 0) tap(gi.x, gi.y); }
+      else {
+        var fast = Q.get('pace') === 'fast';          // ?pace=fast: a player who heads for the stairs early (boss timing)
+        var leave = explored() > (fast ? 40 : 75) || S.time - floorStart > (fast ? 75 : 150);
+        if (S.depth >= 5 && S.depth % 5 === 0) leave = S.time - floorStart > 240;
+        if (S.flags.corpse && S.flags.corpse.depth === S.depth) { leave = false; goal = { x: Math.floor(S.flags.corpse.x) + 0.5, y: Math.floor(S.flags.corpse.y) + 0.5 }; goalT = S.time + 6; }          // follow the corpse guide
+        if ((bagCount() >= 40 || R.hint === 'portal') && G.scenes.townPortal) { row('mile', 'town portal (' + (R.hint === 'portal' ? 'coach hint' : 'bag full') + ')'); R.hint = null; G.scenes.townPortal(); continue; }
+        if (leave) { var st = stairsDown(); if (st && (!goal || goal.st === undefined)) { goal = { x: st.x, y: st.y, st: 1 }; } }
+        else if (!goal || S.time > goalT || dist(p, goal) < 1.2) { goal = frontier(p); goalT = S.time + 6; }
+        if (goal && i % 20 === 0) tap(goal.x, goal.y);
+      }
+    }
+    step(0.05);
+    if (i % 8 === 0) await sleep(0);
+    if (ui._coachState) { var cs = ui._coachState(); if (cs.hint !== R.hint) { R.hint = cs.hint; if (cs.hint) row('hint', 'coach: ' + cs.hint); } if (cs.guide !== R.guide) { R.guide = cs.guide; if (cs.guide) row('hint', 'guide → ' + cs.guide); } }
+    if (i % 600 === 0) { var stuckKey = Math.round(p.x) + ',' + Math.round(p.y) + '@' + S.depth; if (stuckKey === R.stuck) {
+        var near = (S.groundItems || []).filter(function (g) { return dist(g, p) < 3; }).map(function (g) { return g.item.rarity + ' ' + g.item.type; });
+        row('warn', 'bot idle 30 s at ' + stuckKey + ' (explored ' + explored() + '%, goal ' + JSON.stringify(goal) + ', bag ' + bagCount() + ', ground near: ' + near.join(', ') + ', mode ' + (G.game.getActionMode && G.game.getActionMode()) + ') — descending');
+        if (S.scene === 'dungeon') G.scenes.descend();
+      } R.stuck = stuckKey; }
+  }
+  G.input.move.x = G.input.move.y = 0; G.input.attackHeld = false;
+  R.end = { level: S.player.level, depth: S.flags.maxDepth, gold: S.player.gold, kills: S.flags.kills, errors: w.__T.errors.slice(0, 10) };
+  // tip bursts: 2+ pausing cards inside 20 s
+  R.bursts = [];
+  for (var a = 0; a < R.tips.length; a++) { var n = R.tips.filter(function (t) { return t >= R.tips[a] && t - R.tips[a] < 20; }).length; if (n >= 2 && (!R.bursts.length || R.tips[a] - R.bursts[R.bursts.length - 1].t > 20)) R.bursts.push({ t: R.tips[a], n: n }); }
+  R.fmt = fmt;
+  return R;
+}
+
+function render(R) {
+  var fmt = R.fmt;
+  var keys = ['opening done', 'first floor', 'first kill', 'first item picked', 'first level-up', 'first skill learned', 'first ▲ upgrade picked', 'first upgrade equipped', 'first trader visit', 'first death', 'corpse reclaimed', 'echo slain', 'first boss killed'];
+  var html = '<h2>' + esc(R.cls) + '</h2><table><tr><th>Moment</th><th>Clock</th></tr>' + keys.map(function (k) { return '<tr><td>' + esc(k) + '</td><td class="t">' + (R.firsts[k] != null ? fmt(R.firsts[k]) : '—') + '</td></tr>'; }).join('') + '</table>';
+  html += '<div>End: level ' + R.end.level + ', deepest ' + R.end.depth + ', kills ' + R.end.kills + ', deaths ' + R.deaths + ', pausing cards ' + R.tips.length + ', story/dialog boxes ' + R.modalsAt.length +
+    ', tip bursts (2+ in 20 s): ' + (R.bursts.map(function (b) { return fmt(b.t) + '×' + b.n; }).join(' ') || 'none') + ', lowest life per depth: ' + Object.keys(R.minHp).map(function (k) { return k + ':' + Math.round(R.minHp[k] * 100) + '%'; }).join(' ') +
+    (R.end.errors.length ? '<br><span class="k-warn">errors: ' + esc(R.end.errors.join(' / ')) + '</span>' : '') + '</div>';
+  html += '<details><summary>timeline (' + R.rows.length + ' rows)</summary><table>' + R.rows.map(function (r) { return '<tr><td class="t">' + fmt(r.t) + '</td><td class="k-' + r.kind + '">' + r.kind + '</td><td>' + esc(r.text) + '</td></tr>'; }).join('') + '</table></details>';
+  return html;
+}
+
+async function runAll() {
+  var snap = {}; try { Object.keys(localStorage).forEach(function (k) { snap[k] = localStorage.getItem(k); }); } catch (e) { /* ignore */ }
+  var classes = Q.get('classes') ? Q.get('classes').split(',') : null;
+  var mins = +(Q.get('mins') || 10);
+  window.__FR = { done: false, results: [] };
+  $('out').innerHTML = '';
+  try {
+    if (!classes) { var w0 = await loadGame(); classes = Object.keys(w0.G.game.CLASSES); }
+    for (var c = 0; c < classes.length; c++) {
+      $('st').textContent = 'playing ' + classes[c] + '…';
+      var R = await runClass(classes[c], mins);
+      window.__FR.results.push({ cls: R.cls, firsts: R.firsts, end: R.end, deaths: R.deaths, tips: R.tips.length, bursts: R.bursts, minHp: R.minHp, rows: R.rows.map(function (r) { return R.fmt(r.t) + ' ' + r.kind + ' ' + r.text; }) });
+      $('out').insertAdjacentHTML('beforeend', render(R));
+    }
+  } catch (e) { $('out').insertAdjacentHTML('beforeend', '<div class="k-warn">' + esc(e && e.stack || e) + '</div>'); }
+  try { Object.keys(localStorage).filter(function (k) { return /^emberdeep/.test(k); }).forEach(function (k) { localStorage.removeItem(k); }); Object.keys(snap).forEach(function (k) { localStorage.setItem(k, snap[k]); }); } catch (e) { /* ignore */ }
+  $('st').textContent = 'done'; window.__FR.done = true;
+}
+// ?shot=town|attack|equip|corpse: set one moment up in the frame and stop (for a headless screenshot; window.__SHOT = true when ready)
+async function shot(kind) {
+  document.body.style.background = '#000'; $('main').style.display = 'none'; $('wrap').style.padding = '0';
+  gframe.style.border = '0'; gframe.style.width = '375px'; gframe.style.height = '740px';
+  var w = await loadGame(), G = w.G, S = G.state, ui = G.ui, d = w.document;
+  var pump = function (n) { for (var i = 0; i < n; i++) { if (!S.paused && S.scene !== 'menu') { S.time += 0.05; G.game.update(0.05); } G.engine.update(0.05); G.engine.render(); ui.update(0.05); } };
+  if (G.meta.hasSave()) G.meta.deleteSave();
+  G.scenes.startNewGame(Q.get('cls') || 'warrior', 'Nova'); await sleep(700);
+  var sk = d.querySelector('.ed-talk-skip'); if (sk) sk.click(); pump(20);
+  if (kind === 'attack' || kind === 'equip' || kind === 'corpse') {
+    G.scenes.enterDungeon(1); await sleep(50); pump(10);
+    var p = S.player, m = S.entities.filter(function (e) { return e.type === 'monster' && !e.dead; })[0];
+    if (kind === 'attack' && m) { m.x = p.x + 2.5; m.y = p.y + 0.5; m.ai = m.ai || {}; }
+    if (kind === 'equip') { S.entities = S.entities.filter(function (e) { return e.type !== 'monster'; }); var it = null; for (var k = 0; k < 40 && !(it && G.items.verdict(it) === 'up'); k++) it = G.items.rollItem({ level: 1, rarity: 'uncommon', slot: 'helm' }); G.items.addToInventory(it); S.flags.coachSeen = ['attack', 'skill', 'dash', 'loot', 'move']; }
+    if (kind === 'corpse') { S.flags.corpse = { depth: 1, seed: S.map.seed, x: S.map.spawn.x + 6, y: S.map.spawn.y + 2, gold: 10, items: [] }; S.entities = S.entities.filter(function (e) { return e.type !== 'monster'; }); }
+    pump(kind === 'attack' ? 50 : 140);
+    if (kind === 'equip' && Q.has('open')) { ui.open('inventory'); pump(10); }
+  }
+  pump(2);
+  window.__SHOT = true;
+}
+$('bRun').onclick = runAll;
+if (Q.get('shot')) shot(Q.get('shot'));
+else if (Q.has('auto')) runAll();
+</script>
+</body>
+</html>

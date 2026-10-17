@@ -246,7 +246,7 @@
       const mod = rng.pick(game.affixPool ? game.affixPool(depth) : game.AFFIX_IDS);
       for (let i = 0; i < n; i++) add(id, s, 'champion', i ? 2 : 0, mod);
     };
-    const eliteP = has('elite_host') ? 0.45 : 0.12;
+    const eliteP = map.inputs && map.inputs.first ? 0 : has('elite_host') ? 0.45 : 0.12;          // R-FTE: no champions inside packs on a new hero's gentle floors
     for (const s of spawns) {
       if (s.kind === 'npc') {
         const npc = game.createNpc(s.role, s.x + 0.5, s.y + 0.5);

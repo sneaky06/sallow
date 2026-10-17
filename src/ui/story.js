@@ -37,10 +37,11 @@
   // ---------- dialogue box ----------
   // lines: strings; opts: { who, sprite, onDone } — a speaker with a portrait, or narration without one. Tap to advance.
   const queue = [];
-  let playing = false;
+  let playing = false, curBox = null;
   function say(lines, opts) {
     if (!lines || !lines.length) { if (opts && opts.onDone) opts.onDone(); return; }
     queue.push({ lines: lines, opts: opts || {} });
+    if (playing && curBox && !curBox.isConnected) playing = false;          // the last box was closed from outside (a scene change): do not stall the queue
     if (!playing) next();
   }
   ui._say = say;
@@ -52,9 +53,22 @@
     const o = job.opts;
     const text = h('p', { class: 'ed-talk-text' });
     const more = h('span', { class: 'ed-talk-more' });
+    // Skip (every scene of two or more lines, R-FTE): ends this scene at once; opts.skip (a function) also ends a chain of scenes
+    let skip = null;
+    if (job.lines.length > 1 || typeof o.skip === 'function') {
+      skip = h('button', { type: 'button', class: 'ed-talk-skip', text: TX.fte.skip });
+      skip.addEventListener('click', function (e) {
+        e.stopPropagation();
+        ui._sfx('click');
+        close();
+        const fn = typeof o.skip === 'function' ? o.skip : o.onDone;
+        if (fn) { try { fn(); } catch (err) { console.error('[ui story]', err); } }
+        next();
+      });
+    }
     const box = h('div', { class: 'ed-talk' + (o.who ? '' : ' narr'), role: 'button', tabindex: '0' },
       o.who ? ui._portrait(o.sprite, 48) : null,
-      h('div', { class: 'ed-talk-main' }, o.who ? h('b', { text: o.who }) : null, text, more));
+      h('div', { class: 'ed-talk-main' }, o.who ? h('b', { text: o.who }) : null, text, more), skip);
     const show = function () {
       text.textContent = job.lines[i];
       more.textContent = i < job.lines.length - 1 ? '▶ tap' : '■ close';
@@ -71,6 +85,7 @@
     });
     show();
     close = ui._modal(box, { dismiss: false, pause: true });
+    curBox = box;
   }
 
   function speaker(role, fallbackName) {
@@ -91,12 +106,24 @@
     close = ui._modal(ui._dialog([h('div', { class: 'ed-tipname', text: title, style: 'color:#e8dec6' }),
       h('div', { class: 'ed-page', text: text })], [ui._btn(TX.common.close, function () { close(); if (onClose) onClose(); })], 'tip'), { dismiss: false, pause: true });
   }
+  // Skip on any line jumps to the end of the whole opening (the note still lands in the Journal).
   function opening() {
     const O = D.OPENING;
-    say(fill(O.home), { onDone: function () {
+    let over = false;
+    const end = function () {
+      if (over) return;
+      over = true;
       if (list('loreFound').indexOf(0) < 0) list('loreFound').push(0);      // the note is lore page 0
+      // a new hero (flags.fte) is handed the Elder's first step at once: the opening's last line is its instruction
+      if (S.flags.fte && G.meta.acceptQuest) { markSeen('main_1:before'); G.meta.acceptQuest('main_1'); }
+      G.emit('story:opening', {});
+    };
+    const elderSays = function () { if (!over) say(fill(O.elder), Object.assign(elder(), { onDone: end, skip: end })); };
+    say(fill(O.home), { skip: end, onDone: function () {
+      if (over) return;
+      if (list('loreFound').indexOf(0) < 0) list('loreFound').push(0);
       page(names(O.note.title), names(O.note.text), function () {
-        say(fill(O.arrival), { onDone: function () { say(fill(O.elder), elder()); } });
+        if (!over) say(fill(O.arrival), { skip: end, onDone: elderSays });
       });
     } });
   }
@@ -125,11 +152,21 @@
     const act = actAt(S.depth | 0);
     if (!act || seen('act:' + act.n)) return;
     markSeen('act:' + act.n);
+    // a new hero's first floor already shows its name; Act I rides along as a banner instead of three pausing lines
+    const quiet = S.flags.fte && act.n === 1;
     actTimer = setTimeout(function () {       // after the floor-name banner (hud.js, 0.7 s)
       if (S.scene !== 'dungeon') return;
       ui._sfx('quest');
-      say(fill(act.intro), {});
-    }, 1600);
+      if (quiet) ui._banner(names(act.intro[0]), names(act.intro[act.intro.length - 1]), '#d8c9a3', 4);
+      else say(fill(act.intro), {});
+    }, quiet ? 4500 : 1600);
+  });
+
+  // ---------- a new hero's first death (R-FTE): the Elder explains the corpse run, once ----------
+  G.on('scene:changed', function (e) {
+    if (!e || e.scene !== 'town' || !S.player || !S.flags.fte || !S.flags.corpse || seen('firstDeath')) return;
+    markSeen('firstDeath');
+    setTimeout(function () { if (S.scene === 'town') say(fill(D.FIRST_DEATH), elder()); }, 500);
   });
 
   // ---------- main chain + side lines ----------

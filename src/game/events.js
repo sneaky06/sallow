@@ -313,7 +313,7 @@
     if (gr && map && ev.scene === 'dungeon' && (map.depth | 0) === gr.depth + 1 && S.player) awardGrade(S.player, map, gr);          // R8.8: graded on arrival below
     if (!map || ev.scene !== 'dungeon') return;
     const depth = map.depth | 0;
-    if (depth < 2 || depth % C.BOSS_EVERY === 0) return;
+    if (depth < 2 || depth % C.BOSS_EVERY === 0 || (map.inputs && map.inputs.first)) return;          // R-FTE: a new hero's first timed event waits for depth 3
     const rng = G.rng.create(((map.seed | 0) ^ 0x7f4a7c15) >>> 0);
     if (!rng.chance(0.4)) return;
     pending = { id: rng.pick(['gauntlet', 'keyhunt', 'collapse', 'thief']), t: 5, rng: rng };

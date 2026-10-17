@@ -238,7 +238,7 @@
   // buttons (y ~100-145), the tracker starts below that row instead of hiding behind it.
   window.addEventListener('resize', function () { if (ui._setTrkTop) ui._setTrkTop(); });
   ui._setTrkTop = function () {
-    if (!hud || !el.area) return;
+    if (!hud || !el.area || !el.area.offsetHeight) return;          // measured while the HUD was hidden it read 4 px and sat on the label in town
     let t = el.area.offsetTop + el.area.offsetHeight + 4;
     if (window.innerHeight > window.innerWidth && t + 46 > 100) t = Math.max(t, 150);
     hud.style.setProperty('--trk-top', t + 'px');
@@ -324,7 +324,12 @@
     const name = (info && info.name) || String(e.skillId);
     const line = (info && (info.desc || info.description)) || '';
     const sentence = typeof line === 'string' ? line.split(/(?<=[.!?])\s/)[0] : '';
-    if (ui._tipCard) ui._tipCard('Learned: ' + name + (e.rank > 1 ? ' (rank ' + e.rank + ')' : ''), sentence || 'Auto-build spent a skill point.', (info && info.icon) || { shape: 'star', color: '#ffd94a', accent: '#ff8a2b' });
+    const fte = S.flags && S.flags.fte;
+    // a pausing card only for a new button on the bar; rank-ups and passives are a toast (they cost a pause on every level-up).
+    // A new hero's starting skill (fte.quiet) is shown by the coach in the first fight instead.
+    if (fte && fte.quiet) { skDirty = true; return; }
+    if (e.rank > 1 || (info && info.kind === 'passive')) ui.toast(TX.fte.learnedToast + name + (e.rank > 1 ? ' ' + e.rank : ''), '#ffd94a');
+    else if (ui._tipCard) ui._tipCard('Learned: ' + name, (sentence || 'Auto-build spent a skill point.') + (fte ? TX.fte.learnedAuto : ''), (info && info.icon) || { shape: 'star', color: '#ffd94a', accent: '#ff8a2b' });
     skDirty = true;
     const bar = S.player.skillBar || [];
     const idx = bar.indexOf(e.skillId);
@@ -383,6 +388,7 @@
     const list = (G.meta && G.meta.getQuests) ? G.meta.getQuests() : [];
     const rows = [];
     let mainOffer = false;
+    if (ui._coachRows) { try { ui._coachRows(rows); } catch (err) { console.error('[ui coach rows]', err); } }      // R-FTE: a new hero's next step
     const corpse = S.flags.corpse;
     if (corpse) {
       rows.push(h('div', { style: 'color:#ff6a5a', text: S.depth === corpse.depth && S.scene === 'dungeon'
@@ -416,6 +422,7 @@
       const names = fm ? fm.map(function (id) { return (FM[id] && FM[id].name) || id; }) : [];
       el.goldTxt.replaceChildren(gold + ' g', names.length ? h('span', { class: 'ed-mods', text: '  ' + names.join(' · ') }) : '');
     }
+    if (!last.trkSet && el.area.offsetHeight) { last.trkSet = true; ui._setTrkTop(); }          // once the HUD shows (town has no floor line to trigger it)
     // floor name (R5.10) and Pallor (R5.2); the quest tracker's default top follows the label's height
     const fname = ui._floorName();
     const pal = pallorInfo();
@@ -712,6 +719,7 @@
   });
   ['skills:changed', 'player:stats', 'equipment:changed'].forEach(function (n) { G.on(n, function () { skDirty = true; }); });
   ['quest:updated', 'quest:completed'].forEach(function (n) { G.on(n, function () { questDirty = true; }); });
+  ui._questDirty = function () { questDirty = true; };
   // ---------- lockdown rooms (R2.5) ----------
   // The contract has no per-wave event, so the counter reads room.wave (1-based) if the game maintains it and also
   // falls back to the room object; with neither it just names the number of waves.
@@ -864,7 +872,7 @@
     last.expl = -2; explTick = 0; walk.map = null;
     lock.room = null; lock.wave = 0; lock.t = 0;
     if (el.lock) el.lock.style.display = 'none';
-    questDirty = true; skDirty = true; tick = 0; last.boss = -2; last.bossName = '';
+    questDirty = true; skDirty = true; tick = 0; last.boss = -2; last.bossName = ''; last.trkSet = false;
     if (el.boss) el.boss.style.display = 'none';
     if (el.feed) el.feed.replaceChildren();
     goldFeed = null; goldFeedSum = 0;

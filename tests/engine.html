@@ -285,6 +285,11 @@ if (!/[?&](mute|sound)\b/.test(location.search)) try { history.replaceState(null
     });
     btn(s3, 'clear loot', function () { S.groundItems = []; });
     btn(s3, '80 monsters', function () { for (var i = 0; i < 80; i++) zoo.push({ e: ent({ name: 'm' + i, x: 5 + Math.random() * 22, y: 8 + Math.random() * 16, hp: 50, rarity: i % 9 === 0 ? 'champion' : 'normal', sprite: { body: C.BODY_TYPES[i % 10], color: COLS[i % 10], accent: ACCS[(i * 3) % 10], scale: 1, weapon: C.WEAPON_LOOKS[i % 9] } }), mode: 'walk', off: i }); });
+    btn(s3, '8 elites cluster', function () {         // name-plate de-overlap check: eight rares tight around the player, plus a boss
+      var p = S.player, AF = ['Fast', 'Vampiric', 'Fire Enchanted', 'Splits on death', 'Teleporter'];
+      for (var i = 0; i < 8; i++) zoo.push({ e: ent({ name: 'Dire ' + C.BODY_TYPES[i % 10], x: p.x + 1.5 + (i % 4) * 0.5, y: p.y - 1.5 + (i >> 2) * 0.5, hp: 60, rarity: i % 3 ? 'rare' : 'champion', affixes: AF.slice(0, 1 + (i % 4)), sprite: { body: C.BODY_TYPES[i % 10], color: COLS[i], accent: ACCS[i], scale: 1, weapon: C.WEAPON_LOOKS[i % 9] } }), mode: 'idle', off: i });
+      zoo.push({ e: ent({ name: 'Lord Cluster', x: p.x - 1.5, y: p.y - 2, hp: 80, rarity: 'boss', sprite: { body: 'skeleton', color: COLS[2], accent: ACCS[2], scale: 1.4, weapon: 'axe' } }), mode: 'idle', off: 0 });
+    });
     var s4 = section('loot filter');
     Object.keys(C.RARITY).forEach(function (r) { btn(s4, r, function () { S.settings.lootFilter = r; }); });
     var s5 = section('sfx');

@@ -32,6 +32,7 @@
     "fn": ["init", "update", "render", "worldToScreen", "screenToWorld", "getIcon", "getIconURL", "getPortrait", "drawMinimap", "sfx", "getPlayerPreview", "gearKey", "rarityGlow", "getPallorLevel", "mapPick"]
   },
   "events": [
+    "fte:flasks", "story:opening",
     "scene:changed", "input:tap", "input:skill", "input:potion", "input:attack", "input:classaction", "input:ui",
     "player:damaged", "player:died", "player:levelup", "player:stats", "player:xp",
     "monster:killed", "object:interact", "npc:interact",

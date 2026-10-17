@@ -47,7 +47,7 @@ async function run() {
   try {
     localStorage.clear();
     var cls = Object.keys(G.game.CLASSES)[0];
-    G.scenes.startNewGame(cls, 'Tester');
+    G.scenes.startNewGame(cls, 'Tester'); delete S.flags.fte; S.player.autoBuild = null;          // the flows below are a returning hero's (the first-ten-minutes block at the end has its own)
     try { var stg = G.state.settings; stg.sfx = false; stg.sfxVolume = 0; stg.musicVolume = 0; stg.ambienceVolume = 0; } catch (e) { }          // no sound from test runs
     await wait(900);
     // opening: home narration -> note page -> arrival -> elder
@@ -210,7 +210,7 @@ async function run() {
     ck('out-of-class equip asks first', /Equip anyway/i.test((q('.ed-modal') || {}).textContent || ''));
     ui._closeModals(); ui.close(); delete I.classPenalty;
     // tips
-    S.flags.tipsSeen = []; S.settings.tips = true; ui._tip('chute'); ui._tip('chute'); ui._tip('surface'); for (var u = 0; u < 5; u++) G.ui.update(0.2); await wait(50);
+    S.flags.tipsSeen = []; S.settings.tips = true; ui._tipPace(true); ui._tip('chute'); ui._tip('chute'); ui._tip('surface'); for (var u = 0; u < 5; u++) G.ui.update(0.2); await wait(50);
     ck('tip card pauses the game; a tip counts as seen only when shown', !!q('.ed-tipdlg') && S.paused === true && S.flags.tipsSeen.length === 1 && ui._tipState().queued === 1);
     q('.ed-modal').click(); await wait(20); ck('early tap does not dismiss', !!q('.ed-tipdlg'));
     var firstTip = q('.ed-tipdlg').textContent;
@@ -218,7 +218,8 @@ async function run() {
     // the real game loop shows the next queued card on the following frame, so "dismissed" = the first card is gone (and the game is
     // only paused if the next card took over)
     ck('tap anywhere dismisses', (!q('.ed-tipdlg') && S.paused === false) || (!!q('.ed-tipdlg') && q('.ed-tipdlg').textContent !== firstTip && S.paused === true));
-    G.ui.update(0.2); await wait(30); ck('next queued tip follows', !!q('.ed-tipdlg') && /surface/i.test(q('.ed-tipdlg').textContent));
+    G.ui.update(0.2); await wait(30); ck('the next card waits out the gap (R-FTE)', !q('.ed-tipdlg') && ui._tipPace() > 15, 'pace ' + ui._tipPace());
+    S.time += 21; G.ui.update(0.2); await wait(30); ck('next queued tip follows', !!q('.ed-tipdlg') && /surface/i.test(q('.ed-tipdlg').textContent));
     await wait(450); [].filter.call(document.querySelectorAll('.ed-tipdlg .ed-btn'), function (b) { return b.textContent === 'OK'; })[0].click(); await wait(30);
     ck('OK button dismisses', !q('.ed-tipdlg') && S.paused === false);
     ui._resetTips(); ck('reset tips', S.flags.tipsSeen.length === 0); S.settings.tips = false; ui._tip('chute'); ck('tips off', S.flags.tipsSeen.length === 0); ui._closeModals(); S.paused = false;
@@ -318,7 +319,7 @@ async function run() {
     G.emit('perk:lost', { id: Pl.wager }); await wait(30); ck('wager lost banner', /Wager lost/.test([].map.call(document.querySelectorAll('.ed-banner b'), function (b) { return b.textContent; }).join('|')));
     ui.open('perks'); await wait(50); [].filter.call(document.querySelectorAll('.ed-head .ed-btn'), function (b) { return b.textContent === 'Respec'; })[0].click(); await wait(40);
     ck('respec spells out the terms', /Points and Marks come back/.test((q('.ed-modal') || {}).textContent || '') && /wager/.test(q('.ed-modal').textContent)); ui._closeModals(); ui.close();
-    S.settings.tips = true; S.flags.tipsSeen = []; ui._tip('marks'); for (var tz = 0; tz < 3; tz++) G.ui.update(0.3); await wait(30);
+    S.settings.tips = true; S.flags.tipsSeen = []; ui._tipPace(true); ui._tip('marks'); for (var tz = 0; tz < 3; tz++) G.ui.update(0.3); await wait(30);
     ck('Marks tip is a pause-style card', !!q('.ed-tipdlg') && S.paused === true); ui._closeModals(); S.paused = false; S.settings.tips = false; Pl.perks = {}; Pl.wager = null;
     // ---- Revision 12: vendor quests, filter, gear toggle, crate tip, milestones, piles ----
     ui.close(); ui._closeModals(); S.paused = false; S.settings.tips = false;
@@ -561,7 +562,7 @@ async function run() {
     ck('a tip lost to a scene change is not marked seen', S.flags.tipsSeen.indexOf('dash') < 0 && ui._tipState().queued === 0);
     ui._tip('dash'); S.flags.sealed = true; for (var tt = 0; tt < 4; tt++) G.ui.update(0.3);
     ck('no tip card while a lockdown is sealed', !q('.ed-tipdlg') && S.flags.tipsSeen.indexOf('dash') < 0);
-    S.flags.sealed = false; S.time += 5; for (var tt2 = 0; tt2 < 4; tt2++) G.ui.update(0.3);
+    S.flags.sealed = false; S.time += 5; ui._tipPace(true); for (var tt2 = 0; tt2 < 4; tt2++) G.ui.update(0.3);
     ck('the card comes once the fight is over', !!q('.ed-tipdlg') && S.flags.tipsSeen.indexOf('dash') >= 0); ui._closeModals(); S.paused = false; S.settings.tips = false; S.flags.tipsSeen = [];
     // two pausing modals: closing one keeps the game paused
     ui._confirm('one', 'Yes', function () {}, { pause: true }); ui._confirm('two', 'Yes', function () {}, { pause: true });
@@ -597,6 +598,71 @@ async function run() {
     ck('clear empties the log and storage', PL.count() === 0 && !plRaw() && /Nothing recorded/.test(PL.export()));
     G.ui.open('journal'); await wait(50); log('journal ok: ' + !!q('.ed-panel .ed-page')); ui.close();
     log('small controls (hud): ' + small(q('.ed-hud')).join('; '));
+    // ---- R-FTE: the first ten minutes of a brand-new hero (flags.fte; game/firstrun.js, ui/coach.js) ----
+    ui.close(); ui._closeModals(); S.paused = false; S.settings.tips = true; localStorage.clear();
+    var fcls = Object.keys(G.game.CLASSES)[1] || cls;
+    G.scenes.startNewGame(fcls, 'Newcomer'); var NP = S.player, F = S.flags.fte;
+    ck('a new hero carries flags.fte', !!F && F.floor === true && F.town === true);
+    ck('a new hero starts with a skill on the bar and no point to spend', !!NP.skillBar[0] && NP.skillPoints === 0 && NP.autoBuild === 'balanced');
+    ck('a new hero starts with five flasks', NP.potions.hp === 5);
+    ck('only the Elder\'s first step is offered at first', G.meta.getQuests().map(function (x) { return x.id; }).join(',') === 'main_1');
+    await wait(700);
+    if (q('.ed-talk')) q('.ed-talk').click();          // read one line, then skip the rest
+    ck('the opening has a Skip button', !!q('.ed-talk .ed-talk-skip'));
+    q('.ed-talk .ed-talk-skip').click(); await wait(50);
+    ck('Skip ends the whole opening', !q('.ed-talk') && !q('.ed-modal') && S.paused === false);
+    ck('after the opening the first step is active and the note is in the Journal', G.meta.getQuests()[0].status === 'active' && S.flags.loreFound.indexOf(0) >= 0);
+    ck('the opening is eight boxes or fewer', G.meta.STORY.OPENING.home.length + 1 + G.meta.STORY.OPENING.arrival.length + G.meta.STORY.OPENING.elder.length <= 8);
+    for (var z5 = 0; z5 < 6; z5++) G.ui.update(0.25);
+    ck('in town the guide points at the stair, with a tracker line', ui._coachState().guide === 'stairs' && /Go down/.test((q('.ed-tracker') || {}).textContent || ''));
+    ck('the guide arrow is on screen and not paused', !!q('.ed-guide') && q('.ed-guide').style.display === 'block' && !S.paused);
+    // the gentle first floor
+    S.settings.tips = false; G.scenes.enterDungeon(1); await wait(300);
+    var M1 = S.map, el1 = M1.spawns.filter(function (s) { return s.kind === 'elite'; }).length, n1 = M1.spawns.reduce(function (a, s) { return a + (s.kind === 'pack' ? s.count : s.kind === 'monster' ? 1 : 0); }, 0);
+    ck('a new hero\'s depth 1 is the short, gentle floor', M1.inputs && M1.inputs.first === true && M1.w <= 42 && M1.h <= 42 && el1 === 0 && n1 <= 12, 'w ' + M1.w + ' h ' + M1.h + ' elites ' + el1 + ' monsters ' + n1);
+    var legacyMap = (function () { var keep = S.flags.fte; S.flags.fte = null; var m = G.world.generateDungeon(1, 12345); S.flags.fte = keep; return m; })();
+    ck('a returning hero\'s depth 1 is unchanged', !(legacyMap.inputs && legacyMap.inputs.first) && legacyMap.w > 40);
+    var rampOk = true; for (var rs = 1; rs <= 8; rs++) { var M2 = G.world.generateDungeon(2, 900 + rs * 37); if (!(M2.inputs && M2.inputs.first) || M2.spawns.some(function (s) { return s.kind === 'elite'; }) || M2.rooms.some(function (r) { return r.type === 'lockdown'; })) rampOk = false; }
+    ck('a new hero\'s depth 2 has no elite and no sealed room', rampOk);
+    await wait(1900); ck('Act I does not stop a new hero (a banner, not three lines)', !q('.ed-talk'));
+    // first kills: the second drops a weapon upgrade for the class
+    var dummy = function () { return { id: G.newId(), type: 'monster', faction: 'enemy', rarity: 'normal', monsterId: 'skeleton', x: NP.x + 1, y: NP.y, dead: true }; };
+    var g0 = S.groundItems.length; G.emit('monster:killed', { monster: dummy() }); G.emit('monster:killed', { monster: dummy() });
+    var drop = S.groundItems.slice(g0).map(function (g) { return g.item; }).filter(function (it) { return it.slot === 'weapon'; })[0];
+    ck('the first floor\'s second kill drops a ▲ weapon for the class', !!drop && G.items.verdict(drop) === 'up' && S.flags.fte.upgrade === true);
+    // coach: an enemy close by -> the attack hint, beside the attack button, game running
+    S.groundItems.length = g0; S.flags.kills = 0; var foe = G.game.createMonster('skeleton', NP.x + 3, NP.y, 1, 'normal'); foe.faction = 'enemy'; S.entities.push(foe);
+    S.flags.coachSeen = []; for (var z6 = 0; z6 < 30 && ui._coachState().hint !== 'attack'; z6++) { S.time += 0.25; G.ui.update(0.25); }
+    ck('the coach shows "attack" beside the attack button without pausing', ui._coachState().hint === 'attack' && q('.ed-hint').style.display === 'block' && q('.ed-atk').classList.contains('ed-pulse') && !S.paused);
+    S.entities.splice(S.entities.indexOf(foe), 1); S.flags.kills = 1; for (var z7 = 0; z7 < 3; z7++) G.ui.update(0.25);
+    ck('the hint leaves once you have done it', ui._coachState().hint !== 'attack' && !q('.ed-atk.ed-pulse'));
+    // the first death: a faint Echo, the Elder explains, the belt is topped up, the town opens up
+    NP.potions.hp = 0; G.items.addToInventory(G.items.rollItem({ level: 1, rarity: 'common', slot: 'boots' }));
+    NP.dead = true; NP.hp = 0; G.emit('player:died', {}); G.scenes.respawn(); await wait(700);
+    ck('the first death: the Elder explains the corpse run', !!q('.ed-talk') && /carried you up/i.test(q('.ed-talk').textContent || ''));
+    var talkN = 0; while (q('.ed-talk') && talkN++ < 5) q('.ed-talk').click();
+    ck('rising early tops the belt up to three flasks', NP.potions.hp === 3);
+    ck('after the first trip up, bounties and townsfolk open', G.meta.getQuests().length > 1 && S.flags.fte.town === false);
+    var snap = S.flags.corpse && S.flags.corpse.echo, ech = snap ? G.game.createEcho({ snap: snap }, 5, 5, 1) : null;
+    ck('a shallow corpse run meets a faint Echo', !!ech && ech.faint === true && ech.stats.hpMax <= Math.max(1.3 * NP.stats.hpMax, 200), ech ? 'hp ' + ech.stats.hpMax : 'no echo snapshot');
+    var deep = snap ? G.game.createEcho({ snap: snap }, 5, 5, 8) : null;
+    ck('a deeper Echo keeps its full strength', !!deep && !deep.faint && deep.stats.hpMax >= 2.5 * snap.hpMax - 1);
+    // the first trader visit: the guide points at the merchant (bag not empty), the trader card shows over the panel
+    G.items.addToInventory(G.items.rollItem({ level: 1, rarity: 'common', slot: 'gloves' })); for (var z8 = 0; z8 < 4; z8++) G.ui.update(0.25);
+    ck('back in town with loot the guide points at the trader', ui._coachState().guide === 'sell' && /Sell what you found/.test((q('.ed-tracker') || {}).textContent || ''));
+    S.settings.tips = true; S.flags.tipsSeen = []; ui._tipPace(true);
+    G.emit('npc:interact', { role: 'merchant', entity: S.entities.find(function (e) { return e.role === 'merchant'; }) }); for (var z9 = 0; z9 < 4; z9++) G.ui.update(0.25); await wait(30);
+    ck('the trader card shows over the trader at once', !!q('.ed-tipdlg') && /Trading/.test(q('.ed-tipdlg').textContent) && ui.isOpen());
+    ui._closeModals(); ui.close(); S.paused = false; for (var z10 = 0; z10 < 4; z10++) G.ui.update(0.25);
+    ck('after the visit the trader guide is gone', ui._coachState().guide !== 'sell');
+    NP.potions.hp = 1; NP.gold = 500; for (var z12 = 0; z12 < 4; z12++) G.ui.update(0.25);
+    ck('short of flasks with gold, the guide points at the healer', ui._coachState().guide === 'healer' && /Flasks/.test((q('.ed-tracker') || {}).textContent || ''));
+    G.emit('npc:interact', { role: 'healer', entity: S.entities.find(function (e) { return e.role === 'healer'; }) }); ui._closeModals(); ui.close(); S.paused = false; for (var z13 = 0; z13 < 4; z13++) G.ui.update(0.25);
+    ck('and leaves once the healer is visited', ui._coachState().guide !== 'healer');
+    // a returning hero (no flags.fte) never sees the coach
+    delete S.flags.fte; for (var z11 = 0; z11 < 4; z11++) G.ui.update(0.25);
+    ck('no coach and no guide without flags.fte', !ui._coachState().guide && q('.ed-guide').style.display === 'none' && q('.ed-hint').style.display === 'none');
+    S.settings.tips = false;
   } catch (err) { ERR.push('TEST: ' + err.stack); }
   var out = document.getElementById('out');
   out.textContent = 'RESULT\n' + LOG.join('\n') + '\nERRORS (' + ERR.length + ')\n' + ERR.join('\n') + '\nEND';

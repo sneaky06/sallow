@@ -325,6 +325,18 @@
 .ed-talk-text{margin:4px 0 6px;font-weight:normal;font-size:13px;line-height:18px;color:var(--bone)}
 .ed-talk.narr .ed-talk-text{font-style:italic;text-align:center}
 .ed-talk-more{align-self:flex-end;font-size:9px;color:var(--ash);text-transform:uppercase}
+.ed-coach{position:absolute;inset:0;pointer-events:none;overflow:hidden}
+.ed-hint{position:absolute;max-width:200px;padding:5px 9px;font-size:12px;line-height:15px;color:var(--ink);background:var(--brass-hi);border:2px solid #000;box-shadow:0 0 0 1px var(--brass),0 0 12px #ff7a1f88;text-align:center;font-weight:bold;animation:ed-hint .9s steps(2) infinite}
+.ed-hint::after{content:'';position:absolute;left:var(--ax,50%);bottom:-8px;margin-left:-6px;border:6px solid transparent;border-top-color:#000;border-bottom:0}
+.ed-hint.below::after{bottom:auto;top:-8px;border-top:0;border-bottom:6px solid #000}
+@keyframes ed-hint{50%{transform:translateY(-2px)}}
+.ed-guide{position:absolute;left:0;top:0;width:28px;text-align:center;will-change:transform}
+.ed-guide i{display:block;font-style:normal;font-size:24px;line-height:28px;color:var(--brass-hi);text-shadow:0 0 6px #ff7a1f,1px 1px 0 #000,-1px -1px 0 #000}
+.ed-guide.edge i{font-size:0;width:0;height:0;margin:3px 5px;border-left:20px solid var(--brass-hi);border-top:11px solid transparent;border-bottom:11px solid transparent;filter:drop-shadow(0 0 3px #ff7a1f) drop-shadow(1px 1px 0 #000);animation:ed-blink .9s steps(2) infinite}
+@keyframes ed-blink{50%{opacity:.45}}
+.ed-guide span{position:absolute;top:28px;left:50%;transform:translateX(-50%);white-space:nowrap;font-size:10px;color:var(--brass-hi);text-shadow:1px 1px 0 #000,-1px 0 0 #000}
+.ed-talk{position:relative}
+.ed-talk-skip{position:absolute;top:-30px;right:0;min-height:26px;padding:4px 10px;font:inherit;font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--bone);background:#08070ae0;border:1px solid var(--iron-hi);cursor:pointer}
 .ed-page{white-space:pre-line;font-weight:normal;line-height:18px;margin:6px 0}
 .ed-dialog.tip .ed-page{padding:0 9px;color:var(--ink)}
 .ed-banner{border-color:var(--bc,var(--iron-hi));padding:7px 12px}

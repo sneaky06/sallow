@@ -253,6 +253,9 @@
     const step = Math.min(q.main.step, MAIN.length);
     for (let i = 0; i < step; i++) out.push(mainView(i, { status: 'done', progress: MAIN[i].kind === 'depth' ? MAIN[i].goal : 1 }));
     if (step < MAIN.length) out.push(mainView(step, q.main));
+    // a new hero (game/firstrun.js) sees only the Elder's first step until they first come back up; then bounties and townsfolk open
+    const fte = S.flags && S.flags.fte;
+    if (fte && typeof fte === 'object' && fte.town) return out;
     for (const b of q.bounties) out.push(bountyView(b));
     for (const v of sideViews()) out.push(v);
     return out;

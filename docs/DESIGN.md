@@ -496,3 +496,12 @@ Anything missed silently behaves as "warrior". Add classes two at a time and wal
   written to `docs/audits/YYYY-MM-DD.md` with the base commit noted. It checks correctness, cross-team names/shapes against
   tests/contract.json, save safety, performance, untested paths, text outside strings.js/story_data.js, the new-class checklist and the
   art/sound formats. Critical/high findings are fixed before the push; the rest go on the next round's list.
+
+### First ten minutes (onboarding, 2026-10-17)
+New heroes only (`flags.fte = { v, floor, town, upgrade, kills, flasks, quiet }`, set at creation; old saves never get it): auto-build
+Balanced on, 5 flasks, the Elder's first step accepted; depths 1–2 softened until depth 3 is reached (short depth 1, no elites,
+×0.75 monster damage, a guaranteed ▲ weapon on the second kill; `map.inputs.first`); a "faint" Echo for corpse runs at depth ≤ 3
+(`game.faintEcho`); coach hints beside HUD buttons that never pause (`src/ui/coach.js`, `flags.coachSeen`). Game: `game.fte`,
+`game.beginOnboarding`. Events: `fte:flasks` (game → ui, belt topped up after an early death), `story:opening` (ui, opening scene
+start/end). For everyone: Skip on every story scene; at most one pausing tip per 20 s of play (resets for a new hero); auto-learned
+rank-ups are toasts. `tests/firstrun.html` prints a scripted new player's timeline (not part of the gate).

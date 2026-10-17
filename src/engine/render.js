@@ -307,6 +307,8 @@
   const BEAM_HALO = [0, 22, 32, 36, 42, 52], BEAM_H = [0, 0, 40, 52, 68, 86];       // by glow level       // brief screen-edge flash when a Legendary-tier item drops
 
   const RIM = { champion: '#5b8cff', rare: '#ffe45b', legendary: '#ff8a2b', boss: '#ff3b4e', fallen: '#c86aff', world: '#ffb040' };
+  let plX = 0, plY = 0, plTop = 40;                   // the player's screen spot, so name plates keep clear of it
+  const plates = [], plateRects = [];
   const PLATE = { champion: '#8fb0ff', rare: '#ffe45b', legendary: '#ff9a3a', boss: '#ff6a5a', fallen: '#e0a8ff', world: '#ffd070' };
 
   // Props with the world's optional look / tint / corrupt (R6.5): hand-drawn props/<look>.png wins; otherwise the base
@@ -662,7 +664,7 @@
       nTrails++;
       tr.e = e; tr.x = sx; tr.y = sy; tr.m = m; tr.T = fd.T; tr.k = sh.hd ? fd.d / 48 : sh.cell / 40;
     }
-    if (e === P) { if (!dead) drawDash(ctx, sx, sy); return; }
+    if (e === P) { plX = sx; plY = sy; plTop = fd.top; if (!dead) drawDash(ctx, sx, sy); return; }
     if (dead) return;
     if (e.type === 'npc' || (e.type === 'monster' && (rim || e.hp < ((e.stats && e.stats.hpMax) || e.hp)))) {
       if (nBars < 90) {
@@ -1385,6 +1387,10 @@
       ctx.drawImage(l.img, l.x, l.y);
     }
 
+    // health bars, then name plates. Plates are placed in priority order (bosses / Fallen / world boss, the target, then
+    // nearest first); each one slides up until it clears every plate already placed and the player's sprite. Modifier lines
+    // show only for bosses, the Fallen, the target and the two nearest elites; further plates shorten their name and fade.
+    let nPl = 0;
     for (let i = 0; i < nBars; i++) {
       const b = bars[i], e = b.e;
       let y = b.y;
@@ -1405,26 +1411,64 @@
       }
       const fal = isFallen(e), wb = !fal && isWorldBoss(e);
       const color = e.type === 'npc' ? '#ffe9a8' : isEcho(e) ? '#bfe6ff' : fal ? PLATE.fallen : wb ? PLATE.world : PLATE[e.rarity];
-      if (color && e.name) {
-        // modifier names under the plate: rare / legendary only, and only when near the player or targeted
-        // the Fallen and the world boss carry a title line instead of modifier names
-        const af = fal ? FALLEN_SUB : wb ? WORLD_SUB : (e.rarity === 'rare' || e.rarity === 'legendary') && Array.isArray(e.affixes) ? e.affixes : null;
+      if (!(color && e.name)) continue;
+      let pl = plates[nPl];
+      if (!pl) pl = plates[nPl] = { b: null, e: null, color: '', y: 0, score: 0, af: null, fal: false, wb: false, x: 0, w: 0, h: 0 };
+      nPl++;
+      const dx = p ? e.x - p.x : 0, dy = p ? e.y - p.y : 0, d2 = dx * dx + dy * dy;
+      const tgt = !!(p && p.targetId === e.id) || S.targetId === e.id;
+      pl.b = b; pl.e = e; pl.color = color; pl.y = y; pl.fal = fal; pl.wb = wb;
+      pl.af = fal ? FALLEN_SUB : wb ? WORLD_SUB : (e.rarity === 'rare' || e.rarity === 'legendary') && Array.isArray(e.affixes) && e.affixes.length ? e.affixes : null;
+      pl.score = fal || wb || e.rarity === 'boss' ? -2e6 + d2 : tgt ? -1e6 + d2 : e.type === 'npc' ? 1e5 + d2 : d2;
+    }
+    if (nPl) {
+      for (let i = 1; i < nPl; i++) {                                 // insertion sort: nPl is small
+        const v = plates[i];
+        let j = i - 1;
+        while (j >= 0 && plates[j].score > v.score) { plates[j + 1] = plates[j]; j--; }
+        plates[j + 1] = v;
+      }
+      let nPlaced = 0, nLines = 0, nElite = 0;
+      const rects = plateRects;
+      rects.length = 0;
+      rects.push(plX - 11, plY - plTop - 8, 22, plTop + 10);          // the player stays uncovered
+      for (let i = 0; i < nPl; i++) {
+        const pl = plates[i], e = pl.e, b = pl.b, af = pl.af;
+        const always = pl.score < -1.5e6, tgt = pl.score < -5e5 && !always;
+        const near = pl.score < 36;
         let lines = 0;
-        if (af && af.length && p) {
-          const dx = e.x - p.x, dy = e.y - p.y;
-          if (fal || wb || dx * dx + dy * dy < 36 || p.targetId === e.id || S.targetId === e.id) lines = Math.min(3, af.length);
+        if (af) {
+          if (pl.fal || pl.wb || tgt) lines = Math.min(3, af.length);
+          else if (near && nLines < 2) { lines = Math.min(3, af.length); nLines++; }
         }
-        y -= lines * 8;
+        const crowd = !always && !tgt && e.type !== 'npc' && ++nElite > 3;     // beyond the three nearest: short name, fainter
         const nm = e.type === 'npc' && npcLook(e) && ROLE_NAME[e.role] && G.game && G.game.NPCS && G.game.NPCS.merchant && e.name === G.game.NPCS.merchant.name ? ROLE_NAME[e.role] : e.name;
-        const img = U.text(String(nm).slice(0, 26), color);
-        ctx.drawImage(img, b.x - (img.width >> 1), y);
-        if (e.type === 'npc') questMarker(ctx, e, b.x, y - 3);
+        const img = U.text(String(nm).slice(0, crowd ? 10 : 26), pl.color);
+        let w = img.width, ms = pl.ms || (pl.ms = [null, null, null]);
         for (let k = 0; k < lines; k++) {
           let s = String(af[k]).slice(0, 18);
           if (k === 2 && af.length > 3) s = '+' + (af.length - 2);
-          const m = U.text(s, fal ? '#b080d8' : wb ? '#e8b060' : e.rarity === 'legendary' ? '#d8a878' : '#c8c098');
-          ctx.drawImage(m, b.x - (m.width >> 1), y + 8 + k * 8);
+          ms[k] = U.text(s, pl.fal ? '#b080d8' : pl.wb ? '#e8b060' : e.rarity === 'legendary' ? '#d8a878' : '#c8c098');
+          if (ms[k].width > w) w = ms[k].width;
         }
+        const h = 8 + lines * 8;
+        let y = pl.y - lines * 8, x0 = b.x - (w >> 1);
+        for (let pass = 0; pass < 14; pass++) {
+          let hit = false;
+          for (let r = 0; r < rects.length; r += 4) {
+            if (x0 < rects[r] + rects[r + 2] + 1 && x0 + w + 1 > rects[r] && y < rects[r + 1] + rects[r + 3] + 1 && y + h + 1 > rects[r + 1]) { hit = true; y = rects[r + 1] - h - 1; break; }
+          }
+          if (!hit) break;
+        }
+        rects.push(x0 - 1, y, w + 2, h);
+        nPlaced++;
+        const moved = pl.y - lines * 8 - y;
+        ctx.globalAlpha = always || tgt ? 1 : crowd ? 0.6 : moved > 0 ? 0.8 : 1;
+        if (moved > 6 || crowd) { ctx.fillStyle = 'rgba(8,6,12,0.55)'; ctx.fillRect(x0 - 1, y - 1, w + 2, h); }
+        ctx.drawImage(img, b.x - (img.width >> 1), y);
+        if (e.type === 'npc') questMarker(ctx, e, b.x, y - 3);
+        for (let k = 0; k < lines; k++) ctx.drawImage(ms[k], b.x - (ms[k].width >> 1), y + 8 + k * 8);
+        ctx.globalAlpha = 1;
       }
     }
 

@@ -108,7 +108,7 @@
   }
 
   function addLockdowns(ctx) {
-    if (ctx.isBoss || ctx.depth < 2) return;
+    if (ctx.isBoss || ctx.depth < 2 || ctx.ramp) return;          // a new hero's first sealed room waits for depth 3
     let want = ctx.rng.weighted([{ w: 25, n: 0 }, { w: 50, n: 1 }, { w: 25, n: 2 }]).n;
     const cands = ctx.rng.shuffle(ctx.rooms.filter(function (r) { return r.type === 'normal' && !r.lm && !r.noLock; }));
     for (const r of cands) {
@@ -128,12 +128,17 @@
     if (isBoss) {
       w = gen.BOSS_STRIP + (theme === 'abyss' ? rng.int(34, 40) : theme === 'caves' ? rng.int(30, 34) : rng.int(26, 30));          // R16: boss floors are short approaches to a fixed arena (abyss needs more room for its islands)
       h = theme === 'abyss' ? rng.int(46, 52) : rng.int(40, 44);
+    } else if (activeFirst && depth === 1) {
+      w = rng.int(36, 40);            // a new hero's first floor: short, a minute or two to the stairs
+      h = rng.int(34, 38);
     } else {
       w = rng.int(50, 62) + grow;
       h = rng.int(48, 58) + grow;
     }
     const ctx = gen.makeCtx(w, h, rng, depth, theme);
     ctx.isBoss = isBoss;
+    ctx.first = !!activeFirst && depth === 1;
+    ctx.ramp = !!activeFirst && depth === 2;          // ...and depth 2 a step between it and a full floor
     ctx.linear = !isBoss && depth >= 2 && !fallback && !!gen.LINEAR_OK[layoutName] && ((Math.imul(seed, 2654435761) >>> 9) & 1) === 1;
     ctx.variantDef = def;
     ctx.act = W.actForDepth(depth);
@@ -288,7 +293,7 @@
     return (Math.imul(seed ^ (attempt * 0x9E3779B1), 0x85EBCA6B) + attempt * 0x27D4EB2F) >>> 0;
   }
 
-  let activeCleansed = null;
+  let activeCleansed = null, activeFirst = false;
   // Generator version: bump when a change alters the tiles/props produced for a given (depth, seed, inputs).
   // Stored in a corpse's inputs so a mismatch is detectable (the floor can no longer be rebuilt identically).
   W.GEN_VERSION = 1;
@@ -298,16 +303,25 @@
   W.captureInputs = function (depth, map) {
     if (map && map.inputs) return JSON.parse(JSON.stringify(map.inputs));
     const cl = G.state && G.state.flags && G.state.flags.cleansed;
-    return { genVersion: W.GEN_VERSION, cleansed: Array.isArray(cl) ? cl.slice() : null };
+    const out = { genVersion: W.GEN_VERSION, cleansed: Array.isArray(cl) ? cl.slice() : null };
+    if ((depth | 0) <= 2 && firstLive()) out.first = true;
+    return out;
   };
+  // A new hero's depths 1-2 (game/firstrun.js keeps state.flags.fte.floor until depth 3 is reached): depth 1 smaller, fewer and
+  // smaller packs, no elite; depth 2 full size with about two thirds of the monsters in packs of up to three, no elite and no
+  // sealed room (populate.js, addLockdowns).
+  // Old saves have no flags.fte, so their floors never change.
+  function firstLive() { const f = G.state && G.state.flags && G.state.flags.fte; return !!(f && typeof f === 'object' && f.floor); }
 
-  // opts.inputs ({ cleansed, genVersion }, from captureInputs) overrides live state; opts.cleansed is the older direct override.
-  // Without either, live state.flags.cleansed is read (old corpses, normal floors).
+  // opts.inputs ({ cleansed, genVersion, first? }, from captureInputs) overrides live state; opts.cleansed is the older direct override.
+  // Without either, live state.flags.cleansed (and flags.fte.floor) is read (old corpses, normal floors).
   W.generateDungeon = function (depth, seed, opts) {
     const inp = opts && opts.inputs;
     const live = G.state && G.state.flags && G.state.flags.cleansed;
     activeCleansed = (inp && 'cleansed' in inp) ? (inp.cleansed || null) : ((opts && opts.cleansed) || live || null);
+    activeFirst = (depth | 0) <= 2 && (inp ? !!inp.first : firstLive());
     const usedInputs = { genVersion: W.GEN_VERSION, cleansed: Array.isArray(activeCleansed) ? activeCleansed.slice() : null };
+    if (activeFirst) usedInputs.first = true;
     depth = Math.max(1, depth | 0);
     seed = (seed >>> 0) || 1;
     const realSeed = seed;

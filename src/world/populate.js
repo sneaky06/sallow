@@ -305,7 +305,9 @@
     // ---- monsters ----------------------------------------------------------------------------------------
     // Budget counts every pack member; an elite is costed at 3 (leader + whatever retinue the game adds).
     let left = Math.round(Math.min(68, 26 + depth * 2) * (ctx.isBoss ? 0.45 : 1) * (ctx.cleansed ? 0.5 : 1));
-    const pMin = 2 + Math.min(2, Math.floor(depth / 8)), pMax = Math.min(7, 4 + Math.floor(depth / 5));
+    let pMin = 2 + Math.min(2, Math.floor(depth / 8)), pMax = Math.min(7, 4 + Math.floor(depth / 5));
+    if (ctx.first) { left = 12; pMin = 1; pMax = 2; }          // a new hero's first floor: singles and pairs, no elite
+    else if (ctx.ramp) { left = Math.round(left * 0.65); pMax = 3; }          // their depth 2: a step up, not a wall (no elite either)
     const spawnable = function (x, y) {
       if (!gen.interior(ctx, x, y)) return false;
       const i = y * w + x, t = tiles[i];
@@ -344,9 +346,9 @@
       left -= 1;
     }
 
-    let elites = Math.min(5, 1 + Math.floor(depth / 4)) - (ctx.cleansed ? 1 : 0);
+    let elites = ctx.first || ctx.ramp ? 0 : Math.min(5, 1 + Math.floor(depth / 4)) - (ctx.cleansed ? 1 : 0);          // a new hero meets the first champion pack on depth 3
     for (const lm of ctx.landmarks) {         // chained arena: a guaranteed elite on the central tile
-      if (!lm.eliteAt) continue;
+      if (!lm.eliteAt || ctx.first || ctx.ramp) continue;
       const i = lm.eliteAt.y * w + lm.eliteAt.x;
       if (occ[i] || (tiles[i] !== T.FLOOR && tiles[i] !== T.RUBBLE) || dist[i] < 10) { lm.eliteAt = null; continue; }
       put(lm.eliteAt.x, lm.eliteAt.y, 'elite');

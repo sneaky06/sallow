@@ -434,7 +434,13 @@
   // R8.1: a new hero starts with an empty surface crate (core's startNewGame knows nothing about it)
   if (G.scenes && typeof G.scenes.startNewGame === 'function') {
     const newGame = G.scenes.startNewGame;
-    G.scenes.startNewGame = function () { S.surface = []; return newGame.apply(this, arguments); };
+    G.scenes.startNewGame = function () {
+      S.surface = [];
+      const out = newGame.apply(this, arguments);
+      // the first ten minutes (game/firstrun.js): only heroes made here get flags.fte, so older saves never change
+      if (G.game && typeof G.game.beginOnboarding === 'function') { G.game.beginOnboarding(); if (meta.save) meta.save(); }
+      return out;
+    };
   }
 
   meta.hasSave = function () { return !!read(); };

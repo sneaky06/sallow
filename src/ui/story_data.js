@@ -25,29 +25,41 @@
 
   // ---------- opening (first arrival in town; plays once per hero) ----------
   const OPENING = {
+    // R-FTE: trimmed to eight boxes (was sixteen); every box has Skip. The cut lines are kept in OPENING_LONG for the rewrite.
     home: [
-      'Three weeks guarding a salt caravan. You came home with the pay in your boot.',
-      'Home was ash. The door kicked in. The well full of what used to be your neighbours.',
-      'Nobody saw who did it. Nobody was left to see.',
-      'In the next town a man in a grey hood found you before you found work. He knew your name. He gave you a note and walked away.',
+      'You came home with the pay in your boot. Home was ash. The well was full of what used to be your neighbours.',
+      'In the next town a man in a grey hood knew your name. He gave you a note and walked away.',
     ],
     note: { title: 'The Note', text: 'Go to {town}. There is something under it that only you can mend.\nYou will be paid more than you lost.\nDo not look for me. I will find you.' },
     arrival: [
       '{town} sits in a bowl of black rock. Frost on every roof. No smoke from any chimney.',
-      'A handful of people come out to stare at you. One of them starts to cry. It takes you a moment to understand she is glad.',
     ],
     elder: [
-      'You came. Gods. Sit, if you can stand the cold.',
-      'This town was built over a rift. It runs down further than anyone has walked. Thousands of miles, the old maps say.',
+      'You came. Gods. This town was built over a rift, and for three hundred years it breathed heat into our hearths.',
+      'This year the heat is fading. What comes up instead is wrong. It smells of meat. Without it we are dead by midwinter.',
+      'Go down. Start shallow: reach the third floor and tell me what you see.',
+      '...A note? From a man in grey? Nobody here sent for you. We had nothing left to send.',
+    ],
+  };
+  const OPENING_LONG = {
+    home: ['Three weeks guarding a salt caravan. You came home with the pay in your boot.', 'Home was ash. The door kicked in. The well full of what used to be your neighbours.',
+      'Nobody saw who did it. Nobody was left to see.', 'In the next town a man in a grey hood found you before you found work. He knew your name. He gave you a note and walked away.'],
+    arrival: ['{town} sits in a bowl of black rock. Frost on every roof. No smoke from any chimney.',
+      'A handful of people come out to stare at you. One of them starts to cry. It takes you a moment to understand she is glad.'],
+    elder: ['You came. Gods. Sit, if you can stand the cold.', 'This town was built over a rift. It runs down further than anyone has walked. Thousands of miles, the old maps say.',
       'For three hundred years it breathed heat into our hearths and light into our lamps. We never cut wood. We never had to.',
       'This year the heat started to fade. What comes up instead is wrong. It smells of meat.',
       'We sent adventurers. Good ones. Most never came back. The ones who did will not go down again, and will not say why.',
       'There is no grain here, no timber, nothing to trade. Without the rift we are dead by midwinter.',
-      'Go down. Find what is rotting it. Cleanse it, once and for all.',
-      '...A note? From a man in grey?',
-      'Nobody here sent for you. We had nothing left to send.',
-    ],
+      'Go down. Find what is rotting it. Cleanse it, once and for all.', '...A note? From a man in grey?', 'Nobody here sent for you. We had nothing left to send.'],
   };
+
+  // R-FTE: the Elder after a new hero's first death (story.js, once), and the first time back from below alive.
+  const FIRST_DEATH = [
+    'They carried you up the stair. You are not the first, and you were lucky.',
+    'Your pack is still down there, on your body. Go back for it. Something wearing your face will be waiting. Beat it, or slip past it.',
+    'Die again before you reach it and the pack is gone for good.',
+  ];
 
   // ---------- acts ----------
   // intro: narration on the first arrival at `from`; outro: after the Elder's lines for the step that ends the act.
@@ -786,6 +798,6 @@
     { title: 'The Hearthking\'s Last Letter', text: 'To whoever comes next. It is not a burden. It is warm. You will want to put it down after the first hundred years. You will not be able to.' },
   ];
 
-  meta.STORY = { NAMES, TAGLINE, TITLE, OLD_TITLES, OPENING, ACTS, STEPS, FINALE, PALLOR_INTRO, BOSS_LINES, WORLD_BOSS_IDS,
+  meta.STORY = { NAMES, TAGLINE, TITLE, OLD_TITLES, OPENING, OPENING_LONG, FIRST_DEATH, ACTS, STEPS, FINALE, PALLOR_INTRO, BOSS_LINES, WORLD_BOSS_IDS,
     BOSSES, ECHO, ADVENTURERS, FALLEN_COMBINED, CURATOR, CAMP, SIDE, VENDOR_QUESTS, RETURN_LINES, CAMP_GROWTH, CLASS_GOALS, INN, MILESTONES, TOWN, LORE };
 })();

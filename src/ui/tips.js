@@ -37,6 +37,7 @@
     lockdown: [TX.tipcards.lockdownTitle, TX.tipcards.lockdownText, ico('rune', '#d12b30')],
     dash: [TX.tipcards.dashTitle, TX.tipcards.dashText, ico('slash', '#ffb0a0')],
     closecall: [TX.tipcards.closecallTitle, TX.tipcards.closecallText, ico('ring', '#7fffd4')],
+    trader: [TX.tipcards.traderTitle, TX.tipcards.traderText, ico('gold', '#ffd94a')],
   };
   ui._TIPS = TIPS;
 
@@ -83,26 +84,44 @@
   }
 
   // Public: show a card soon (not remembered). Used by R8.10 for auto-learned skills.
-  ui._tipCard = function (title, text, icon) { queue.unshift([title, text, icon]); };      // explanations of something that just happened go first
+  ui._tipCard = function (title, text, icon) { queue.unshift([title, text, icon, null, true]); };      // explanations of something that just happened go first (and skip the gap)
   // Public: the first-time tip `id` (remembered in flags.tipsSeen).
   ui._tip = function (id) {
     if (!S.player || S.settings.tips === false || !TIPS[id]) return;
     if (seen().indexOf(id) >= 0 || queue.some(function (q) { return q[3] === id; }) || (curId === id)) return;
-    queue.push(TIPS[id].concat([id]));
+    if (NOW[id]) { let k = 0; while (k < queue.length && (queue[k][4] || NOW[queue[k][3]])) k++; queue.splice(k, 0, TIPS[id].concat([id])); } else queue.push(TIPS[id].concat([id]));
     if (queue.length > 6) queue.shift();
   };
 
+  // R-FTE pacing: never two cards back to back. After one closes, the next waits GAP seconds of play (game time, so a
+  // paused game or an open panel does not count), and a fresh scene gets a short breath before its first card.
+  const GAP = 20, ARRIVE = 4, NOW = { trader: 1, surface: 1, crateRate: 1, chute: 1, curator: 1, perks: 1 };          // NOW: cards about the panel just opened
+  let readyAt = 0;
+  ui._tipPace = function (reset) { if (reset) readyAt = 0; return Math.max(0, readyAt - (S.time || 0)); };      // seconds until the next card may show (tests: reset)
   ui._updaters.push((function () {
-    let poll = 0;
+    let poll = 0, had = false;
     return function (dt) {
       if (curEl && !curEl.isConnected) { curEl = null; curClose = null; curId = null; }       // closed from outside (scene change)
+      if (had && !curEl) readyAt = Math.max(readyAt, (S.time || 0) + GAP);
+      had = !!curEl;
+      // S.time restarts with a new hero (and jumps when another save loads): a wait longer than the pacing ever sets belongs to
+      // a different character's clock, so drop it instead of holding every tip until the new hero catches up.
+      if (readyAt - (S.time || 0) > GAP + ARRIVE) readyAt = (S.time || 0);
       if (!S.player || S.scene === 'menu') return;
       poll -= dt;
       if (poll <= 0) { poll = 0.5; scan(); }
       // wait while any panel or dialog is open; the next card follows the dismissal of the last one
-      if (!curEl && queue.length && !document.querySelector('#ui .ed-modal') && !fightOn()) { const t = queue.shift(); show(t[0], t[1], t[2], t[3]); }
+      // a card about the panel that is open right now (the trader) does not wait out the gap
+      const now = queue.length && (queue[0][4] || (NOW[queue[0][3]] && ui._current()));
+      if (!curEl && queue.length && (now || (S.time || 0) >= readyAt) && !document.querySelector('#ui .ed-modal') && !fightOn()) { const t = queue.shift(); show(t[0], t[1], t[2], t[3]); had = true; }
     };
   })());
+  G.on('scene:changed', function (e) {
+    if (e && e.scene === 'menu') { readyAt = 0; return; }                       // back at the title: the next hero starts fresh
+    if (readyAt - (S.time || 0) > GAP + ARRIVE) readyAt = 0;                      // another hero's clock (see the updater)
+    readyAt = Math.max(readyAt, (S.time || 0) + ARRIVE);
+  });
+  G.on('npc:interact', function (e) { if (e && e.role === 'merchant') ui._tip('trader'); });
 
   // slow polls for things that have no event
   function scan() {
@@ -118,16 +137,24 @@
     }
     const p = S.player;
     if (s.indexOf('closecall') < 0 && G.game && G.game.getEffect) { try { if (G.game.getEffect(p, 'close_call')) ui._tip('closecall'); } catch (err) { /* ignore */ } }
-    if (s.indexOf('dash') < 0 && G.game && G.game.getClassAction) { try { if (G.game.getClassAction()) ui._tip('dash'); } catch (err) { /* ignore */ } }
+    // a new hero (flags.fte) gets the coach's dash hint in the fight instead
+    if (s.indexOf('dash') < 0 && !S.flags.fte && G.game && G.game.getClassAction) { try { if (G.game.getClassAction()) ui._tip('dash'); } catch (err) { /* ignore */ } }
   }
 
   // ---------- triggers ----------
+  function hasGem() { return (S.player.inventory || []).some(function (x) { return x && x.type === 'gem'; }); }
+  function hasSocket() {
+    const p = S.player, eq = p.equipment || {};
+    const sock = function (x) { return x && Array.isArray(x.sockets) && x.sockets.length > 0; };
+    return (p.inventory || []).some(sock) || Object.keys(eq).some(function (k) { return sock(eq[k]); });
+  }
   G.on('item:picked', function (e) {
     const it = e && e.item;
     if (!it || it.type === 'gold' || e.salvaged) return;
     if (it.rarity && TIPS['rar_' + it.rarity]) ui._tip('rar_' + it.rarity);
-    if (Array.isArray(it.sockets) && it.sockets.length) ui._tip('sockets');
-    if (it.type === 'gem') ui._tip(/blood/i.test(String(it.baseId || '')) || it.permanent ? 'bloodstone' : 'gems');
+    // sockets mean nothing until there is a gem to put in one (R-FTE: it used to land on the first floor of every new hero)
+    if (Array.isArray(it.sockets) && it.sockets.length && hasGem()) ui._tip('sockets');
+    if (it.type === 'gem') { ui._tip(/blood/i.test(String(it.baseId || '')) || it.permanent ? 'bloodstone' : 'gems'); if (hasSocket()) ui._tip('sockets'); }
     if (it.corrupted) ui._tip('corrupted');
     if (/^mat_/.test(String(it.baseId || ''))) ui._tip('materials');
     if (it.baseId === 'tome_skill') ui._tip('tome');
