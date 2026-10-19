@@ -516,7 +516,28 @@
     toBus = null;
   }
 
+  // tools/placeholders/gen.html: the synthesized sound `name` ('hit', ... or a bed 'amb_wind') rendered offline with the module's own
+  // synth, swapped onto an OfflineAudioContext for the (synchronous) build; resolves to a mono AudioBuffer, or null when there is no synth.
+  function renderOffline(name, seconds, rate) {
+    const OAC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+    const kind = /^amb_/.test(name) ? name.slice(4) : null;
+    if (!OAC || (kind ? U.audio.BEDS.indexOf(kind) < 0 : !R[name])) return null;
+    const off = new OAC(1, Math.ceil(seconds * rate), rate), keep = { ac: ac, noiseBuf: noiseBuf, sfxBus: sfxBus, ambBus: ambBus, toBus: toBus };
+    try {
+      ac = off; toBus = null;
+      const len = (rate * 0.6) | 0;
+      noiseBuf = off.createBuffer(1, len, rate);
+      const d = noiseBuf.getChannelData(0);
+      for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+      sfxBus = off.createGain(); sfxBus.connect(off.destination);
+      ambBus = off.createGain(); ambBus.connect(off.destination);
+      if (kind) { const b = buildBed(kind); b.out.gain.value = 1; b.out.disconnect(); b.out.connect(off.destination); } else R[name]();
+    } catch (err) { return null; } finally { ac = keep.ac; noiseBuf = keep.noiseBuf; sfxBus = keep.sfxBus; ambBus = keep.ambBus; toBus = keep.toBus; }
+    return off.startRendering();
+  }
+
   U.audio = {
+    renderOffline: renderOffline,
     unlock: unlock, resume: resume, muted: MUTED, names: Object.keys(R), isRunning: function () { return !!ac && ac.state === 'running'; },
     setBed: function (kind, pallorTier) { wantBed = typeof kind === 'string' ? kind : 'none'; wantPallor = pallorTier | 0; },
     tick: function () { try { tickBed(); } catch (err) { toBus = null; /* audio must never break the game */ } },

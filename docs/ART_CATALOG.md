@@ -2,7 +2,7 @@
 
 *Production guide and complete drawing checklist for the lead dev (iPad Pro + Apple Pencil). Generated 2026-10-15 from the live game code (`src/`), `ART_SPEC.md`, `ART_LIST.md` and `assets_templates/`. Where this document and `ART_SPEC.md` disagree, this document is newer (see “Things that differ from ART_SPEC.md” in section 5).*
 
-**How to use it:** read sections 1–3 once, then work down section 4 in the order of section 7. Every PNG goes into the matching folder under `assets/` (the folder tree already exists, each folder has a `README.md` with the same specs), and its path is added to `assets/assets.js`. The game falls back to its generated art for anything not drawn, so you can ship piece by piece.
+**How to use it:** read sections 1–3 once, then work down section 4 in the order of section 7. Every PNG goes into the matching folder under `assets/` (the folder tree already exists, each folder has a `README.md` with the same specs), and it replaces the placeholder with the same name (`tools/scan-assets.ps1` or the next push makes it live). The game falls back to its generated art for anything not drawn, so you can ship piece by piece.
 
 ## 0. At a glance
 
@@ -81,13 +81,7 @@ Pick one; all work with the repository folder `C:\Users\maxka\source\repos\sallo
 | **Working Copy** (git client for iPad) | Clone the repo, create a branch `art`. | Save to Files → Working Copy → `assets/…`, commit and push from the iPad; merge on the PC. Keeps history of every drawing. |
 | **AirDrop** | Only to a Mac. On Windows use one of the above. | — |
 
-Then list the new files in `assets/assets.js`. To regenerate the list from everything on disk (PowerShell, run in the repo root):
-
-```powershell
-$f = Get-ChildItem assets -Recurse -Include *.png | ForEach-Object { "  '" + ($_.FullName.Substring((Resolve-Path assets).Path.Length + 1) -replace "\\","/") + "',"  }
-Set-Content assets/assets.js (@("// Hand-drawn art overrides (generated list).","window.G.assetList = [") + $f + "];")
-```
-
+**Workflow.** Every file in this checklist already exists under `assets/` as a **placeholder** with the exact path, name, canvas size, cell grid and frame count (faint cell borders, the red feet-anchor cross, frame numbers, direction labels S / SW / W / NW / N, and where the game has procedural art a rough sketch of it). **Save your finished file over the placeholder with the same name. It goes live on the next push (or run `tools/scan-assets.ps1` to test locally).** Nothing needs listing by hand: `assets/assets.js` is generated and lists only files that are not placeholders (`assets/placeholders.json` holds each placeholder's SHA-1), so the game keeps its generated art for everything you have not replaced. Optional per-file `fps` / `loop` / `stride` go in `assets/timing.json`.
 Test on the iPad itself: run `serve.ps1` on the PC and open `http://<pc-ip>:<port>` in Safari (or over Tailscale), add to Home Screen, and judge the art at real size — 1 file pixel is about 1 screen pixel.
 
 ## 2. Smooth animation
@@ -146,7 +140,7 @@ From `ART_SPEC.md` (still valid) plus the current rarity ladder:
 
 Column key: **Files / folder** is relative to `assets/`; `{a,b}` means one file per name, `<id>` is the id in the row. **Canvas** is the size of *each* file (for animation sets the widths are listed in the order the animations are named: for characters `idle / walk / attack / cast / hit / die`, only the ones present). **Frames** are frames per animation (I = idle, W = walk, A = attack, C = cast, H = hit, D = die) × directions. **Anchor** is the floor point inside the cell.
 
-Tick a row by adding `[x]` in your own copy; the “Loader” column tells you whether you see it in the game as soon as the file is listed in `assets/assets.js`.
+Tick a row by adding `[x]` in your own copy; the “Loader” column tells you whether you see it in the game as soon as the file replaces its placeholder (`tools/scan-assets.ps1` regenerates `assets/assets.js`).
 
 ### A. Player bodies and gear layers
 

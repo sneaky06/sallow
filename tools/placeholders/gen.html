@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Sallow — placeholder generator</title>
+<style>
+  body { margin: 0; background: #0b0a0f; color: #d8d0c0; font: 12px/1.4 monospace; padding: 10px; }
+  h1 { font-size: 15px; color: #ffd94a; margin: 0 0 6px; }
+  #out { white-space: pre-wrap; color: #9fd0ff; margin: 8px 0; }
+  button { background: #2a2230; color: #d8d0c0; border: 1px solid #5a4c38; font: 12px monospace; margin: 2px; padding: 8px 10px; }
+</style>
+</head>
+<body>
+<h1>Placeholder generator</h1>
+<div>
+  <button id="bArt">Write art placeholders</button>
+  <button id="bSnd">Write sound placeholders</button>
+  <button id="bBoth">Write both</button>
+</div>
+<div id="out">Needs the receiver: powershell -ExecutionPolicy Bypass -File tools/placeholders/receiver.ps1 (tools/make-placeholders.ps1 runs everything).
+URL options: ?auto=art|sound|both (start by itself) &amp;only=&lt;path prefix&gt; &amp;limit=&lt;n&gt; &amp;dry=1 (parse and count, write nothing)</div>
+<div id="grid"></div>
+<script src="catalog.js"></script>
+<script src="art.js"></script>
+<script src="sound.js"></script>
+<script src="run.js"></script>
+</body>
+</html>

@@ -647,6 +647,57 @@ async function sectionHarness(h, s) {
   finish(s, r.pass + ' passed, ' + r.fail + ' failed');
 }
 
+// ---------------------------------------------------------------- 5. assets: assets/assets.js must be what tools/scan-assets.ps1 would produce
+// Placeholders (assets/placeholders.json) are never listed; every file of the lead dev's that replaced one is. The exact answer comes from
+// the scanner itself through serve.ps1 (/__scan-check); on any other static server the check hashes the placeholder files in the browser.
+async function sha1Hex(buf) { var d = await crypto.subtle.digest('SHA-1', buf); return Array.prototype.map.call(new Uint8Array(d), function (x) { return (x < 16 ? '0' : '') + x.toString(16); }).join(''); }
+function listedIn(src) {          // quoted strings inside the first [...] of the script, comments ignored (the same reading as sw.js)
+  var code = src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, ''), m = /=\s*\[([\s\S]*?)\]\s*;/.exec(code), out = [], re = /['"]([^'"]+)['"]/g, q;
+  if (m) while ((q = re.exec(m[1]))) if (/^[a-z0-9_\/]+\.[a-z0-9]+$/.test(q[1])) out.push(q[1]);
+  return out;
+}
+async function pooled(items, n, fn) {
+  var i = 0;
+  await Promise.all(Array.apply(null, Array(n)).map(async function () { while (i < items.length) { var k = i++; await fn(items[k]); } }));
+}
+async function sectionAssets(s) {
+  var r = await fetch(ROOT + 'assets/assets.js', { cache: 'no-store' });
+  if (!r.ok) { fail(s, 'assets/assets.js: HTTP ' + r.status); return; }
+  var listed = listedIn(await r.text()), phr = await fetch(ROOT + 'assets/placeholders.json', { cache: 'no-store' });
+  var ph = phr.ok ? (await phr.json()).files : null;
+  if (!ph) { fail(s, 'assets/placeholders.json is missing (tools/make-placeholders.ps1 writes it)'); return; }
+  var phCount = Object.keys(ph).length;
+  // a listed file must exist and must not still be a placeholder
+  await pooled(listed, 8, async function (p) {
+    var fr = await fetch(ROOT + 'assets/' + p, { cache: 'no-store' });
+    if (!fr.ok) { fail(s, p + ' is listed in assets/assets.js but missing (HTTP ' + fr.status + ')'); return; }
+    if (ph[p] && (await sha1Hex(await fr.arrayBuffer())) === ph[p]) fail(s, p + ' is listed in assets/assets.js but is still a placeholder');
+  });
+  var sc = null;
+  try { if (Q.get('noscan')) throw new Error('forced'); var x = await fetch(ROOT + '__scan-check', { cache: 'no-store' }); if (x.ok && /json/.test(x.headers.get('content-type') || '')) sc = await x.json(); } catch (e) { sc = null; }
+  if (sc) {
+    if (sc.code !== 0) fail(s, 'assets/assets.js is out of date: ' + String(sc.text).trim().split('\n').slice(0, 4).join(' / ') + ' (run tools/scan-assets.ps1)');
+    else info(s, String(sc.text).trim());
+  } else {
+    // no scanner endpoint: find the files of yours the browser can see (placeholder paths whose content changed + sound files with another extension)
+    var real = [];
+    await pooled(Object.keys(ph), 12, async function (p) {
+      var fr = await fetch(ROOT + 'assets/' + p, { cache: 'no-store' });
+      if (fr.ok && (await sha1Hex(await fr.arrayBuffer())) !== ph[p]) real.push(p);
+      if (/^sound\/.*\.wav$/.test(p)) {
+        var b = p.replace(/\.wav$/, '');
+        for (var e of ['m4a', 'mp3', 'aac', 'ogg']) { var sr = await fetch(ROOT + 'assets/' + b + '.' + e, { cache: 'no-store' }); if (sr.ok) { real.push(b + '.' + e); break; } }
+      }
+    });
+    var want = real.filter(function (p) { return !(/\.wav$/.test(p) && real.indexOf(p.replace(/\.wav$/, '')) >= 0); });
+    var key = function (p) { return p.replace(/\.[a-z0-9]+$/, ''); }, listedKeys = {};
+    listed.forEach(function (p) { listedKeys[/^sound\//.test(p) ? key(p) : p] = 1; });
+    want.forEach(function (p) { if (!listedKeys[/^sound\//.test(p) ? key(p) : p]) fail(s, p + ' replaced a placeholder but is not in assets/assets.js (run tools/scan-assets.ps1)'); });
+    info(s, 'no scanner endpoint (serve.ps1 /__scan-check): checked ' + phCount + ' placeholder paths in the browser; brand-new files outside the catalog cannot be seen this way');
+  }
+  finish(s, listed.length + ' listed file(s) of yours; ' + phCount + ' placeholders, none listed');
+}
+
 // ---------------------------------------------------------------- driver
 var running = false;
 async function main() {
@@ -658,6 +709,7 @@ async function main() {
   var sCalls = section('calls', '2c. Contract: calls to undefined G.* functions', 'contract');
   var sRun = section('run', '3. Scripted run (4 classes × depths, panels, vendors, death, portal, save/continue)', 'run');
   var hs = HARNESSES.map(function (h) { return section('h-' + h.id, '4. ' + h.name, 'harness'); });
+  var sAssets = section('assets', '5. Assets: assets/assets.js is up to date and lists no placeholder', 'assets');
   SECTIONS.forEach(function (s) { if (!wanted(s.group)) { s.status = 'SKIP'; s.summary = 'skipped by ?only= / ?skip='; } });
   render(); publish(false);
   var tick = setInterval(function () { $('elapsed').textContent = Math.round((Date.now() - t0) / 1000) + ' s'; publish(false); }, 1000);
@@ -676,6 +728,7 @@ async function main() {
   }
   await guard(sRun, function () { return sectionRun(sRun); });
   for (var i = 0; i < HARNESSES.length; i++) { await guard(hs[i], function () { return sectionHarness(HARNESSES[i], hs[i]); }); }
+  await guard(sAssets, function () { return sectionAssets(sAssets); });
   clearInterval(tick);
   $('elapsed').textContent = Math.round((Date.now() - t0) / 1000) + ' s total';
   render(); publish(true); running = false;

@@ -9,7 +9,7 @@
 // one of those files fails to download the install is rejected and the old worker keeps serving the old, complete build.
 // `emberdeep-assets-v1` holds art and sound; it survives releases, a file is fetched once (cache-first) and music is never
 // pre-downloaded, so a deploy does not re-download the assets and a failed asset never blocks an update.
-const VERSION = 'emberdeep-v30';      // cache key prefix stays 'emberdeep-' so old caches are found and deleted
+const VERSION = 'emberdeep-v31';      // cache key prefix stays 'emberdeep-' so old caches are found and deleted
 const SHELL_CACHE = 'emberdeep-shell-' + VERSION.replace(/^emberdeep-/, '');
 const ASSET_CACHE = 'emberdeep-assets-v1';
 const ASSET_MAX = 3000;               // entries kept in the asset cache (oldest-added dropped first)
@@ -75,13 +75,31 @@ function fetchPut(cache, f, missing) {
     .catch(function () { missing.push(f); });
 }
 
+// A file that still equals its generated placeholder (assets/placeholders.json: path -> SHA-1) is never cached. tools/scan-assets.ps1 does not
+// list placeholders in assets/assets.js in the first place; this is the second lock should one ever be listed.
+function sha1Hex(buf) { return crypto.subtle.digest('SHA-1', buf).then(function (d) { return Array.prototype.map.call(new Uint8Array(d), function (x) { return (x < 16 ? '0' : '') + x.toString(16); }).join(''); }); }
+function placeholderHashes() {
+  return maybeText('assets/placeholders.json').then(function (t) { try { return JSON.parse(t).files || {}; } catch (e) { return {}; } });
+}
+function fetchPutAsset(cache, f, missing, ph) {
+  const known = ph[f.replace(/^assets\//, '')];
+  if (!known || !self.crypto || !crypto.subtle) return fetchPut(cache, f, missing);
+  return fetch(f, { cache: 'no-cache' })
+    .then(function (res) {
+      if (!res || !res.ok) { missing.push(f); return; }
+      return res.clone().arrayBuffer().then(sha1Hex).then(function (h) { if (h !== known) return cache.put(f, res); });
+    })
+    .catch(function () { missing.push(f); });
+}
+
 // a few at a time: thousands of parallel fetches during an install are slow and can run a phone out of memory
-function putAll(cache, files, missing, onlyNew) {
+function putAll(cache, files, missing, onlyNew, put) {
   let i = 0;
+  put = put || fetchPut;
   function lane() {
     if (i >= files.length) return Promise.resolve();
     const f = files[i++];
-    const job = onlyNew ? cache.match(f).then(function (hit) { return hit ? null : fetchPut(cache, f, missing); }) : fetchPut(cache, f, missing);
+    const job = onlyNew ? cache.match(f).then(function (hit) { return hit ? null : put(cache, f, missing); }) : put(cache, f, missing);
     return job.then(lane);
   }
   return Promise.all([lane(), lane(), lane(), lane(), lane(), lane()]);
@@ -98,7 +116,7 @@ function precache() {
       }).then(function (assets) {
         const missing = [];
         const art = lists.assets.filter(function (f) { return !/(^|\/)music(\/|$)/i.test(f); });       // music is fetched when played
-        return putAll(assets, art, missing, true).then(function () {
+        return placeholderHashes().then(function (ph) { return putAll(assets, art, missing, true, function (c, f, m) { return fetchPutAsset(c, f, m, ph); }); }).then(function () {
           const total = lists.code.length + art.length;
           const status = { version: VERSION, files: total, cached: total - missing.length, missing: missing, at: Date.now() };
           return shell.put(STATUS_URL, new Response(JSON.stringify(status), { headers: { 'Content-Type': 'application/json' } }));

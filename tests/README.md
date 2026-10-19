@@ -23,7 +23,7 @@ powershell -ExecutionPolicy Bypass -File tests/run-headless.ps1
 powershell -ExecutionPolicy Bypass -File tests/run-headless.ps1 -Query "only=load,contract"
 ```
 
-Query options (work in both): `only=load,contract,run,harness` · `skip=run` · `classes=warrior,ranger` · `depths=1,5` ·
+Query options (work in both): `only=load,contract,run,harness,assets` · `skip=run` · `classes=warrior,ranger` · `depths=1,5` ·
 `noauto=1` (wait for the Run button) · `index=path/to/copy-of-index.html` (test a modified loader).
 
 ## What it checks
@@ -51,6 +51,10 @@ Query options (work in both): `only=load,contract,run,harness` · `skip=run` · 
 4. **Team harnesses** — `engine.html` (its touch tests; the rest of that page is visual), `world.html` (automated checks),
    `items.html`, `combat.html` (Run tests), `ui.html` (its two "run checks" buttons) and `ui-smoke.html`, each loaded in a
    hidden iframe, driven and counted. Their own failure lines are copied into the report. `assets.html` is a generator, not a test.
+
+5. **Assets** (group `assets`) — `assets/assets.js` must be exactly what `tools/scan-assets.ps1` would write, and no listed file may still be a
+   placeholder (`assets/placeholders.json`). The exact answer comes from the scanner itself through `serve.ps1` (`/__scan-check`); on any other static
+   server it falls back to hashing the placeholder files in the browser (`noscan=1` forces that; slower). Fix a failure by running `tools/scan-assets.ps1`.
 
 ## Notes
 

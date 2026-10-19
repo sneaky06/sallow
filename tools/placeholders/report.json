@@ -1,0 +1,112 @@
+{
+ "when": "2026-10-19T23:28:22.793Z",
+ "dry": false,
+ "problems": [
+  "duplicate path sprites/boss_prop/idle.png (listed in B-event and C3; one file written)"
+ ],
+ "done": false,
+ "art": {
+  "files": 3021,
+  "written": 3021,
+  "bytes": 18119193,
+  "sketch": 2814,
+  "plain": 207,
+  "byKind": {
+   "char": {
+    "n": 2079,
+    "bytes": 15294296,
+    "sketch": 2073
+   },
+   "tile": {
+    "n": 28,
+    "bytes": 596064,
+    "sketch": 28
+   },
+   "prop": {
+    "n": 55,
+    "bytes": 135502,
+    "sketch": 53
+   },
+   "icon": {
+    "n": 626,
+    "bytes": 769386,
+    "sketch": 625
+   },
+   "proj": {
+    "n": 6,
+    "bytes": 1392,
+    "sketch": 6
+   },
+   "fx": {
+    "n": 58,
+    "bytes": 887092,
+    "sketch": 0
+   },
+   "ui": {
+    "n": 140,
+    "bytes": 382817,
+    "sketch": 0
+   },
+   "portrait": {
+    "n": 29,
+    "bytes": 52644,
+    "sketch": 29
+   }
+  },
+  "errors": [],
+  "missingTemplates": []
+ },
+ "sound0": {
+  "audio": true,
+  "renderOffline": true
+ },
+ "sound": {
+  "files": 2306,
+  "written": 2306,
+  "bytes": 23131952,
+  "synth": 86,
+  "standin": 2220,
+  "seconds": 2878.810999999997,
+  "errors": [],
+  "synthNames": [
+   "potion",
+   "levelup",
+   "hurt",
+   "die",
+   "swing",
+   "arrow",
+   "bolt",
+   "cast",
+   "hit",
+   "fire",
+   "ice",
+   "loot",
+   "loot_rare",
+   "loot_legendary",
+   "gold",
+   "equip",
+   "buy",
+   "sell",
+   "chest",
+   "door",
+   "stairs",
+   "shrine",
+   "quest",
+   "click",
+   "error",
+   "amb_wind",
+   "amb_drone",
+   "amb_drip",
+   "amb_fire",
+   "amb_water",
+   "amb_heart",
+   "amb_choir",
+   "amb_hearth",
+   "amb_flesh"
+  ]
+ },
+ "catalogs": {
+  "art": 3021,
+  "sound": 2306
+ }
+}

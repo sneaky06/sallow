@@ -9,19 +9,34 @@ anything you haven't made keeps its generated version, so you can work one file 
   in the final format (same size, grid and anchor). Open one in Procreate / Pixquare, paint over it on a new layer, export,
   and drop it into `assets/` under the same path. It will sit exactly where the generated figure stood.
 
-## How to add a file
+## How to add a file (placeholders)
 
-1. Save it under `assets/` with the exact path from ART_LIST.md / SOUND_LIST.md (all lower case, e.g. `assets/sprites/warrior/walk.png`).
-2. Add the path to `assets/assets.js`, e.g. `'sprites/warrior/walk.png',` or `'sound/sfx/weapons/wpn_sword_swing.m4a',`. There is no limit on the number of entries.
-   An entry can also be an object to set the playback rate of that file's frames: `{ file: 'sprites/goblin/walk.png', fps: 14 }` (characters, props and
-   fx strips; `loop: false` makes a normally looping idle/walk play once and hold its last frame; `stride` sets how much ground one loop of a walk covers). Without them the default timing below is used (section 2, "Smooth animation").
-3. Reload the game. A listed file that is missing, mis-sized or in an unknown folder is ignored, the generated version stays, and the browser console prints
-   **one warning that names the file and says what is wrong** (open the game with `?assetdebug=1` to also log every file as it loads or is released; with
-   Settings → Show FPS on, the counter ends in `ART <loaded>/<listed>`, plus `X<n>` = how many were rejected).
-4. Loading is lazy: a character, gear piece, prop, effect or tileset is fetched and decoded the first time the game needs it and released again when it has
-   not been used for a while or you leave the floor, so painting the whole catalogue does not run a phone out of memory. Until a file is ready the generated
-   art is drawn, so a brand-new sighting can pop in a frame late; icons, portraits and projectiles load in the background at start-up.
+**Every art and sound file in the catalogs already exists as a placeholder, at its exact path, name and format.** To deliver one:
 
+1. **Save your finished file over the placeholder with the same name** (art: `.png`; sound: any of `.m4a` / `.mp3` / `.wav` with the same base name).
+2. **It goes live on the next push** (a git pre-commit hook runs `tools/scan-assets.ps1`; enable it once with `git config core.hooksPath .githooks`),
+   **or run `tools/scan-assets.ps1` to test locally**, then reload the game.
+
+An art placeholder is a PNG of the exact canvas size with faint cell borders, the feet-anchor cross, frame numbers and direction labels (S, SW, W, NW, N), and, where the
+game has procedural art for that piece, a rough sketch of it in the right cells (resampled to the catalog's frame count and cell size). A sound placeholder is a tiny
+mono 8 kHz WAV: the game's own synthesized sound where it has one, otherwise a click and a soft tone of the right length class (loops are 10-12 s).
+Placeholders are **never loaded**: `assets/placeholders.json` holds the SHA-1 of each, `tools/scan-assets.ps1` skips every file that still matches and writes
+`assets/assets.js` (generated, do not edit) with only the files you made, and the service worker never caches a placeholder. A sound with a differently-extensioned file
+next to its placeholder (`name.m4a` beside `name.wav`) lists only yours (several real ones: m4a, mp3, aac, ogg, wav in that order of preference).
+
+- **What to make:** `docs/ART_CATALOG.md` and `docs/SOUND_DESIGN.md` are the complete checklists (`ART_LIST.md` / `SOUND_LIST.md` are the older, shorter lists the game itself can use).
+- **Where to start:** the placeholder is already in the final format; `assets_templates/` holds the generated sprites, tiles, props, icons, projectiles and portraits at the
+  game's current frame counts. Open the placeholder in Procreate / Pixquare, paint over it on a new layer (hide the guide layer or paint on a new one), export without guides, and save over it.
+- **Playback settings** (optional): `assets/timing.json`, e.g. `{ "sprites/goblin/walk.png": { "fps": 14, "loop": false, "stride": 80 } }` - `fps` sets the playback rate of that file's frames
+  (characters, props and fx strips), `loop: false` makes a normally looping idle/walk play once and hold its last frame, `stride` sets how much ground one loop of a walk covers.
+  `tools/scan-assets.ps1` copies these into `assets/assets.js`. Without them the default timing below is used (section 2, "Smooth animation").
+- **Checking it:** a listed file that is missing, mis-sized or in an unknown folder is ignored, the generated version stays, and the browser console prints
+  **one warning that names the file and says what is wrong** (open the game with `?assetdebug=1` to also log every file as it loads or is released; with
+  Settings → Show FPS on, the counter ends in `ART <loaded>/<listed>`, plus `X<n>` = how many were rejected).
+- **Loading is lazy:** a character, gear piece, prop, effect or tileset is fetched and decoded the first time the game needs it and released again when it has
+  not been used for a while or you leave the floor, so painting the whole catalogue does not run a phone out of memory. Until a file is ready the generated
+  art is drawn, so a brand-new sighting can pop in a frame late; icons, portraits and projectiles load in the background at start-up.
+- **Regenerating the placeholders** (after a catalog change): `tools/make-placeholders.ps1` (headless Chrome/Edge, silent). It never overwrites a file that is not a recorded placeholder.
 ## The format in one paragraph
 
 The game renders at about **double the old resolution**: a floor tile is **64 × 32 px**, a character cell **96 × 96 px**

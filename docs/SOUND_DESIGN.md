@@ -25,6 +25,7 @@ Folder tree to drop files into: `assets/sound/` (see [Folder tree](#folder-tree)
 - **Vars** = number of variations, each a separate file: `name.m4a`, `name_2.m4a`, `name_3.m4a`… The loader already picks one at random.
 - **Length** is a ceiling for each file (trim tails, never pad). **Fmt** = channels and loop mode. A loop **must** loop seamlessly (section 2).
 - **Descriptions** say how the sound should feel in this world: grim, cold, brutal, dry; warm only where warmth is the story (the hearth, the Ember). They are direction, not a recipe. `SOUND_LIST.md` (auto-generated, 43 files) is superseded by this guide.
+- **Placeholders and workflow.** Every file in this catalog already exists under `assets/sound/<folder>/` as a placeholder `.wav` (mono, 8 kHz, 8-bit, at most 2 s for one-shots, 10 s for beds, 12 s for music; the game's own synthesized sound where it has one, otherwise a click and a soft tone, with a different pitch per name). **Save your finished file over the placeholder with the same name: `.m4a`, `.mp3` or `.wav`, any of them. It goes live on the next push (or run `tools/scan-assets.ps1` to test locally).** A real `name.m4a` next to the placeholder `name.wav` wins; the placeholder is never loaded (`assets/placeholders.json`). Nothing needs listing by hand: `assets/assets.js` is generated.
 - What matters most, in order: *loot* (the best sounds in the game), *combat feel* (hits, crits, Close Call), *the world being hostile* (monsters, ambience), *the UI staying out of the way*, then *music*.
   Rarity is communicated first by sound: the player should know "legendary" from across the room with the screen off.
 
@@ -32,7 +33,7 @@ Folder tree to drop files into: `assets/sound/` (see [Folder tree](#folder-tree)
 
 | Item | Spec |
 |---|---|
-| **Container / codec** | `.m4a` (AAC-LC) for everything. AAC decodes natively in iOS Safari (`decodeAudioData` and `<audio>`); MP3 also works but loops with a gap. Do not use `.wav`/`.ogg` (size / no iOS support). One format everywhere keeps `assets/assets.js` simple. |
+| **Container / codec** | `.m4a` (AAC-LC) for everything. AAC decodes natively in iOS Safari (`decodeAudioData` and `<audio>`); MP3 also works but loops with a gap. Prefer `.m4a` for the final files (`.wav` is accepted but large; `.ogg` has no iOS support). One format everywhere keeps `assets/assets.js` simple. |
 | **Sample rate** | Master at 48 kHz (the iPhone hardware rate) and 24-bit. Export 48 kHz so Safari never resamples. Never mix 44.1 and 48 in the project. |
 | **Channels** | **SFX: mono** (the engine can pan and attenuate by distance later; mono also halves RAM). **Stereo:** music, stingers, ambience beds, and the few big "world" one-shots flagged `stereo` in the tables (boss deaths, drops of the highest tiers, finale). Ambience *one-shots* are mono. |
 | **Bitrate** | SFX mono 96 kbps (about 12 KB/s). Stereo (beds, stingers, music) 96 kbps (also about 12 KB/s). Title, Town warmth 3, the Hearthking tracks and the finale may go to 128 kbps (adds ~5 MB in total). Do not go below 64 kbps mono: AAC smears transients (hits and clicks) at low rates. |

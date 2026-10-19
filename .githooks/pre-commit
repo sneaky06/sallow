@@ -1,0 +1,5 @@
+#!/bin/sh
+# Keeps assets/assets.js in step with the files under assets/ (placeholders are never listed).
+# Enable once per clone:  git config core.hooksPath .githooks
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools/scan-assets.ps1 -Quiet || exit 1
+git add assets/assets.js
