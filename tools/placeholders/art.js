@@ -6,6 +6,8 @@
   const PH = window.PH = window.PH || {};
   const DIRS = ['S', 'SW', 'W', 'NW', 'N', 'NE', 'E', 'SE'];
   const BORDER = 'rgba(120,190,255,0.30)', ANCHOR = 'rgba(255,60,60,0.95)', LABEL = 'rgba(255,255,255,0.85)', TITLE = '#ffd94a', EDGE = 'rgba(0,0,0,0.75)';
+  // Procedural humans are ~42 px tall in a 96 cell; ART_SPEC wants ~58. Character and gear sketches are scaled by this about the anchor.
+  const SKETCH_K = 58 / 42;
   const TILE_ROWS = ['floor', 'wall', 'door', 'stairs dn', 'stairs up', 'water', 'grass', 'path', 'lava', 'bridge', 'rubble', 'deep wtr', 'deep lav', 'chasm'];
 
   function mk(w, h) { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; }
@@ -65,11 +67,17 @@
     const N = s.cols, R = s.rows;
     if (img && img.height >= 16) {
       const sc = img.height / 5, M = Math.max(1, Math.round(img.width / sc)), ratio = s.cw / sc;
-      x.imageSmoothingEnabled = ratio % 1 !== 0;
+      // The procedural figures are smaller than ART_SPEC's target (a human ~58 px in a 96 cell), so every sketch is enlarged
+      // by the same factor about its feet anchor — relative sizes between creatures stay as in the game.
+      const k = SKETCH_K;
+      x.imageSmoothingEnabled = (ratio * k) % 1 !== 0;
       x.globalAlpha = 0.92;
       for (let r = 0; r < R; r++) for (let i = 0; i < N; i++) {
         const f = Math.min(M - 1, Math.floor(i * M / N));
-        x.drawImage(img, f * sc, Math.min(r, 4) * sc, sc, sc, i * s.cw, r * s.ch, s.cw, s.ch);
+        const cx0 = i * s.cw, cy0 = r * s.ch, dw = s.cw * k, dh = s.ch * k;
+        x.save(); x.beginPath(); x.rect(cx0, cy0, s.cw, s.ch); x.clip();
+        x.drawImage(img, f * sc, Math.min(r, 4) * sc, sc, sc, cx0 + s.ax - s.ax * k, cy0 + s.ay - s.ay * k, dw, dh);
+        x.restore();
       }
       x.globalAlpha = 1;
     } else {
