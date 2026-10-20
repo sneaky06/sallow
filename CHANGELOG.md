@@ -4,6 +4,7 @@ Every build pushed to the live site, newest first (from the git history). The fu
 [docs/history/CONTRACT-r1-r10.md](docs/history/CONTRACT-r1-r10.md); the current design is [docs/DESIGN.md](docs/DESIGN.md).
 
 - **2026-10-15** · `8d37c48` · Revision 10 polish: dash crosses the Leap, rift-core finale, Heat HUD and embers, low-effects mode and FPS counter, UI sweep, consolidated docs/DESIGN.md
+- **2026-10-19** · `aff3477` · Placeholder sketches scaled to the target character size
 - **2026-10-19** · `383ff73` · Placeholder art and sound for every catalog file; asset scanner
 - **2026-10-17** · `565b90b` · First ten minutes, name plates, diff audit fixes, class roster proposal
 - **2026-10-17** · `d051f6b` · R17 fidelity pass; play log
