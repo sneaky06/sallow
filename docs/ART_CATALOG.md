@@ -1354,3 +1354,9 @@ Everything below is a request *from the art catalog*; nothing here is implemente
 
 After step 3 the first dungeon is fully hand-drawn; after step 7 act I (depths 1–10) looks finished; step 10 completes the story acts. Steps 11–13 are where the 3D route pays for itself.
 
+
+## Working from the iPad (iCloud Drive)
+The full `assets/` tree (placeholders and READMEs) is mirrored to **iCloud Drive → Sallow Art**. On the iPad: Files app → iCloud
+Drive → long-press **Sallow Art** → Download Now / Keep Downloaded to work offline. Save each finished file over its placeholder
+with the same name. On the PC, `tools/icloud-sync.ps1 -In` copies every changed file (never a placeholder) into `assets/` and
+regenerates `assets/assets.js`; `-Out` copies new placeholders/READMEs to iCloud without ever touching your files there.
